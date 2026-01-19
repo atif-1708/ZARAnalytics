@@ -21,7 +21,7 @@ import { Filters, DailySale, MonthlyExpense } from '../types';
 import { storage } from '../services/mockStorage';
 import { formatZAR } from '../utils/formatters';
 
-const COLORS = ['#0d9488', '#0ea5e9', '#f59e0b', '#f43f5e', '#8b5cf6'];
+const COLORS = ['#10b981', '#0ea5e9', '#f59e0b', '#f43f5e', '#8b5cf6'];
 
 export const Dashboard: React.FC = () => {
   const [sales, setSales] = useState<DailySale[]>([]);
@@ -99,7 +99,7 @@ export const Dashboard: React.FC = () => {
       <FilterPanel filters={filters} setFilters={setFilters} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Total Revenue" value={filteredData.totalSales} icon={DollarSign} color="blue" />
+        <StatCard label="Total Revenue" value={filteredData.totalSales} icon={DollarSign} color="emerald" />
         <StatCard label="Gross Profit" value={filteredData.totalProfit} icon={TrendingUp} color="teal" />
         <StatCard label="Total Expenses" value={filteredData.totalExpenses} icon={ArrowDownCircle} color="rose" />
         <StatCard label="Net Profit" value={filteredData.netProfit} icon={Briefcase} color="emerald" />
@@ -109,7 +109,7 @@ export const Dashboard: React.FC = () => {
         {/* Sales Volume Chart */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center gap-2 mb-6 text-slate-800">
-            <BarChart3 size={20} className="text-blue-600" />
+            <BarChart3 size={20} className="text-emerald-600" />
             <h3 className="font-bold">Sales Volume</h3>
           </div>
           <div className="h-[300px]">
@@ -119,10 +119,17 @@ export const Dashboard: React.FC = () => {
                 <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
                 <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `R${v/1000}k`} />
                 <Tooltip 
+                  cursor={{ fill: 'transparent' }}
                   formatter={(v: number) => [formatZAR(v), 'Revenue']} 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
                 />
-                <Bar dataKey="sales" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={20} />
+                <Bar 
+                  dataKey="sales" 
+                  fill="#10b981" 
+                  radius={[4, 4, 0, 0]} 
+                  barSize={20} 
+                  activeBar={false}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -174,7 +181,7 @@ export const Dashboard: React.FC = () => {
           <h3 className="text-xl font-bold mb-2">Performance Summary</h3>
           <p className="text-slate-400 text-sm mb-6 leading-relaxed">
             Your current net income across all filtered units is <span className="text-emerald-400 font-bold">{formatZAR(filteredData.netProfit)}</span>. 
-            Overall revenue efficiency is sitting at <span className="text-blue-400 font-bold">{filteredData.totalSales > 0 ? ((filteredData.totalProfit / filteredData.totalSales) * 100).toFixed(1) : 0}%</span>.
+            Overall revenue efficiency is sitting at <span className="text-emerald-400 font-bold">{filteredData.totalSales > 0 ? ((filteredData.totalProfit / filteredData.totalSales) * 100).toFixed(1) : 0}%</span>.
           </p>
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white/5 p-4 rounded-xl border border-white/10">
