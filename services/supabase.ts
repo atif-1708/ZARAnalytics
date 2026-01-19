@@ -2,36 +2,37 @@
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * Safer way to handle environment variables in a browser environment.
- * If you are hardcoding for a quick test, replace the strings below.
- * For production, your build tool (Vite/Vercel) will usually inject these.
+ * Detects environment variables from various possible sources in the browser.
  */
-const getEnv = (key: string, fallback: string): string => {
-  try {
-    // Check for Node-style process.env
-    if (typeof process !== 'undefined' && process.env && process.env[key]) {
-      return process.env[key] as string;
-    }
-    // Check for Vite-style import.meta.env
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      // @ts-ignore
-      return import.meta.env[key] as string;
-    }
-  } catch (e) {
-    // Fallback if access is blocked
+const getEnvValue = (key: string): string | undefined => {
+  // 1. Check window.process.env (set in index.html or by bundler)
+  if (typeof window !== 'undefined' && (window as any).process?.env?.[key]) {
+    return (window as any).process.env[key];
   }
-  return fallback;
+  
+  // 2. Check import.meta.env (Vite/Modern ESM)
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env?.[key]) {
+    // @ts-ignore
+    return import.meta.env[key];
+  }
+
+  return undefined;
 };
 
-const SUPABASE_URL = getEnv('SUPABASE_URL', 'https://your-project-url.supabase.co');
-const SUPABASE_ANON_KEY = getEnv('SUPABASE_ANON_KEY', 'your-anon-key');
+// Replace these placeholders with your actual Supabase Project URL and Anon Key 
+// if you are not using environment variables in your hosting provider.
+const FALLBACK_URL = 'https://your-project.supabase.co';
+const FALLBACK_KEY = 'your-anon-key';
 
-// Log a helpful message instead of crashing
-if (SUPABASE_URL.includes('your-project-url')) {
-  console.error(
-    "ZARlytics Error: Supabase credentials are not configured. " +
-    "Please set SUPABASE_URL and SUPABASE_ANON_KEY in your deployment dashboard (e.g. Vercel Settings)."
+const SUPABASE_URL = getEnvValue('SUPABASE_URL') || FALLBACK_URL;
+const SUPABASE_ANON_KEY = getEnvValue('SUPABASE_ANON_KEY') || FALLBACK_KEY;
+
+if (SUPABASE_URL === FALLBACK_URL || SUPABASE_ANON_KEY === FALLBACK_KEY) {
+  console.warn(
+    "ZARlytics: Supabase credentials are using fallbacks. " +
+    "If the app fails to load, ensure you have set SUPABASE_URL and SUPABASE_ANON_KEY " +
+    "in your deployment environment variables or hardcoded them in services/supabase.ts."
   );
 }
 
