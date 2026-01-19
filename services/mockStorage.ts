@@ -1,6 +1,7 @@
 
-import { supabase } from './supabase';
-import { Business, DailySale, MonthlyExpense, User } from '../types';
+import { createClient } from '@supabase/supabase-js';
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
+import { Business, DailySale, MonthlyExpense, User, UserRole } from '../types';
 
 // Helper to map camelCase (frontend) to snake_case (database)
 const mapToDb = (obj: any) => {
@@ -51,7 +52,6 @@ export const storage = {
   },
   saveSale: async (sale: Partial<DailySale>) => {
     const payload = mapToDb(sale);
-    // Remove generated IDs if they aren't UUIDs to let DB handle it
     if (payload.id && !payload.id.includes('-')) delete payload.id;
     
     const { data, error } = await supabase.from('sales').upsert(payload).select().single();
@@ -84,10 +84,44 @@ export const storage = {
 
   // Users/Profiles
   getUsers: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('profiles').select('*');
+    const { data, error } = await supabase.from('profiles').select('*').order('name');
     if (error) throw new Error(error.message);
     return (data || []).map(mapFromDb);
   },
+  
+  // Creates a user without signing out the admin
+  createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
+    // 1. Create a background client to prevent session takeover
+    const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false }
+    });
+
+    // 2. Sign up the new user
+    const { data: authData, error: authError } = await backgroundSupabase.auth.signUp({
+      email: userData.email,
+      password: userData.password || 'Temporary123!',
+      options: { data: { full_name: userData.name } }
+    });
+
+    if (authError) throw new Error(authError.message);
+    if (!authData.user) throw new Error("Failed to create auth user.");
+
+    // 3. The profile is usually created by a DB trigger, but we'll upsert to ensure it has the right role
+    const profilePayload = {
+      id: authData.user.id,
+      name: userData.name,
+      email: userData.email,
+      role: userData.role
+    };
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .upsert(mapToDb(profilePayload));
+
+    if (profileError) throw new Error(profileError.message);
+    return authData.user;
+  },
+
   saveProfile: async (profile: Partial<User>) => {
     const payload = mapToDb(profile);
     const { data, error } = await supabase.from('profiles').upsert(payload).select().single();

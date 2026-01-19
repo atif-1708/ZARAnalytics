@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Shield, Mail, Trash2, Edit, Loader2 } from 'lucide-react';
+import { UserPlus, Shield, Mail, Trash2, Edit, Loader2, Plus, Lock, Key } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { User, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -16,7 +16,8 @@ export const UsersPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    role: UserRole.USER
+    role: UserRole.USER,
+    password: ''
   });
 
   const loadUsers = async () => {
@@ -39,27 +40,43 @@ export const UsersPage: React.FC = () => {
 
     setIsSaving(true);
     try {
-      // NOTE: Creating a new user via Profile table won't automatically create a Supabase Auth login.
-      // Admins should invite users via Supabase Dashboard, then manage their roles here.
-      const payload = {
-        ...(editingUser || {}),
-        ...formData
-      };
-
-      await storage.saveProfile(payload);
+      if (editingUser) {
+        // Update existing profile role/name
+        await storage.saveProfile({
+          id: editingUser.id,
+          name: formData.name,
+          role: formData.role
+        });
+      } else {
+        // Create brand new user + auth account
+        if (!formData.password) throw new Error("Password is required for new users.");
+        await storage.createNewUser({
+          name: formData.name,
+          email: formData.email,
+          role: formData.role,
+          password: formData.password
+        });
+      }
+      
       await loadUsers();
       setIsModalOpen(false);
       setEditingUser(null);
     } catch (err: any) {
-      alert("Error saving profile: " + err.message);
+      alert("Error processing user: " + err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
+  const openAdd = () => {
+    setEditingUser(null);
+    setFormData({ name: '', email: '', role: UserRole.USER, password: '' });
+    setIsModalOpen(true);
+  };
+
   const openEdit = (u: User) => {
     setEditingUser(u);
-    setFormData({ name: u.name, email: u.email, role: u.role });
+    setFormData({ name: u.name, email: u.email, role: u.role, password: '' });
     setIsModalOpen(true);
   };
 
@@ -70,11 +87,15 @@ export const UsersPage: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">User Management</h2>
-          <p className="text-slate-500">Assign roles and manage user profiles</p>
+          <p className="text-slate-500">Create accounts and assign permissions</p>
         </div>
-        <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-amber-700 text-xs max-w-sm">
-          <strong>Tip:</strong> New login accounts must be created in the Supabase Auth Dashboard first. Roles can be assigned here.
-        </div>
+        <button 
+          onClick={openAdd}
+          className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 transition-all shadow-lg"
+        >
+          <Plus size={20} />
+          <span>Add New User</span>
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -96,12 +117,12 @@ export const UsersPage: React.FC = () => {
             <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <Shield size={12} />
-                <span>Secure Access</span>
+                <span>{u.id === currentUser?.id ? 'Your Account' : 'Secure Profile'}</span>
               </div>
               <div className="flex gap-1">
                 <button 
                   onClick={() => openEdit(u)}
-                  className="p-2 text-slate-400 hover:text-blue-600 transition-colors hover:bg-blue-50 rounded"
+                  className="p-2 text-slate-400 hover:text-blue-600 transition-colors hover:bg-blue-50 rounded-lg"
                 >
                   <Edit size={16} />
                 </button>
@@ -114,11 +135,16 @@ export const UsersPage: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => !isSaving && setIsModalOpen(false)} />
-          <div className="bg-white rounded-2xl w-full max-w-md p-8 relative shadow-2xl">
-            <h3 className="text-xl font-bold mb-6">{editingUser ? 'Update Role' : 'New Profile'}</h3>
+          <div className="bg-white rounded-2xl w-full max-w-md p-8 relative shadow-2xl overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-teal-500"></div>
+            <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+              {editingUser ? <Edit size={20}/> : <UserPlus size={20}/>}
+              {editingUser ? 'Update User Role' : 'Create New User'}
+            </h3>
+            
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
                 <input 
                   type="text"
                   required
@@ -126,10 +152,12 @@ export const UsersPage: React.FC = () => {
                   value={formData.name}
                   onChange={(e) => setFormData({...formData, name: e.target.value})}
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
+                  placeholder="e.g. Sipho Kumalo"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Email Address</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Address</label>
                 <input 
                   type="email"
                   required
@@ -137,25 +165,60 @@ export const UsersPage: React.FC = () => {
                   value={formData.email}
                   onChange={(e) => setFormData({...formData, email: e.target.value})}
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
+                  placeholder="user@company.co.za"
                 />
               </div>
+
+              {!editingUser && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Initial Password</label>
+                  <div className="relative">
+                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <input 
+                      type="password"
+                      required
+                      disabled={isSaving}
+                      value={formData.password}
+                      onChange={(e) => setFormData({...formData, password: e.target.value})}
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
+                      placeholder="Minimum 6 characters"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Authority Role</label>
-                <select 
-                  required
-                  disabled={isSaving}
-                  value={formData.role}
-                  onChange={(e) => setFormData({...formData, role: e.target.value as UserRole})}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
-                >
-                  <option value={UserRole.USER}>Standard User (Data Entry)</option>
-                  <option value={UserRole.ADMIN}>Administrator (Full Access)</option>
-                </select>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Access Level</label>
+                <div className="relative">
+                  <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                  <select 
+                    required
+                    disabled={isSaving}
+                    value={formData.role}
+                    onChange={(e) => setFormData({...formData, role: e.target.value as UserRole})}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50 appearance-none"
+                  >
+                    <option value={UserRole.USER}>Standard User (Read/Write)</option>
+                    <option value={UserRole.ADMIN}>Administrator (Full Access)</option>
+                  </select>
+                </div>
               </div>
+
               <div className="pt-4 flex gap-3">
-                <button type="button" disabled={isSaving} onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
-                <button type="submit" disabled={isSaving} className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 transition-all shadow-lg flex items-center justify-center gap-2">
-                  {isSaving ? <Loader2 className="animate-spin" size={18} /> : 'Save Changes'}
+                <button 
+                  type="button" 
+                  disabled={isSaving} 
+                  onClick={() => setIsModalOpen(false)} 
+                  className="flex-1 px-4 py-2 border border-slate-200 rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSaving} 
+                  className="flex-1 px-4 py-2 bg-teal-600 text-white rounded-lg font-bold hover:bg-teal-700 transition-all shadow-lg flex items-center justify-center gap-2"
+                >
+                  {isSaving ? <Loader2 className="animate-spin" size={18} /> : (editingUser ? 'Update User' : 'Create User')}
                 </button>
               </div>
             </form>

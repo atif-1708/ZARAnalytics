@@ -13,10 +13,8 @@ const getEnv = (key: string): string => {
   return '';
 };
 
-// --- CONFIGURATION ---
-// PASTE YOUR ACTUAL KEYS HERE IF NOT USING ENV VARS
-const SUPABASE_URL = getEnv('SUPABASE_URL') || 'https://hzdygswlxcyeuccmdsro.supabase.co';
-const SUPABASE_ANON_KEY = getEnv('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6ZHlnc3dseGN5ZXVjY21kc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4MzU3NDAsImV4cCI6MjA4NDQxMTc0MH0.ewiqIwzzBJTuKSzek6Y9ZbVRXveiVzWztqYCiFiEz8g';
+export const SUPABASE_URL = getEnv('SUPABASE_URL') || 'https://hzdygswlxcyeuccmdsro.supabase.co';
+export const SUPABASE_ANON_KEY = getEnv('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6ZHlnc3dseGN5ZXVjY21kc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4MzU3NDAsImV4cCI6MjA4NDQxMTc0MH0.ewiqIwzzBJTuKSzek6Y9ZbVRXveiVzWztqYCiFiEz8g';
 
 export const isConfigured = () => {
   return SUPABASE_URL && 
