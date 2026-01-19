@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Lock, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -77,10 +77,7 @@ export const Login: React.FC = () => {
             {error && (
               <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-sm font-medium flex items-start gap-3 animate-shake">
                 <AlertCircle className="shrink-0 mt-0.5" size={18} />
-                <div>
-                  <p className="font-bold">Access Denied</p>
-                  <p className="opacity-80 leading-relaxed">{error}</p>
-                </div>
+                <p className="leading-tight">{error}</p>
               </div>
             )}
 
@@ -100,15 +97,10 @@ export const Login: React.FC = () => {
             </button>
           </form>
 
-          <div className="mt-8 pt-8 border-t border-slate-100 text-center">
-             <p className="text-xs text-slate-400 font-medium mb-3">
-               V1.0.5-STABLE
-             </p>
-             <div className="flex justify-center gap-4 text-xs font-semibold text-teal-600">
-               <a href="#" className="hover:underline">Forgot Password?</a>
-               <span className="text-slate-300">•</span>
-               <a href="#" className="hover:underline">Contact Support</a>
-             </div>
+          <div className="mt-6 text-center">
+            <p className="text-sm text-slate-500">
+              New to ZARlytics? <Link to="/register" className="text-teal-600 font-bold hover:underline">Create Account</Link>
+            </p>
           </div>
         </div>
 

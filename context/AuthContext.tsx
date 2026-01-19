@@ -1,11 +1,13 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, AuthState, UserRole } from '../types';
-import { supabase } from '../services/supabase';
+import { supabase, isConfigured } from '../services/supabase';
 
 interface AuthContextType extends AuthState {
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  register: (email: string, pass: string, name: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,129 +21,170 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) throw error;
+    if (!isConfigured()) {
+      setLoading(false);
+      return;
+    }
 
+    const init = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          await fetchProfile(session.user, session.access_token);
-        } else {
-          setLoading(false);
+          await fetchAndSetProfile(session.user, session.access_token);
         }
-      } catch (err) {
-        console.error("Auth Initialization Error:", err);
+      } catch (e) {
+        console.error("Session init failed", e);
+      } finally {
         setLoading(false);
       }
     };
 
-    initializeAuth();
+    init();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
-        await fetchProfile(session.user, session.access_token);
+        await fetchAndSetProfile(session.user, session.access_token);
       } else {
         setAuth({ user: null, token: null, isAuthenticated: false });
-        setLoading(false);
       }
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (supabaseUser: any, token: string) => {
+  const fetchAndSetProfile = async (sbUser: any, token: string) => {
     try {
-      const { data, error } = await supabase
+      const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', supabaseUser.id)
+        .eq('id', sbUser.id)
         .single();
 
-      // Check for 'No rows found' error code PGRST116
       if (error && error.code === 'PGRST116') {
-        console.warn("Profile missing. Creating a default self-healing profile record.");
+        // Profile missing - Determine if this is the first user
+        const { count } = await supabase
+          .from('profiles')
+          .select('*', { count: 'exact', head: true });
+
+        const isFirstUser = count === 0;
         
         const newProfile = {
-          id: supabaseUser.id,
-          name: supabaseUser.email?.split('@')[0] || 'New User',
-          email: supabaseUser.email,
-          role: UserRole.USER // Default role for safety
+          id: sbUser.id,
+          name: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0] || 'User',
+          email: sbUser.email,
+          role: isFirstUser ? UserRole.ADMIN : UserRole.USER
         };
-
-        const { data: createdData, error: createError } = await supabase
+        
+        const { data: created } = await supabase
           .from('profiles')
           .insert([newProfile])
           .select()
           .single();
-
-        if (createdData && !createError) {
+          
+        if (created) {
           setAuth({
-            user: { id: createdData.id, name: createdData.name, email: createdData.email || '', role: createdData.role as UserRole },
+            user: { id: created.id, name: created.name, email: created.email, role: created.role as UserRole },
             token,
             isAuthenticated: true
           });
+          return;
         }
-      } else if (data && !error) {
+      }
+
+      if (profile) {
         setAuth({
-          user: { id: data.id, name: data.name, email: data.email || '', role: data.role as UserRole },
+          user: { id: profile.id, name: profile.name, email: profile.email, role: profile.role as UserRole },
           token,
           isAuthenticated: true
         });
       }
     } catch (err) {
-      console.error("Profile Fetch Error:", err);
-    } finally {
-      setLoading(false);
+      console.error("Profile sync failed", err);
     }
   };
 
-  const login = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, pass: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+      if (error) return { success: false, error: error.message };
+      if (data.session) {
+        await fetchAndSetProfile(data.user, data.session.access_token);
+        return { success: true };
+      }
+      return { success: false, error: "Session failed" };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  };
+
+  const register = async (email: string, pass: string, name: string) => {
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: pass,
+        options: { data: { full_name: name } }
+      });
       
-      if (error) {
-        let message = error.message;
-        if (message.includes("Email not confirmed")) {
-          message = "Your email is not confirmed. Please check your inbox or confirm the user in the Supabase dashboard.";
-        } else if (message.includes("Invalid login credentials")) {
-          message = "The email or password you entered is incorrect.";
-        }
-        return { success: false, error: message };
+      if (error) return { success: false, error: error.message };
+      
+      // If auto-login is enabled in Supabase, we handle session
+      if (data.session) {
+        await fetchAndSetProfile(data.user, data.session.access_token);
+        return { success: true };
       }
       
-      return { success: !!data.user };
+      return { success: true, error: "Confirmation email sent! Please check your inbox." };
     } catch (err: any) {
-      return { success: false, error: err.message || "An unexpected error occurred during login." };
+      return { success: false, error: err.message };
     }
   };
 
   const logout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.error("Logout Error:", err);
-    } finally {
-      setAuth({ user: null, token: null, isAuthenticated: false });
-    }
+    await supabase.auth.signOut();
+    setAuth({ user: null, token: null, isAuthenticated: false });
   };
 
-  if (loading) {
+  const refreshProfile = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) await fetchAndSetProfile(session.user, session.access_token);
+  };
+
+  if (!isConfigured()) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-400 font-medium animate-pulse text-sm">Initializing Secure Session...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
+        <div className="max-w-md w-full space-y-8 bg-slate-800 p-10 rounded-3xl border border-slate-700 shadow-2xl">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-rose-500/20 text-2xl font-bold">!</div>
+            <h1 className="text-2xl font-bold mb-2">Configuration Required</h1>
+            <p className="text-slate-400 text-sm leading-relaxed">
+              Supabase credentials are missing or invalid. Please update <code>services/supabase.ts</code> or set your environment variables.
+            </p>
+          </div>
+          <div className="bg-slate-900 p-4 rounded-xl font-mono text-xs text-teal-400 border border-slate-700">
+            SUPABASE_URL<br/>
+            SUPABASE_ANON_KEY
+          </div>
+          <button onClick={() => window.location.reload()} className="w-full py-3 bg-teal-600 hover:bg-teal-500 rounded-xl font-bold transition-all">
+            Retry Connection
+          </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <AuthContext.Provider value={{ ...auth, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-400 font-bold text-xs tracking-widest uppercase animate-pulse">Initializing Portal...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <AuthContext.Provider value={{ ...auth, login, register, logout, refreshProfile }}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {
