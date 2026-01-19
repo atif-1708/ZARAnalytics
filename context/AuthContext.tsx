@@ -60,6 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', sbUser.id)
         .single();
 
+      // Handle missing profile record
       if (error && (error.code === 'PGRST116' || error.message?.includes('No rows'))) {
         const { count, error: countError } = await supabase
           .from('profiles')
@@ -67,10 +68,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const isFirstUser = !countError && count === 0;
         
-        // Removed 'email' from the payload as it doesn't exist in the public.profiles schema
+        // Profiles table only has id, name, role. NO email.
         const newProfile = {
           id: sbUser.id,
-          name: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0] || 'User',
+          name: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0] || 'Member',
           role: isFirstUser ? UserRole.ADMIN : UserRole.USER
         };
         

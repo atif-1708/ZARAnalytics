@@ -49,7 +49,6 @@ export const storage = {
   },
   saveSale: async (sale: Partial<DailySale>) => {
     const payload = mapToDb(sale);
-    // Ensure we don't send malformed IDs for new records
     if (payload.id && !payload.id.includes('-') && payload.id.length < 20) {
       delete payload.id;
     }
@@ -90,6 +89,7 @@ export const storage = {
   },
   
   createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
+    // Create background client to prevent session takeover (stay logged in as admin)
     const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false }
     });
@@ -97,13 +97,16 @@ export const storage = {
     const { data: authData, error: authError } = await backgroundSupabase.auth.signUp({
       email: userData.email,
       password: userData.password || 'Temporary123!',
-      options: { data: { full_name: userData.name } }
+      options: { 
+        data: { full_name: userData.name },
+        // Per user request: no email verification redirect needed
+      }
     });
 
     if (authError) throw new Error(authError.message);
-    if (!authData.user) throw new Error("Failed to create auth user.");
+    if (!authData.user) throw new Error("User creation failed.");
 
-    // IMPORTANT: Remove 'email' from profile payload as it doesn't exist in your profiles table
+    // Sync profile - CRITICAL: No email column in the profiles table
     const profilePayload = {
       id: authData.user.id,
       name: userData.name,
@@ -120,7 +123,7 @@ export const storage = {
 
   saveProfile: async (profile: Partial<User>) => {
     const payload = mapToDb(profile);
-    // Never try to write email to the profiles table
+    // Never send email to the profiles table
     if (payload.email) delete payload.email;
     
     const { data, error } = await supabase.from('profiles').upsert(payload).select().single();
