@@ -60,7 +60,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', sbUser.id)
         .single();
 
-      // Handle missing profile record
+      // Handle missing profile record (Admin may have deleted the user)
       if (error && (error.code === 'PGRST116' || error.message?.includes('No rows'))) {
         const { count, error: countError } = await supabase
           .from('profiles')
@@ -68,25 +68,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const isFirstUser = !countError && count === 0;
         
-        // Profiles table only has id, name, role. NO email.
-        const newProfile = {
-          id: sbUser.id,
-          name: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0] || 'Member',
-          role: isFirstUser ? UserRole.ADMIN : UserRole.USER
-        };
-        
-        const { data: created, error: insertError } = await supabase
-          .from('profiles')
-          .insert([newProfile])
-          .select()
-          .single();
+        // Only auto-create profile if it's the very first user (Initial Admin setup)
+        if (isFirstUser) {
+          const newProfile = {
+            id: sbUser.id,
+            name: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0] || 'Member',
+            role: UserRole.ADMIN
+          };
           
-        if (created) {
-          setAuth({
-            user: { id: created.id, name: created.name, email: sbUser.email, role: created.role as UserRole },
-            token,
-            isAuthenticated: true
-          });
+          const { data: created } = await supabase
+            .from('profiles')
+            .insert([newProfile])
+            .select()
+            .single();
+            
+          if (created) {
+            setAuth({
+              user: { id: created.id, name: created.name, email: sbUser.email, role: created.role as UserRole },
+              token,
+              isAuthenticated: true
+            });
+            return;
+          }
+        } else {
+          // If profile is missing and it's not the first user, they were likely deleted.
+          // Force logout to prevent "hanging" stale sessions.
+          console.warn("User profile not found. User may have been deleted by an administrator.");
+          await supabase.auth.signOut();
+          setAuth({ user: null, token: null, isAuthenticated: false });
           return;
         }
       }

@@ -12,6 +12,7 @@ export const UsersPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -71,13 +72,16 @@ export const UsersPage: React.FC = () => {
       return;
     }
 
-    if (!window.confirm("Are you sure you want to remove this user's access? This action only removes their profile from the management list.")) return;
+    if (!window.confirm("Are you sure you want to remove this user from the database? This will immediately revoke their access to the platform.")) return;
 
+    setDeletingId(id);
     try {
       await storage.deleteUser(id);
       setUsers(prev => prev.filter(u => u.id !== id));
     } catch (err: any) {
-      alert("Failed to delete user: " + err.message);
+      alert("Failed to delete user from database: " + err.message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -100,7 +104,7 @@ export const UsersPage: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-800">User Management</h2>
-          <p className="text-slate-500">Manage business unit access and permissions</p>
+          <p className="text-slate-500">Manage business unit access and database records</p>
         </div>
         <button 
           onClick={openAdd}
@@ -113,7 +117,7 @@ export const UsersPage: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {users.map((u) => (
-          <div key={u.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:border-teal-400 transition-all">
+          <div key={u.id} className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:border-teal-400 transition-all ${deletingId === u.id ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
             <div className="flex items-start justify-between mb-4">
               <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 text-lg uppercase group-hover:bg-teal-50 group-hover:text-teal-600 transition-colors">
                 {u.name.charAt(0)}
@@ -130,7 +134,7 @@ export const UsersPage: React.FC = () => {
             <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
                 <Shield size={10} />
-                <span>{u.id === currentUser?.id ? 'Your Profile' : 'Business Access'}</span>
+                <span>{u.id === currentUser?.id ? 'Your Profile' : 'System Access'}</span>
               </div>
               <div className="flex gap-1">
                 <button 
@@ -143,10 +147,10 @@ export const UsersPage: React.FC = () => {
                 {u.id !== currentUser?.id && (
                   <button 
                     onClick={() => handleDelete(u.id)}
-                    className="p-2 text-slate-400 hover:text-rose-600 transition-colors hover:bg-rose-50 rounded-lg"
-                    title="Delete User"
+                    className="p-2 text-slate-400 hover:text-rose-600 transition-colors hover:bg-rose-50 rounded-lg flex items-center justify-center"
+                    title="Delete from Database"
                   >
-                    <Trash2 size={16} />
+                    {deletingId === u.id ? <Loader2 size={16} className="animate-spin text-rose-600" /> : <Trash2 size={16} />}
                   </button>
                 )}
               </div>
