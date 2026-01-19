@@ -5,7 +5,6 @@ import { supabase, isConfigured } from '../services/supabase';
 
 interface AuthContextType extends AuthState {
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  register: (email: string, pass: string, name: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
 }
@@ -62,7 +61,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (error && error.code === 'PGRST116') {
-        // Profile missing - Determine if this is the first user
+        // Profile missing - Create it. 
+        // Check if any users exist to determine if this logging-in user is the first admin.
         const { count } = await supabase
           .from('profiles')
           .select('*', { count: 'exact', head: true });
@@ -118,28 +118,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (email: string, pass: string, name: string) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password: pass,
-        options: { data: { full_name: name } }
-      });
-      
-      if (error) return { success: false, error: error.message };
-      
-      // If auto-login is enabled in Supabase, we handle session
-      if (data.session) {
-        await fetchAndSetProfile(data.user, data.session.access_token);
-        return { success: true };
-      }
-      
-      return { success: true, error: "Confirmation email sent! Please check your inbox." };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  };
-
   const logout = async () => {
     await supabase.auth.signOut();
     setAuth({ user: null, token: null, isAuthenticated: false });
@@ -184,7 +162,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
   }
 
-  return <AuthContext.Provider value={{ ...auth, login, register, logout, refreshProfile }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ ...auth, login, logout, refreshProfile }}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {
