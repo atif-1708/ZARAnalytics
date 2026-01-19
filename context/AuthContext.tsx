@@ -60,7 +60,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', sbUser.id)
         .single();
 
-      // Handle missing profile or "No rows found"
       if (error && (error.code === 'PGRST116' || error.message?.includes('No rows'))) {
         const { count, error: countError } = await supabase
           .from('profiles')
@@ -68,10 +67,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         const isFirstUser = !countError && count === 0;
         
+        // Removed 'email' from the payload as it doesn't exist in the public.profiles schema
         const newProfile = {
           id: sbUser.id,
           name: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0] || 'User',
-          email: sbUser.email,
           role: isFirstUser ? UserRole.ADMIN : UserRole.USER
         };
         
@@ -83,19 +82,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
         if (created) {
           setAuth({
-            user: { id: created.id, name: created.name, email: created.email, role: created.role as UserRole },
+            user: { id: created.id, name: created.name, email: sbUser.email, role: created.role as UserRole },
             token,
             isAuthenticated: true
           });
           return;
-        } else if (insertError) {
-          console.error("Profile creation failed:", insertError.message);
         }
       }
 
       if (profile) {
         setAuth({
-          user: { id: profile.id, name: profile.name, email: profile.email, role: profile.role as UserRole },
+          user: { id: profile.id, name: profile.name, email: sbUser.email, role: profile.role as UserRole },
           token,
           isAuthenticated: true
         });
@@ -108,20 +105,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, pass: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-      
-      if (error) {
-        return { success: false, error: String(error.message) };
-      }
-      
+      if (error) return { success: false, error: String(error.message) };
       if (data.session) {
         await fetchAndSetProfile(data.user, data.session.access_token);
         return { success: true };
       }
-      
-      return { success: false, error: "Authentication failed. No session returned." };
+      return { success: false, error: "Authentication failed." };
     } catch (err: any) {
-      const errorMsg = err?.message || (typeof err === 'string' ? err : "An internal error occurred during login.");
-      return { success: false, error: String(errorMsg) };
+      return { success: false, error: String(err?.message || err) };
     }
   };
 
@@ -137,36 +128,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   if (!isConfigured()) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
-        <div className="max-w-md w-full space-y-8 bg-slate-800 p-10 rounded-3xl border border-slate-700 shadow-2xl">
-          <div className="text-center">
-            <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-rose-500/20 text-2xl font-bold">!</div>
-            <h1 className="text-2xl font-bold mb-2">Configuration Required</h1>
-            <p className="text-slate-400 text-sm leading-relaxed">
-              Supabase credentials are missing or invalid. Please update <code>services/supabase.ts</code>.
-            </p>
-          </div>
-          <div className="bg-slate-900 p-4 rounded-xl font-mono text-xs text-teal-400 border border-slate-700 text-center overflow-auto">
-            Check SUPABASE_URL & ANON_KEY
-          </div>
-          <button onClick={() => window.location.reload()} className="w-full py-3 bg-teal-600 hover:bg-teal-50 rounded-xl font-bold transition-all">
-            Retry Connection
-          </button>
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-6">
+        <div className="max-w-md w-full bg-slate-800 p-10 rounded-3xl border border-slate-700 shadow-2xl text-center">
+           <h1 className="text-white text-2xl font-bold mb-4">Configuration Error</h1>
+           <p className="text-slate-400">Please provide valid Supabase credentials.</p>
         </div>
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-400 font-bold text-xs tracking-widest uppercase animate-pulse">Initializing Portal...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return null;
 
   return <AuthContext.Provider value={{ ...auth, login, logout, refreshProfile }}>{children}</AuthContext.Provider>;
 };

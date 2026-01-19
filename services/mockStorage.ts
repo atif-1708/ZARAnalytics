@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 import { Business, DailySale, MonthlyExpense, User, UserRole } from '../types';
 
-// Helper to map camelCase (frontend) to snake_case (database)
 const mapToDb = (obj: any) => {
   const mapped: any = {};
   for (const key in obj) {
@@ -13,7 +12,6 @@ const mapToDb = (obj: any) => {
   return mapped;
 };
 
-// Helper to map snake_case (database) to camelCase (frontend)
 const mapFromDb = (obj: any) => {
   if (!obj) return null;
   const mapped: any = {};
@@ -27,7 +25,6 @@ const mapFromDb = (obj: any) => {
 };
 
 export const storage = {
-  // Businesses
   getBusinesses: async (): Promise<Business[]> => {
     const { data, error } = await supabase.from('businesses').select('*').order('name');
     if (error) throw new Error(error.message);
@@ -35,7 +32,8 @@ export const storage = {
   },
   saveBusiness: async (business: Partial<Business>) => {
     const payload = mapToDb(business);
-    const { data, error } = await supabase.from('businesses').upsert(payload).select().single();
+    const operation = payload.id ? supabase.from('businesses').upsert(payload) : supabase.from('businesses').insert(payload);
+    const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
     return mapFromDb(data);
   },
@@ -44,7 +42,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // Sales
   getSales: async (): Promise<DailySale[]> => {
     const { data, error } = await supabase.from('sales').select('*').order('date', { ascending: false });
     if (error) throw new Error(error.message);
@@ -52,9 +49,12 @@ export const storage = {
   },
   saveSale: async (sale: Partial<DailySale>) => {
     const payload = mapToDb(sale);
-    if (payload.id && !payload.id.includes('-')) delete payload.id;
-    
-    const { data, error } = await supabase.from('sales').upsert(payload).select().single();
+    // Ensure we don't send malformed IDs for new records
+    if (payload.id && !payload.id.includes('-') && payload.id.length < 20) {
+      delete payload.id;
+    }
+    const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
+    const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
     return mapFromDb(data);
   },
@@ -63,7 +63,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // Expenses
   getExpenses: async (): Promise<MonthlyExpense[]> => {
     const { data, error } = await supabase.from('expenses').select('*').order('month', { ascending: false });
     if (error) throw new Error(error.message);
@@ -71,9 +70,11 @@ export const storage = {
   },
   saveExpense: async (expense: Partial<MonthlyExpense>) => {
     const payload = mapToDb(expense);
-    if (payload.id && !payload.id.includes('-')) delete payload.id;
-    
-    const { data, error } = await supabase.from('expenses').upsert(payload).select().single();
+    if (payload.id && !payload.id.includes('-') && payload.id.length < 20) {
+      delete payload.id;
+    }
+    const operation = payload.id ? supabase.from('expenses').upsert(payload) : supabase.from('expenses').insert(payload);
+    const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
     return mapFromDb(data);
   },
@@ -82,21 +83,17 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // Users/Profiles
   getUsers: async (): Promise<User[]> => {
     const { data, error } = await supabase.from('profiles').select('*').order('name');
     if (error) throw new Error(error.message);
     return (data || []).map(mapFromDb);
   },
   
-  // Creates a user without signing out the admin
   createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
-    // 1. Create a background client to prevent session takeover
     const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false }
     });
 
-    // 2. Sign up the new user
     const { data: authData, error: authError } = await backgroundSupabase.auth.signUp({
       email: userData.email,
       password: userData.password || 'Temporary123!',
@@ -106,11 +103,10 @@ export const storage = {
     if (authError) throw new Error(authError.message);
     if (!authData.user) throw new Error("Failed to create auth user.");
 
-    // 3. The profile is usually created by a DB trigger, but we'll upsert to ensure it has the right role
+    // IMPORTANT: Remove 'email' from profile payload as it doesn't exist in your profiles table
     const profilePayload = {
       id: authData.user.id,
       name: userData.name,
-      email: userData.email,
       role: userData.role
     };
 
@@ -124,6 +120,9 @@ export const storage = {
 
   saveProfile: async (profile: Partial<User>) => {
     const payload = mapToDb(profile);
+    // Never try to write email to the profiles table
+    if (payload.email) delete payload.email;
+    
     const { data, error } = await supabase.from('profiles').upsert(payload).select().single();
     if (error) throw new Error(error.message);
     return mapFromDb(data);
