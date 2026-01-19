@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Shield, Mail, Edit, Loader2, Plus, Key } from 'lucide-react';
+import { UserPlus, Shield, Mail, Edit, Loader2, Plus, Key, Trash2 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { User, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -41,15 +41,12 @@ export const UsersPage: React.FC = () => {
     setIsSaving(true);
     try {
       if (editingUser) {
-        // Update existing profile (id, name, role)
         await storage.saveProfile({
           id: editingUser.id,
           name: formData.name,
           role: formData.role
         });
       } else {
-        // Create new auth account + profile
-        // Per user request: minimal validation, no verification
         await storage.createNewUser({
           name: formData.name,
           email: formData.email,
@@ -62,10 +59,25 @@ export const UsersPage: React.FC = () => {
       setIsModalOpen(false);
       setEditingUser(null);
     } catch (err: any) {
-      // General error reporting, ignoring specific email validity checks
       alert("System Notice: " + err.message);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (id === currentUser?.id) {
+      alert("Self-deletion is restricted for security. Another Administrator must perform this action.");
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to remove this user's access? This action only removes their profile from the management list.")) return;
+
+    try {
+      await storage.deleteUser(id);
+      setUsers(prev => prev.filter(u => u.id !== id));
+    } catch (err: any) {
+      alert("Failed to delete user: " + err.message);
     }
   };
 
@@ -120,12 +132,24 @@ export const UsersPage: React.FC = () => {
                 <Shield size={10} />
                 <span>{u.id === currentUser?.id ? 'Your Profile' : 'Business Access'}</span>
               </div>
-              <button 
-                onClick={() => openEdit(u)}
-                className="p-2 text-slate-400 hover:text-teal-600 transition-colors hover:bg-teal-50 rounded-lg"
-              >
-                <Edit size={16} />
-              </button>
+              <div className="flex gap-1">
+                <button 
+                  onClick={() => openEdit(u)}
+                  className="p-2 text-slate-400 hover:text-teal-600 transition-colors hover:bg-teal-50 rounded-lg"
+                  title="Edit User"
+                >
+                  <Edit size={16} />
+                </button>
+                {u.id !== currentUser?.id && (
+                  <button 
+                    onClick={() => handleDelete(u.id)}
+                    className="p-2 text-slate-400 hover:text-rose-600 transition-colors hover:bg-rose-50 rounded-lg"
+                    title="Delete User"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}

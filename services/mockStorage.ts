@@ -89,7 +89,6 @@ export const storage = {
   },
   
   createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
-    // Create background client to prevent session takeover (stay logged in as admin)
     const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: false }
     });
@@ -99,14 +98,12 @@ export const storage = {
       password: userData.password || 'Temporary123!',
       options: { 
         data: { full_name: userData.name },
-        // Per user request: no email verification redirect needed
       }
     });
 
     if (authError) throw new Error(authError.message);
     if (!authData.user) throw new Error("User creation failed.");
 
-    // Sync profile - CRITICAL: No email column in the profiles table
     const profilePayload = {
       id: authData.user.id,
       name: userData.name,
@@ -123,11 +120,15 @@ export const storage = {
 
   saveProfile: async (profile: Partial<User>) => {
     const payload = mapToDb(profile);
-    // Never send email to the profiles table
     if (payload.email) delete payload.email;
     
     const { data, error } = await supabase.from('profiles').upsert(payload).select().single();
     if (error) throw new Error(error.message);
     return mapFromDb(data);
+  },
+
+  deleteUser: async (id: string) => {
+    const { error } = await supabase.from('profiles').delete().eq('id', id);
+    if (error) throw new Error(error.message);
   }
 };
