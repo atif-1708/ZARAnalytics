@@ -4,6 +4,7 @@ import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 import { Business, DailySale, MonthlyExpense, User, UserRole } from '../types';
 
 const mapToDb = (obj: any) => {
+  if (!obj) return null;
   const mapped: any = {};
   for (const key in obj) {
     const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -28,7 +29,7 @@ export const storage = {
   getBusinesses: async (): Promise<Business[]> => {
     const { data, error } = await supabase.from('businesses').select('*').order('name');
     if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb);
+    return (data || []).map(mapFromDb).filter(Boolean);
   },
   saveBusiness: async (business: Partial<Business>) => {
     const payload = mapToDb(business);
@@ -45,13 +46,11 @@ export const storage = {
   getSales: async (): Promise<DailySale[]> => {
     const { data, error } = await supabase.from('sales').select('*').order('date', { ascending: false });
     if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb);
+    return (data || []).map(mapFromDb).filter(Boolean);
   },
   saveSale: async (sale: Partial<DailySale>) => {
     const payload = mapToDb(sale);
-    if (payload.id && !payload.id.includes('-') && payload.id.length < 20) {
-      delete payload.id;
-    }
+    if (payload.id && !payload.id.includes('-') && payload.id.length < 20) delete payload.id;
     const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
     const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
@@ -65,13 +64,11 @@ export const storage = {
   getExpenses: async (): Promise<MonthlyExpense[]> => {
     const { data, error } = await supabase.from('expenses').select('*').order('month', { ascending: false });
     if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb);
+    return (data || []).map(mapFromDb).filter(Boolean);
   },
   saveExpense: async (expense: Partial<MonthlyExpense>) => {
     const payload = mapToDb(expense);
-    if (payload.id && !payload.id.includes('-') && payload.id.length < 20) {
-      delete payload.id;
-    }
+    if (payload.id && !payload.id.includes('-') && payload.id.length < 20) delete payload.id;
     const operation = payload.id ? supabase.from('expenses').upsert(payload) : supabase.from('expenses').insert(payload);
     const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
@@ -85,35 +82,20 @@ export const storage = {
   getUsers: async (): Promise<User[]> => {
     const { data, error } = await supabase.from('profiles').select('*').order('name');
     if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb);
+    return (data || []).map(mapFromDb).filter(Boolean);
   },
   
   createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
-    const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false }
-    });
-
+    const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const { data: authData, error: authError } = await backgroundSupabase.auth.signUp({
       email: userData.email,
       password: userData.password || 'Temporary123!',
-      options: { 
-        data: { full_name: userData.name },
-      }
+      options: { data: { full_name: userData.name } }
     });
-
     if (authError) throw new Error(authError.message);
     if (!authData.user) throw new Error("User creation failed.");
-
-    const profilePayload = {
-      id: authData.user.id,
-      name: userData.name,
-      role: userData.role
-    };
-
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .upsert(mapToDb(profilePayload));
-
+    const profilePayload = { id: authData.user.id, name: userData.name, role: userData.role };
+    const { error: profileError } = await supabase.from('profiles').upsert(mapToDb(profilePayload));
     if (profileError) throw new Error(profileError.message);
     return authData.user;
   },
@@ -121,7 +103,6 @@ export const storage = {
   saveProfile: async (profile: Partial<User>) => {
     const payload = mapToDb(profile);
     if (payload.email) delete payload.email;
-    
     const { data, error } = await supabase.from('profiles').upsert(payload).select().single();
     if (error) throw new Error(error.message);
     return mapFromDb(data);
