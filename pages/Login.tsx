@@ -8,24 +8,28 @@ export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError('');
+    setError(null);
 
     try {
       const result = await login(email, password);
       if (result.success) {
         navigate('/dashboard');
       } else {
-        setError(result.error || 'Invalid credentials. Please contact your administrator.');
+        const errorMsg = typeof result.error === 'string' 
+          ? result.error 
+          : 'Invalid credentials. Please contact your administrator.';
+        setError(String(errorMsg));
       }
-    } catch (err) {
-      setError('A connection error occurred. Please verify your internet and try again.');
+    } catch (err: any) {
+      const finalMsg = err?.message || String(err) || 'A connection error occurred.';
+      setError(String(finalMsg));
     } finally {
       setIsLoading(false);
     }
@@ -77,7 +81,7 @@ export const Login: React.FC = () => {
             {error && (
               <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-sm font-medium flex items-start gap-3 animate-shake">
                 <AlertCircle className="shrink-0 mt-0.5" size={18} />
-                <p className="leading-tight">{error}</p>
+                <p className="leading-tight">{String(error)}</p>
               </div>
             )}
 

@@ -60,14 +60,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .eq('id', sbUser.id)
         .single();
 
-      if (error && error.code === 'PGRST116') {
-        // Profile missing - Create it. 
-        // Check if any users exist to determine if this logging-in user is the first admin.
-        const { count } = await supabase
+      // Handle missing profile or "No rows found"
+      if (error && (error.code === 'PGRST116' || error.message?.includes('No rows'))) {
+        const { count, error: countError } = await supabase
           .from('profiles')
           .select('*', { count: 'exact', head: true });
 
-        const isFirstUser = count === 0;
+        const isFirstUser = !countError && count === 0;
         
         const newProfile = {
           id: sbUser.id,
@@ -76,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: isFirstUser ? UserRole.ADMIN : UserRole.USER
         };
         
-        const { data: created } = await supabase
+        const { data: created, error: insertError } = await supabase
           .from('profiles')
           .insert([newProfile])
           .select()
@@ -89,6 +88,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             isAuthenticated: true
           });
           return;
+        } else if (insertError) {
+          console.error("Profile creation failed:", insertError.message);
         }
       }
 
@@ -99,22 +100,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           isAuthenticated: true
         });
       }
-    } catch (err) {
-      console.error("Profile sync failed", err);
+    } catch (err: any) {
+      console.error("Profile sync error:", err?.message || String(err));
     }
   };
 
   const login = async (email: string, pass: string) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-      if (error) return { success: false, error: error.message };
+      
+      if (error) {
+        return { success: false, error: String(error.message) };
+      }
+      
       if (data.session) {
         await fetchAndSetProfile(data.user, data.session.access_token);
         return { success: true };
       }
-      return { success: false, error: "Session failed" };
+      
+      return { success: false, error: "Authentication failed. No session returned." };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      const errorMsg = err?.message || (typeof err === 'string' ? err : "An internal error occurred during login.");
+      return { success: false, error: String(errorMsg) };
     }
   };
 
@@ -136,14 +143,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-rose-500/20 text-2xl font-bold">!</div>
             <h1 className="text-2xl font-bold mb-2">Configuration Required</h1>
             <p className="text-slate-400 text-sm leading-relaxed">
-              Supabase credentials are missing or invalid. Please update <code>services/supabase.ts</code> or set your environment variables.
+              Supabase credentials are missing or invalid. Please update <code>services/supabase.ts</code>.
             </p>
           </div>
-          <div className="bg-slate-900 p-4 rounded-xl font-mono text-xs text-teal-400 border border-slate-700">
-            SUPABASE_URL<br/>
-            SUPABASE_ANON_KEY
+          <div className="bg-slate-900 p-4 rounded-xl font-mono text-xs text-teal-400 border border-slate-700 text-center overflow-auto">
+            Check SUPABASE_URL & ANON_KEY
           </div>
-          <button onClick={() => window.location.reload()} className="w-full py-3 bg-teal-600 hover:bg-teal-500 rounded-xl font-bold transition-all">
+          <button onClick={() => window.location.reload()} className="w-full py-3 bg-teal-600 hover:bg-teal-50 rounded-xl font-bold transition-all">
             Retry Connection
           </button>
         </div>

@@ -1,12 +1,14 @@
 
 import React, { useState } from 'react';
-import { User, Shield, Lock, Save, CheckCircle } from 'lucide-react';
+import { User, Shield, Lock, Save, CheckCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/mockStorage';
+import { supabase } from '../services/supabase';
 
 export const Profile: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -16,39 +18,36 @@ export const Profile: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.password !== formData.confirmPassword) {
+    if (isSaving) return;
+
+    if (formData.password && formData.password !== formData.confirmPassword) {
       alert("Passwords do not match");
       return;
     }
 
-    // Fix: Await async storage call
-    const users = await storage.getUsers();
-    const index = users.findIndex(u => u.id === user?.id);
-    
-    if (index !== -1) {
-      const updatedUser = { 
-        ...users[index], 
-        name: formData.name, 
-        email: formData.email 
-      };
-      
+    setIsSaving(true);
+    try {
+      // 1. Update Profile in DB
+      await storage.saveProfile({
+        id: user?.id,
+        name: formData.name,
+        email: formData.email
+      });
+
+      // 2. Update Auth Password if provided
       if (formData.password) {
-        updatedUser.password = formData.password;
+        const { error } = await supabase.auth.updateUser({ password: formData.password });
+        if (error) throw error;
       }
-      
-      users[index] = updatedUser;
-      // Fix: Await async save operation
-      await storage.saveUsers(users);
-      
+
+      await refreshProfile();
       setIsSuccess(true);
       setTimeout(() => setIsSuccess(false), 3000);
-      
-      // Update the local storage session
-      const auth = JSON.parse(localStorage.getItem('zarlytics_auth') || '{}');
-      if (auth.user) {
-        auth.user = { ...auth.user, name: formData.name, email: formData.email };
-        localStorage.setItem('zarlytics_auth', JSON.stringify(auth));
-      }
+      setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
+    } catch (err: any) {
+      alert("Failed to update profile: " + err.message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -72,29 +71,24 @@ export const Profile: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Full Name</label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
-                />
-              </div>
+              <input 
+                type="text"
+                required
+                disabled={isSaving}
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
+              />
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email Address</label>
-              <div className="relative">
-                <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="email"
-                  required
-                  value={formData.email}
-                  onChange={(e) => setFormData({...formData, email: e.target.value})}
-                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
-                />
-              </div>
+              <input 
+                type="email"
+                required
+                disabled={true} // Email is locked to Auth ID
+                value={formData.email}
+                className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-400 outline-none cursor-not-allowed"
+              />
             </div>
           </div>
 
@@ -108,34 +102,37 @@ export const Profile: React.FC = () => {
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">New Password</label>
                 <input 
                   type="password"
+                  disabled={isSaving}
                   placeholder="Leave blank to keep current"
                   value={formData.password}
                   onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
                 />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">Confirm New Password</label>
                 <input 
                   type="password"
+                  disabled={isSaving}
                   placeholder="Repeat new password"
                   value={formData.confirmPassword}
                   onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-50"
                 />
               </div>
             </div>
           </div>
 
           <div className="flex items-center justify-between pt-6">
-            <p className="text-xs text-slate-400 max-w-xs italic">
-              Updating your credentials will apply immediately to your next login session.
+            <p className="text-xs text-slate-400 max-w-xs italic leading-relaxed">
+              Updating your profile will sync across all ZARlytics business units.
             </p>
             <button 
               type="submit"
-              className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg"
+              disabled={isSaving}
+              className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg min-w-[160px] justify-center"
             >
-              {isSuccess ? <CheckCircle size={20} className="text-emerald-400" /> : <Save size={20} />}
+              {isSaving ? <Loader2 className="animate-spin" size={20} /> : (isSuccess ? <CheckCircle size={20} className="text-emerald-400" /> : <Save size={20} />)}
               <span>{isSuccess ? 'Changes Saved' : 'Update Profile'}</span>
             </button>
           </div>

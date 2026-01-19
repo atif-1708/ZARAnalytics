@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit3, AlertCircle, Calendar, Receipt } from 'lucide-react';
+import { Plus, Trash2, Edit3, AlertCircle, Calendar, Receipt, Loader2 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { MonthlyExpense, UserRole, Business } from '../types';
@@ -12,9 +12,11 @@ export const Expenses: React.FC = () => {
   
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<MonthlyExpense | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   
   const [formData, setFormData] = useState({
     businessId: '',
@@ -24,7 +26,7 @@ export const Expenses: React.FC = () => {
   });
 
   const loadData = async () => {
-    // Fix: Await async storage calls
+    setIsLoading(true);
     try {
       const [expensesData, businessData] = await Promise.all([
         storage.getExpenses(),
@@ -34,53 +36,50 @@ export const Expenses: React.FC = () => {
       setBusinesses(businessData);
     } catch (err) {
       console.error("Failed to load expenses data", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isAdmin) return;
+    if (!isAdmin || isSaving) return;
 
     if (!formData.businessId) {
       alert("Please select a business.");
       return;
     }
 
-    let updatedExpenses: MonthlyExpense[];
-
-    if (editingExpense) {
-      updatedExpenses = expenses.map(ex => 
-        ex.id === editingExpense.id ? { ...editingExpense, ...formData } : ex
-      );
-    } else {
-      const newExpense: MonthlyExpense = {
-        id: 'exp_' + Date.now() + Math.random().toString(36).substring(2, 5),
-        ...formData,
-        createdAt: new Date().toISOString()
+    setIsSaving(true);
+    try {
+      const expenseToSave = {
+        ...(editingExpense || {}),
+        ...formData
       };
-      updatedExpenses = [...expenses, newExpense];
-    }
 
-    // Fix: Await async save operation
-    await storage.saveExpenses(updatedExpenses);
-    setExpenses(updatedExpenses);
-    setIsModalOpen(false);
-    setEditingExpense(null);
+      await storage.saveExpense(expenseToSave);
+      await loadData();
+      setIsModalOpen(false);
+      setEditingExpense(null);
+    } catch (err: any) {
+      alert("Error saving expense: " + err.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!isAdmin) return;
     if (!window.confirm("Delete this expense record?")) return;
     
-    // Fix: Use current state instead of sync storage call
-    const updatedExpenses = expenses.filter(ex => ex.id !== id);
-    
-    await storage.saveExpenses(updatedExpenses);
-    setExpenses(updatedExpenses);
+    try {
+      await storage.deleteExpense(id);
+      setExpenses(expenses.filter(ex => ex.id !== id));
+    } catch (err: any) {
+      alert("Error deleting record: " + err.message);
+    }
   };
 
   const openEdit = (expense: MonthlyExpense) => {
@@ -94,6 +93,8 @@ export const Expenses: React.FC = () => {
     });
     setIsModalOpen(true);
   };
+
+  if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-rose-600" size={40} /></div>;
 
   return (
     <div className="space-y-6">
@@ -142,7 +143,7 @@ export const Expenses: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              [...expenses].sort((a,b) => b.month.localeCompare(a.month)).map((expense) => (
+              [...expenses].map((expense) => (
                 <tr key={expense.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-4 text-sm font-medium text-slate-900 flex items-center gap-2">
                     <Calendar size={14} className="text-slate-400" />
@@ -158,16 +159,10 @@ export const Expenses: React.FC = () => {
                   <td className="px-6 py-4 text-right">
                     {isAdmin && (
                       <div className="flex justify-end gap-1">
-                        <button 
-                          onClick={() => openEdit(expense)}
-                          className="p-2 text-slate-400 hover:text-blue-600 transition-all rounded-lg hover:bg-blue-50"
-                        >
+                        <button onClick={() => openEdit(expense)} className="p-2 text-slate-400 hover:text-blue-600 transition-all rounded-lg hover:bg-blue-50">
                           <Edit3 size={18} />
                         </button>
-                        <button 
-                          onClick={() => handleDelete(expense.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 transition-all rounded-lg hover:bg-rose-50"
-                        >
+                        <button onClick={() => handleDelete(expense.id)} className="p-2 text-slate-400 hover:text-rose-600 transition-all rounded-lg hover:bg-rose-50">
                           <Trash2 size={18} />
                         </button>
                       </div>
@@ -182,7 +177,7 @@ export const Expenses: React.FC = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSaving && setIsModalOpen(false)} />
           <div className="bg-white rounded-2xl w-full max-w-md p-8 relative shadow-2xl">
             <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
               <Receipt className="text-rose-600" size={24} />
@@ -193,9 +188,10 @@ export const Expenses: React.FC = () => {
                 <label className="block text-sm font-bold text-slate-700 mb-1">Business Unit</label>
                 <select 
                   required
+                  disabled={isSaving}
                   value={formData.businessId}
                   onChange={(e) => setFormData({...formData, businessId: e.target.value})}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none disabled:opacity-50"
                 >
                   <option value="">Select a location...</option>
                   {businesses.map(b => (
@@ -208,9 +204,10 @@ export const Expenses: React.FC = () => {
                 <input 
                   type="month"
                   required
+                  disabled={isSaving}
                   value={formData.month}
                   onChange={(e) => setFormData({...formData, month: e.target.value})}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none disabled:opacity-50"
                 />
               </div>
               <div>
@@ -218,10 +215,11 @@ export const Expenses: React.FC = () => {
                 <input 
                   type="number"
                   required
+                  disabled={isSaving}
                   min="0"
                   step="0.01"
                   value={formData.amount}
-                  onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value)})}
+                  onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value) || 0})}
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none font-bold text-rose-600"
                 />
               </div>
@@ -229,15 +227,18 @@ export const Expenses: React.FC = () => {
                 <label className="block text-sm font-bold text-slate-700 mb-1">Description</label>
                 <textarea 
                   rows={3}
+                  disabled={isSaving}
                   value={formData.description}
                   onChange={(e) => setFormData({...formData, description: e.target.value})}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-rose-500 outline-none disabled:opacity-50"
                   placeholder="Details of the expense..."
                 />
               </div>
               <div className="pt-4 flex gap-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button>
-                <button type="submit" className="flex-1 px-4 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 transition-all shadow-lg shadow-rose-600/20">Save Record</button>
+                <button type="button" disabled={isSaving} onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button>
+                <button type="submit" disabled={isSaving} className="flex-1 px-4 py-2 bg-rose-600 text-white rounded-lg font-bold hover:bg-rose-700 transition-all shadow-lg flex items-center justify-center gap-2">
+                  {isSaving ? <Loader2 className="animate-spin" size={18} /> : 'Save Record'}
+                </button>
               </div>
             </form>
           </div>
