@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, ArrowRight, Loader2 } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const Login: React.FC = () => {
@@ -18,14 +18,14 @@ export const Login: React.FC = () => {
     setError('');
 
     try {
-      const success = await login(email, password);
-      if (success) {
+      const result = await login(email, password);
+      if (result.success) {
         navigate('/dashboard');
       } else {
-        setError('Invalid credentials. Please contact your administrator.');
+        setError(result.error || 'Invalid credentials. Please contact your administrator.');
       }
     } catch (err) {
-      setError('An unexpected error occurred.');
+      setError('A connection error occurred. Please verify your internet and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -75,9 +75,12 @@ export const Login: React.FC = () => {
             </div>
 
             {error && (
-              <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-sm font-medium flex items-center gap-2 animate-shake">
-                <span className="w-1 h-1 bg-rose-600 rounded-full" />
-                {error}
+              <div className="p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-sm font-medium flex items-start gap-3 animate-shake">
+                <AlertCircle className="shrink-0 mt-0.5" size={18} />
+                <div>
+                  <p className="font-bold">Access Denied</p>
+                  <p className="opacity-80 leading-relaxed">{error}</p>
+                </div>
               </div>
             )}
 
@@ -97,16 +100,20 @@ export const Login: React.FC = () => {
             </button>
           </form>
 
-          <div className="mt-8 pt-8 border-t border-slate-100">
-             <div className="flex justify-between items-center text-xs text-slate-400 font-medium">
-               <span>V1.0.4-STABLE</span>
-               <a href="#" className="hover:text-teal-600 transition-colors">Forgot Password?</a>
+          <div className="mt-8 pt-8 border-t border-slate-100 text-center">
+             <p className="text-xs text-slate-400 font-medium mb-3">
+               V1.0.5-STABLE
+             </p>
+             <div className="flex justify-center gap-4 text-xs font-semibold text-teal-600">
+               <a href="#" className="hover:underline">Forgot Password?</a>
+               <span className="text-slate-300">•</span>
+               <a href="#" className="hover:underline">Contact Support</a>
              </div>
           </div>
         </div>
 
         <p className="text-center mt-10 text-slate-400 text-xs font-medium">
-          &copy; {new Date().getFullYear()} ZARlytics South Africa. All rights reserved.
+          &copy; {new Date().getFullYear()} ZARlytics South Africa. Secure Portal.
         </p>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { User, AuthState, UserRole } from '../types';
 import { supabase } from '../services/supabase';
 
 interface AuthContextType extends AuthState {
-  login: (email: string, pass: string) => Promise<boolean>;
+  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
 }
 
@@ -26,7 +26,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (error) throw error;
 
         if (session) {
-          await fetchProfile(session.user.id, session.access_token);
+          await fetchProfile(session.user, session.access_token);
         } else {
           setLoading(false);
         }
@@ -40,7 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
-        await fetchProfile(session.user.id, session.access_token);
+        await fetchProfile(session.user, session.access_token);
       } else {
         setAuth({ user: null, token: null, isAuthenticated: false });
         setLoading(false);
@@ -50,15 +50,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string, token: string) => {
+  const fetchProfile = async (supabaseUser: any, token: string) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', userId)
+        .eq('id', supabaseUser.id)
         .single();
 
-      if (data && !error) {
+      // Check for 'No rows found' error code PGRST116
+      if (error && error.code === 'PGRST116') {
+        console.warn("Profile missing. Creating a default self-healing profile record.");
+        
+        const newProfile = {
+          id: supabaseUser.id,
+          name: supabaseUser.email?.split('@')[0] || 'New User',
+          email: supabaseUser.email,
+          role: UserRole.USER // Default role for safety
+        };
+
+        const { data: createdData, error: createError } = await supabase
+          .from('profiles')
+          .insert([newProfile])
+          .select()
+          .single();
+
+        if (createdData && !createError) {
+          setAuth({
+            user: { id: createdData.id, name: createdData.name, email: createdData.email || '', role: createdData.role as UserRole },
+            token,
+            isAuthenticated: true
+          });
+        }
+      } else if (data && !error) {
         setAuth({
           user: { id: data.id, name: data.name, email: data.email || '', role: data.role as UserRole },
           token,
@@ -72,17 +96,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, pass: string): Promise<boolean> => {
+  const login = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+      
       if (error) {
-        console.error("Login Error:", error.message);
-        return false;
+        let message = error.message;
+        if (message.includes("Email not confirmed")) {
+          message = "Your email is not confirmed. Please check your inbox or confirm the user in the Supabase dashboard.";
+        } else if (message.includes("Invalid login credentials")) {
+          message = "The email or password you entered is incorrect.";
+        }
+        return { success: false, error: message };
       }
-      return !!data.user;
-    } catch (err) {
-      console.error("Login Exception:", err);
-      return false;
+      
+      return { success: !!data.user };
+    } catch (err: any) {
+      return { success: false, error: err.message || "An unexpected error occurred during login." };
     }
   };
 
