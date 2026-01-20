@@ -12,9 +12,8 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper to scrub problematic storage keys without clearing user preferences
-const clearAuthCache = () => {
-  console.warn("ZARlytics: Manual purge of auth cache initiated.");
+// Helper to scrub problematic storage keys internally
+const clearLocalAuth = () => {
   Object.keys(localStorage).forEach(key => {
     if (key.includes('supabase.auth.token') || key.startsWith('sb-')) {
       localStorage.removeItem(key);
@@ -30,26 +29,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAuthenticated: false
   });
   const [isInitializing, setIsInitializing] = useState(true);
-  const [initStatus, setInitStatus] = useState("Establishing secure link...");
-  const [initError, setInitError] = useState<string | null>(null);
+  const [initStatus, setInitStatus] = useState("Verifying session...");
   
   const profileFetchInProgress = useRef(false);
   const initializationStarted = useRef(false);
-  const watchdogTimer = useRef<number | null>(null);
+
+  // Helper for requests with timeout to prevent "infinite hangs"
+  const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) => 
+        setTimeout(() => reject(new Error('TIMEOUT')), timeoutMs)
+      )
+    ]);
+  };
 
   const fetchAndSetProfile = async (sbUser: any, token: string) => {
     if (profileFetchInProgress.current) return;
     profileFetchInProgress.current = true;
-    setInitStatus("Retrieving business credentials...");
+    setInitStatus("Syncing business credentials...");
 
     try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', sbUser.id)
-        .single();
+      // Use a timeout to ensure we don't hang if the database is unresponsive
+      // Fix: Added type assertion to bypass property access error on inferred '{}' type from Promise.race
+      const { data: profile, error } = (await withTimeout(
+        supabase.from('profiles').select('*').eq('id', sbUser.id).single(),
+        5000 // 5 second timeout
+      )) as any;
 
       if (error) {
+        // Handle case where auth user exists but profile record is missing (first run)
         if (error.code === 'PGRST116') {
           const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
           if (count === 0) {
@@ -65,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         }
-        setAuth({ user: null, token: null, isAuthenticated: false });
+        throw new Error("Profile synchronization failed.");
       } else if (profile) {
         setAuth({
           user: { id: profile.id, name: profile.name, email: sbUser.email, role: profile.role as UserRole },
@@ -74,9 +83,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     } catch (err) {
-      console.error("Auth sync failure:", err);
-      // We don't force a reload here anymore to avoid loops
-      setInitStatus("Sync failed. Retrying...");
+      console.warn("Auth Recovery: Profile fetch failed or timed out. Clearing session to fix state.", err);
+      // If we can't get the profile, the auth session is effectively useless
+      // Reset state to force the user back to a clean login screen
+      clearLocalAuth();
+      setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       profileFetchInProgress.current = false;
       setIsInitializing(false);
@@ -88,7 +99,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializationStarted.current = true;
 
     try {
-      const { data: { session }, error } = await supabase.auth.getSession();
+      // Fix: Added type assertion to bypass property access error on inferred '{}' type from Promise.race
+      const { data: { session }, error } = (await withTimeout(supabase.auth.getSession(), 3000)) as any;
       if (error) throw error;
 
       if (session) {
@@ -108,14 +120,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Patient Watchdog: Only show the "Reset" option after 15 seconds.
-    // We no longer automatically reload or clear cache.
-    watchdogTimer.current = window.setTimeout(() => {
-      if (isInitializing) {
-        setInitError("The connection is unusually slow.");
-      }
-    }, 15000);
-
     initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -129,7 +133,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       subscription.unsubscribe();
-      if (watchdogTimer.current) clearTimeout(watchdogTimer.current);
     };
   }, []);
 
@@ -151,7 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await supabase.auth.signOut();
     } finally {
-      clearAuthCache();
+      clearLocalAuth();
       setAuth({ user: null, token: null, isAuthenticated: false });
       window.location.reload(); 
     }
@@ -164,35 +167,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 transition-opacity duration-700">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 transition-all duration-500">
         <div className="relative mb-10">
-          <div className="w-24 h-24 border-[3px] border-slate-200 border-t-teal-600 rounded-full animate-spin"></div>
-          <div className="absolute inset-0 flex items-center justify-center font-black text-teal-600 tracking-tighter">ZAR</div>
+          <div className="w-20 h-20 border-[3px] border-slate-200 border-t-teal-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center font-black text-teal-600 tracking-tighter text-sm">ZAR</div>
         </div>
         
         <div className="text-center space-y-3">
-          <p className="text-slate-900 font-extrabold text-2xl tracking-tight animate-pulse">{initStatus}</p>
-          <p className="text-slate-400 text-sm max-w-[280px] mx-auto leading-relaxed font-medium">
-            This may take a moment depending on your network conditions.
+          <p className="text-slate-900 font-extrabold text-xl tracking-tight animate-pulse">{initStatus}</p>
+          <p className="text-slate-400 text-xs max-w-[240px] mx-auto leading-relaxed">
+            Finalizing secure encrypted bridge...
           </p>
         </div>
-        
-        {initError && (
-          <div className="mt-12 p-8 bg-white border border-slate-200 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 max-w-sm text-center animate-shake">
-            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-5">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            </div>
-            <p className="text-slate-900 font-black text-xl mb-3">Still loading?</p>
-            <p className="text-slate-400 text-xs mb-8 leading-relaxed px-4">If the app is stuck, your browser cache might contain a conflicting session. You can try a hard reset below.</p>
-            <button 
-              onClick={logout}
-              className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black transition-all shadow-xl shadow-slate-900/20 active:scale-95 flex items-center justify-center gap-2"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
-              Purge Cache & Refresh
-            </button>
-          </div>
-        )}
       </div>
     );
   }
