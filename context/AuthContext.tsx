@@ -12,6 +12,17 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to scrub problematic storage keys without clearing user preferences
+const clearAuthCache = () => {
+  console.warn("ZARlytics: Purging potentially corrupted auth cache...");
+  Object.keys(localStorage).forEach(key => {
+    if (key.includes('supabase.auth.token') || key.startsWith('sb-')) {
+      localStorage.removeItem(key);
+    }
+  });
+  sessionStorage.clear();
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [auth, setAuth] = useState<AuthState>({
     user: null,
@@ -19,14 +30,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAuthenticated: false
   });
   const [isInitializing, setIsInitializing] = useState(true);
+  const [initStatus, setInitStatus] = useState("Verifying connection...");
   const [initError, setInitError] = useState<string | null>(null);
+  
   const profileFetchInProgress = useRef(false);
   const initializationStarted = useRef(false);
+  const watchdogTimer = useRef<number | null>(null);
 
   const fetchAndSetProfile = async (sbUser: any, token: string) => {
-    // Prevent concurrent profile fetches which can lead to race conditions
     if (profileFetchInProgress.current) return;
     profileFetchInProgress.current = true;
+    setInitStatus("Synchronizing business profile...");
 
     try {
       const { data: profile, error } = await supabase
@@ -37,17 +51,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) {
         if (error.code === 'PGRST116') {
-          // Check if database is empty for initial admin setup
-          const { count } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true });
-
+          const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true });
           if (count === 0) {
-            const newProfile = { 
-              id: sbUser.id, 
-              name: sbUser.email?.split('@')[0] || 'Admin', 
-              role: UserRole.ADMIN 
-            };
+            const newProfile = { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'Admin', role: UserRole.ADMIN };
             const { data: created } = await supabase.from('profiles').insert([newProfile]).select().single();
             if (created) {
               setAuth({
@@ -59,9 +65,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         }
-        
-        // If profile fetch fails but auth exists, something is wrong with the data layer.
-        // Revert to unauthenticated to allow user to re-login and fix the state.
         setAuth({ user: null, token: null, isAuthenticated: false });
       } else if (profile) {
         setAuth({
@@ -71,8 +74,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     } catch (err) {
-      console.error("Auth initialization error:", err);
-      setInitError("Critical connection failure during profile sync.");
+      console.error("Auth sync failure:", err);
+      // If we fail here, the cache might be bad
+      setInitError("Database synchronization timed out.");
     } finally {
       profileFetchInProgress.current = false;
       setIsInitializing(false);
@@ -84,12 +88,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initializationStarted.current = true;
 
     try {
-      // 1. Proactively get existing session instead of waiting for event listener
       const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (session) {
         await fetchAndSetProfile(session.user, session.access_token);
@@ -97,7 +97,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsInitializing(false);
       }
     } catch (err) {
-      console.error("Session fetch failed:", err);
+      console.error("Initialization error:", err);
+      // Auto-clear on critical failure to prevent "loading loop"
+      clearAuthCache();
       setIsInitializing(false);
     }
   };
@@ -108,20 +110,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Safety watchdog: Max 8 seconds for total initialization
-    const timer = setTimeout(() => {
+    // --- AUTOMATED WATCHDOG ---
+    // If we've been loading for more than 6 seconds, we assume a hang.
+    // We try to auto-heal by clearing storage and refreshing once.
+    watchdogTimer.current = window.setTimeout(() => {
       if (isInitializing) {
-        setInitError("Network timeout: The session is stuck in the loading state.");
+        const hasRecovered = sessionStorage.getItem('zl_auto_recovered');
+        if (!hasRecovered) {
+          sessionStorage.setItem('zl_auto_recovered', 'true');
+          setInitStatus("Detected stall. Auto-clearing cache and recovering...");
+          clearAuthCache();
+          window.location.reload();
+        } else {
+          setInitError("The system is struggling to connect. Please check your network or reset the session below.");
+        }
       }
-    }, 8000);
+    }, 6000);
 
     initializeAuth();
 
-    // 2. Setup listener for *subsequent* changes (like logout from another tab)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session) await fetchAndSetProfile(session.user, session.access_token);
       } else if (event === 'SIGNED_OUT') {
+        clearAuthCache();
         setAuth({ user: null, token: null, isAuthenticated: false });
         setIsInitializing(false);
       }
@@ -129,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       subscription.unsubscribe();
-      clearTimeout(timer);
+      if (watchdogTimer.current) clearTimeout(watchdogTimer.current);
     };
   }, []);
 
@@ -150,15 +162,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       await supabase.auth.signOut();
-    } catch (e) {
-      console.warn("Sign out failed:", e);
     } finally {
-      // Manually scrub all Supabase related keys to prevent "cache-hanging"
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase.auth.token') || key.includes('sb-')) {
-          localStorage.removeItem(key);
-        }
-      });
+      clearAuthCache();
       setAuth({ user: null, token: null, isAuthenticated: false });
       window.location.reload(); 
     }
@@ -171,43 +176,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-        <div className="relative">
-          <div className="w-16 h-16 border-[3px] border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
-          <div className="absolute inset-0 flex items-center justify-center font-bold text-emerald-600 text-xs">ZL</div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 transition-opacity duration-500">
+        <div className="relative mb-8">
+          <div className="w-20 h-20 border-[4px] border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center font-black text-emerald-600">ZL</div>
         </div>
         
-        <p className="mt-8 text-slate-800 font-bold text-lg animate-pulse tracking-tight">Authenticating...</p>
-        <p className="mt-2 text-slate-400 text-xs text-center max-w-xs">Establishing secure bridge to business database clusters.</p>
+        <div className="text-center space-y-2">
+          <p className="text-slate-800 font-bold text-xl tracking-tight">{initStatus}</p>
+          <p className="text-slate-400 text-sm max-w-xs mx-auto leading-relaxed">
+            Please wait while we establish a secure, low-latency bridge to the South African business database.
+          </p>
+        </div>
         
         {initError && (
-          <div className="mt-12 p-8 bg-white border border-slate-200 rounded-[2rem] shadow-2xl shadow-slate-200/50 max-w-sm text-center animate-shake">
-            <div className="flex justify-center mb-4">
-              <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              </div>
+          <div className="mt-12 p-8 bg-white border border-slate-200 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 max-w-sm text-center animate-shake ring-4 ring-rose-50">
+            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             </div>
-            <p className="text-slate-800 font-bold mb-2">{initError}</p>
-            <p className="text-slate-400 text-xs mb-8 leading-relaxed">Browser local storage may contain a stale or corrupt session token. Resetting will clear your local app cache.</p>
+            <p className="text-slate-900 font-black text-lg mb-2">{initError}</p>
+            <p className="text-slate-400 text-xs mb-8 leading-relaxed">Local storage contains a stale session that is blocking your access. This reset will completely clear the app's local memory.</p>
             <button 
               onClick={logout}
-              className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black transition-all shadow-xl shadow-slate-900/20 active:scale-95"
+              className="w-full bg-rose-600 text-white font-bold py-4 rounded-2xl hover:bg-rose-700 transition-all shadow-xl shadow-rose-600/20 active:scale-95"
             >
-              Clear Session & Force Reload
+              Forced Cache Purge & Reload
             </button>
           </div>
         )}
-      </div>
-    );
-  }
-
-  if (!isConfigured()) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 p-6">
-        <div className="max-w-md w-full bg-slate-800 p-10 rounded-3xl border border-slate-700 shadow-2xl text-center">
-           <h1 className="text-white text-2xl font-bold mb-4">Environment Failure</h1>
-           <p className="text-slate-400 leading-relaxed">The application could not detect the required environment variables. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are correctly defined.</p>
-        </div>
       </div>
     );
   }
