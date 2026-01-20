@@ -6,19 +6,37 @@ import {
 import { storage } from '../services/mockStorage';
 import { FilterPanel } from '../components/FilterPanel';
 import { Filters, Business, DailySale, MonthlyExpense } from '../types';
-import { formatZAR, formatDate, formatMonth } from '../utils/formatters';
+import { formatCurrency, formatDate } from '../utils/formatters';
 
 export const Reports: React.FC = () => {
+  const [currency, setCurrency] = useState<'ZAR' | 'PKR'>('ZAR');
+  const [exchangeRate, setExchangeRate] = useState<number>(1);
+  const [isFetchingRate, setIsFetchingRate] = useState(false);
+  
   const [filters, setFilters] = useState<Filters>({
     businessId: 'all',
     dateRange: { start: '', end: '' },
-    timeframe: 'lifetime'
+    selectedMonth: '',
+    timeframe: 'today'
   });
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [sales, setSales] = useState<DailySale[]>([]);
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const fetchExchangeRate = async () => {
+    setIsFetchingRate(true);
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/ZAR');
+      const data = await response.json();
+      if (data?.rates?.PKR) setExchangeRate(data.rates.PKR);
+    } catch (err) {
+      setExchangeRate(15.5); 
+    } finally {
+      setIsFetchingRate(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -39,27 +57,85 @@ export const Reports: React.FC = () => {
       }
     };
     fetchData();
+    fetchExchangeRate();
   }, []);
 
-  const reportData = useMemo(() => {
-    let fSales = sales;
-    let fExpenses = expenses;
+  const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
-    if (filters.businessId !== 'all') {
-      fSales = fSales.filter(s => s.businessId === filters.businessId);
-      fExpenses = fExpenses.filter(e => e.businessId === filters.businessId);
+  const reportData = useMemo(() => {
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
+
+    // 1. Calculate Date Ranges (Consistent with Dashboard)
+    if (filters.dateRange.start || filters.dateRange.end) {
+      startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
+      endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : now;
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      switch (filters.timeframe) {
+        case 'today':
+          startDate = new Date();
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date();
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        case 'yesterday':
+          startDate = new Date();
+          startDate.setDate(now.getDate() - 1);
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date();
+          endDate.setDate(now.getDate() - 1);
+          endDate.setHours(23, 59, 59, 999);
+          break;
+        case 'this_month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = now;
+          break;
+        case 'select_month':
+          if (filters.selectedMonth) {
+            const [year, month] = filters.selectedMonth.split('-').map(Number);
+            startDate = new Date(year, month - 1, 1);
+            endDate = new Date(year, month, 0, 23, 59, 59, 999);
+          } else {
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            endDate = now;
+          }
+          break;
+        case 'lifetime':
+        default:
+          endDate = now;
+          startDate = new Date(2000, 0, 1);
+          break;
+      }
     }
 
-    if (filters.dateRange.start) fSales = fSales.filter(s => s.date >= filters.dateRange.start);
-    if (filters.dateRange.end) fSales = fSales.filter(s => s.date <= filters.dateRange.end);
+    const filterDataByRange = (data: any[], start: Date, end: Date, bizId: string) => {
+      return data.filter(item => {
+        const itemDate = new Date(item.date || item.month + '-01');
+        const inRange = itemDate >= start && itemDate <= end;
+        const matchesBiz = bizId === 'all' || item.businessId === bizId;
+        return inRange && matchesBiz;
+      });
+    };
+
+    const fSales = filterDataByRange(sales, startDate, endDate, filters.businessId);
+    const fExpenses = filterDataByRange(expenses, startDate, endDate, filters.businessId);
 
     const totalSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
     const totalProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
     const totalExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
     const netProfit = totalProfit - totalExpenses;
 
-    return { fSales, fExpenses, totalSales, totalProfit, totalExpenses, netProfit };
-  }, [filters, sales, expenses]);
+    return { 
+      fSales, 
+      fExpenses, 
+      totalSales: convert(totalSales), 
+      totalProfit: convert(totalProfit), 
+      totalExpenses: convert(totalExpenses), 
+      netProfit: convert(netProfit) 
+    };
+  }, [filters, sales, expenses, currency, exchangeRate]);
 
   if (loading) {
     return (
@@ -87,7 +163,15 @@ export const Reports: React.FC = () => {
       </div>
 
       <div className="no-print">
-        <FilterPanel filters={filters} setFilters={setFilters} />
+        <FilterPanel 
+          filters={filters} 
+          setFilters={setFilters} 
+          currency={currency}
+          setCurrency={setCurrency}
+          exchangeRate={exchangeRate}
+          isFetchingRate={isFetchingRate}
+          onRefreshRate={fetchExchangeRate}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -96,21 +180,21 @@ export const Reports: React.FC = () => {
             <DollarSign size={20} />
           </div>
           <p className="text-sm font-medium text-slate-500">Gross Revenue</p>
-          <h3 className="text-xl font-bold text-slate-900">{formatZAR(reportData.totalSales)}</h3>
+          <h3 className="text-xl font-bold text-slate-900">{formatCurrency(reportData.totalSales, currency)}</h3>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="p-3 bg-teal-50 text-teal-600 rounded-xl w-fit mb-4">
             <TrendingUp size={20} />
           </div>
           <p className="text-sm font-medium text-slate-500">Gross Profit</p>
-          <h3 className="text-xl font-bold text-teal-600">{formatZAR(reportData.totalProfit)}</h3>
+          <h3 className="text-xl font-bold text-teal-600">{formatCurrency(reportData.totalProfit, currency)}</h3>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="p-3 bg-rose-50 text-rose-600 rounded-xl w-fit mb-4">
             <ArrowDownCircle size={20} />
           </div>
           <p className="text-sm font-medium text-slate-500">Total Expenses</p>
-          <h3 className="text-xl font-bold text-rose-600">{formatZAR(reportData.totalExpenses)}</h3>
+          <h3 className="text-xl font-bold text-rose-600">{formatCurrency(reportData.totalExpenses, currency)}</h3>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
           <div className="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4">
@@ -118,7 +202,7 @@ export const Reports: React.FC = () => {
           </div>
           <p className="text-sm font-medium text-slate-500">Net Position</p>
           <h3 className={`text-xl font-bold ${reportData.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-            {formatZAR(reportData.netProfit)}
+            {formatCurrency(reportData.netProfit, currency)}
           </h3>
         </div>
       </div>
@@ -136,8 +220,8 @@ export const Reports: React.FC = () => {
               <tr>
                 <th className="px-6 py-4">Business Unit</th>
                 <th className="px-6 py-4">Date</th>
-                <th className="px-6 py-4 text-right">Revenue (ZAR)</th>
-                <th className="px-6 py-4 text-right">Profit (ZAR)</th>
+                <th className="px-6 py-4 text-right">Revenue ({currency})</th>
+                <th className="px-6 py-4 text-right">Profit ({currency})</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -152,8 +236,8 @@ export const Reports: React.FC = () => {
                       {businesses.find(b => b.id === s.businessId)?.name || 'Unknown'}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
-                    <td className="px-6 py-4 text-right text-sm font-medium">{formatZAR(s.salesAmount)}</td>
-                    <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatZAR(s.profitAmount)}</td>
+                    <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
+                    <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
                   </tr>
                 ))
               )}
@@ -162,8 +246,8 @@ export const Reports: React.FC = () => {
               <tfoot className="bg-slate-50 font-black">
                 <tr>
                   <td colSpan={2} className="px-6 py-4 text-xs uppercase tracking-wider text-slate-500">Consolidated Totals</td>
-                  <td className="px-6 py-4 text-right text-slate-900 border-t-2 border-slate-200">{formatZAR(reportData.totalSales)}</td>
-                  <td className="px-6 py-4 text-right text-teal-700 border-t-2 border-slate-200">{formatZAR(reportData.totalProfit)}</td>
+                  <td className="px-6 py-4 text-right text-slate-900 border-t-2 border-slate-200">{formatCurrency(reportData.totalSales, currency)}</td>
+                  <td className="px-6 py-4 text-right text-teal-700 border-t-2 border-slate-200">{formatCurrency(reportData.totalProfit, currency)}</td>
                 </tr>
               </tfoot>
             )}
