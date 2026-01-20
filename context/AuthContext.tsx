@@ -21,8 +21,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isInitializing, setIsInitializing] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
   const profileFetchInProgress = useRef(false);
+  const initializationStarted = useRef(false);
 
   const fetchAndSetProfile = async (sbUser: any, token: string) => {
+    // Prevent concurrent profile fetches which can lead to race conditions
     if (profileFetchInProgress.current) return;
     profileFetchInProgress.current = true;
 
@@ -34,33 +36,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (error) {
-        // Handle case where auth user exists but profile record is missing
         if (error.code === 'PGRST116') {
-          // Check if there are any profiles at all (empty database)
+          // Check if database is empty for initial admin setup
           const { count } = await supabase
             .from('profiles')
             .select('*', { count: 'exact', head: true });
 
           if (count === 0) {
-            // Auto-create initial admin profile if it's the very first user
-            const newProfile = { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'Admin', role: UserRole.ADMIN };
-            const { data: created, error: createError } = await supabase.from('profiles').insert([newProfile]).select().single();
+            const newProfile = { 
+              id: sbUser.id, 
+              name: sbUser.email?.split('@')[0] || 'Admin', 
+              role: UserRole.ADMIN 
+            };
+            const { data: created } = await supabase.from('profiles').insert([newProfile]).select().single();
             if (created) {
               setAuth({
                 user: { id: created.id, name: created.name, email: sbUser.email, role: created.role as UserRole },
                 token,
                 isAuthenticated: true
               });
-              setIsInitializing(false);
               return;
-            } else {
-              console.error("Failed to create initial profile:", createError);
             }
           }
         }
         
-        // If profile fetch fails but user exists, it's a data sync error
-        console.warn("Auth sync issue: Profile record missing or inaccessible.");
+        // If profile fetch fails but auth exists, something is wrong with the data layer.
+        // Revert to unauthenticated to allow user to re-login and fix the state.
         setAuth({ user: null, token: null, isAuthenticated: false });
       } else if (profile) {
         setAuth({
@@ -70,10 +71,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     } catch (err) {
-      console.error("Critical Auth Sync Error:", err);
-      setInitError("Network timeout during profile synchronization.");
+      console.error("Auth initialization error:", err);
+      setInitError("Critical connection failure during profile sync.");
     } finally {
       profileFetchInProgress.current = false;
+      setIsInitializing(false);
+    }
+  };
+
+  const initializeAuth = async () => {
+    if (initializationStarted.current) return;
+    initializationStarted.current = true;
+
+    try {
+      // 1. Proactively get existing session instead of waiting for event listener
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        throw error;
+      }
+
+      if (session) {
+        await fetchAndSetProfile(session.user, session.access_token);
+      } else {
+        setIsInitializing(false);
+      }
+    } catch (err) {
+      console.error("Session fetch failed:", err);
       setIsInitializing(false);
     }
   };
@@ -84,17 +108,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Safety watchdog: If it takes more than 10 seconds, stop the spinner and show error
+    // Safety watchdog: Max 8 seconds for total initialization
     const timer = setTimeout(() => {
       if (isInitializing) {
-        setInitError("The session is taking longer than expected to load.");
+        setInitError("Network timeout: The session is stuck in the loading state.");
       }
-    }, 10000);
+    }, 8000);
 
+    initializeAuth();
+
+    // 2. Setup listener for *subsequent* changes (like logout from another tab)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
-        await fetchAndSetProfile(session.user, session.access_token);
-      } else {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (session) await fetchAndSetProfile(session.user, session.access_token);
+      } else if (event === 'SIGNED_OUT') {
         setAuth({ user: null, token: null, isAuthenticated: false });
         setIsInitializing(false);
       }
@@ -124,11 +151,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await supabase.auth.signOut();
     } catch (e) {
-      console.warn("Sign out encountered an error:", e);
+      console.warn("Sign out failed:", e);
     } finally {
-      localStorage.clear(); // Force clear local storage to fix "hangs"
+      // Manually scrub all Supabase related keys to prevent "cache-hanging"
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('supabase.auth.token') || key.includes('sb-')) {
+          localStorage.removeItem(key);
+        }
+      });
       setAuth({ user: null, token: null, isAuthenticated: false });
-      window.location.reload(); // Refresh to clean state
+      window.location.reload(); 
     }
   };
 
@@ -140,19 +172,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   if (isInitializing) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
-        <div className="w-14 h-14 border-[3px] border-emerald-100 border-t-emerald-600 rounded-full animate-spin mb-6"></div>
-        <p className="text-slate-600 font-bold tracking-tight mb-2 animate-pulse text-lg">ZARlytics is Loading...</p>
-        <p className="text-slate-400 text-sm max-w-xs text-center leading-relaxed">Verifying secure encrypted connection to South African business cluster...</p>
+        <div className="relative">
+          <div className="w-16 h-16 border-[3px] border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center font-bold text-emerald-600 text-xs">ZL</div>
+        </div>
+        
+        <p className="mt-8 text-slate-800 font-bold text-lg animate-pulse tracking-tight">Authenticating...</p>
+        <p className="mt-2 text-slate-400 text-xs text-center max-w-xs">Establishing secure bridge to business database clusters.</p>
         
         {initError && (
-          <div className="mt-12 p-6 bg-white border border-slate-200 rounded-2xl shadow-xl shadow-slate-200/50 max-w-sm text-center animate-shake">
-            <p className="text-slate-700 font-semibold mb-2">{initError}</p>
-            <p className="text-slate-400 text-xs mb-6">Your session may have become corrupted in the browser cache.</p>
+          <div className="mt-12 p-8 bg-white border border-slate-200 rounded-[2rem] shadow-2xl shadow-slate-200/50 max-w-sm text-center animate-shake">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              </div>
+            </div>
+            <p className="text-slate-800 font-bold mb-2">{initError}</p>
+            <p className="text-slate-400 text-xs mb-8 leading-relaxed">Browser local storage may contain a stale or corrupt session token. Resetting will clear your local app cache.</p>
             <button 
               onClick={logout}
-              className="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-600/20"
+              className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black transition-all shadow-xl shadow-slate-900/20 active:scale-95"
             >
-              Reset Session & Logout
+              Clear Session & Force Reload
             </button>
           </div>
         )}
@@ -164,8 +205,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 p-6">
         <div className="max-w-md w-full bg-slate-800 p-10 rounded-3xl border border-slate-700 shadow-2xl text-center">
-           <h1 className="text-white text-2xl font-bold mb-4">Configuration Error</h1>
-           <p className="text-slate-400 leading-relaxed">Environment variables missing. ZARlytics requires a valid Supabase URL and Anon Key to initialize.</p>
+           <h1 className="text-white text-2xl font-bold mb-4">Environment Failure</h1>
+           <p className="text-slate-400 leading-relaxed">The application could not detect the required environment variables. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are correctly defined.</p>
         </div>
       </div>
     );

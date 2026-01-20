@@ -14,7 +14,7 @@ const mapToDb = (obj: any) => {
 };
 
 const mapFromDb = (obj: any) => {
-  if (!obj) return null;
+  if (!obj || typeof obj !== 'object') return null;
   const mapped: any = {};
   for (const key in obj) {
     const camelKey = key.replace(/([-_][a-z])/g, group =>
@@ -27,9 +27,14 @@ const mapFromDb = (obj: any) => {
 
 export const storage = {
   getBusinesses: async (): Promise<Business[]> => {
-    const { data, error } = await supabase.from('businesses').select('*').order('name');
-    if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb).filter(Boolean);
+    try {
+      const { data, error } = await supabase.from('businesses').select('*').order('name');
+      if (error) throw error;
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Businesses):", err);
+      return [];
+    }
   },
   saveBusiness: async (business: Partial<Business>) => {
     const payload = mapToDb(business);
@@ -44,9 +49,14 @@ export const storage = {
   },
 
   getSales: async (): Promise<DailySale[]> => {
-    const { data, error } = await supabase.from('sales').select('*').order('date', { ascending: false });
-    if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb).filter(Boolean);
+    try {
+      const { data, error } = await supabase.from('sales').select('*').order('date', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Sales):", err);
+      return [];
+    }
   },
   saveSale: async (sale: Partial<DailySale>) => {
     const payload = mapToDb(sale);
@@ -62,9 +72,14 @@ export const storage = {
   },
 
   getExpenses: async (): Promise<MonthlyExpense[]> => {
-    const { data, error } = await supabase.from('expenses').select('*').order('month', { ascending: false });
-    if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb).filter(Boolean);
+    try {
+      const { data, error } = await supabase.from('expenses').select('*').order('month', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Expenses):", err);
+      return [];
+    }
   },
   saveExpense: async (expense: Partial<MonthlyExpense>) => {
     const payload = mapToDb(expense);
@@ -80,9 +95,14 @@ export const storage = {
   },
 
   getUsers: async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('profiles').select('*').order('name');
-    if (error) throw new Error(error.message);
-    return (data || []).map(mapFromDb).filter(Boolean);
+    try {
+      const { data, error } = await supabase.from('profiles').select('*').order('name');
+      if (error) throw error;
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Users):", err);
+      return [];
+    }
   },
   
   createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
