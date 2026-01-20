@@ -9,7 +9,6 @@
     "react-router-dom": "^7.1.0",
     "lucide-react": "^0.473.0",
     "recharts": "^2.15.0",
-    "@supabase/supabase-js": "^2.48.1",
-    "@google/genai": "0.21.0"
+    "@supabase/supabase-js": "^2.48.1"
   }
 }
