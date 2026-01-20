@@ -11,6 +11,7 @@ import { Reports } from './pages/Reports';
 import { UsersPage } from './pages/Users';
 import { Businesses } from './pages/Businesses';
 import { Profile } from './pages/Profile';
+import { Reminders } from './pages/Reminders';
 import { UserRole } from './types';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode, roles?: UserRole[] }> = ({ children, roles }) => {
@@ -62,6 +63,12 @@ const App: React.FC = () => {
           <Route path="/profile" element={
             <ProtectedRoute>
               <Profile />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/reminders" element={
+            <ProtectedRoute roles={[UserRole.ADMIN]}>
+              <Reminders />
             </ProtectedRoute>
           } />
 

@@ -38,6 +38,18 @@ export interface MonthlyExpense {
   createdAt: string;
 }
 
+export interface Reminder {
+  id: string;
+  businessId: string;
+  businessName: string;
+  date: string;
+  sentBy: string;
+  sentByUserName: string;
+  status: 'pending' | 'read';
+  type: 'user_sent' | 'system_alert'; // Differentiate between user-triggered and auto-generated
+  createdAt: string;
+}
+
 export interface Filters {
   businessId: string;
   dateRange: {
@@ -51,4 +63,16 @@ export interface AuthState {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
+}
+
+export interface Notification {
+  id: string;
+  title: string;
+  description: string;
+  type: 'warning' | 'info' | 'success' | 'urgent';
+  timestamp: string;
+  link?: string;
+  isRead: boolean;
+  actionLabel?: string;
+  businessId?: string;
 }

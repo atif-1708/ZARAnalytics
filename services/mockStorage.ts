@@ -1,7 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
-import { Business, DailySale, MonthlyExpense, User, UserRole } from '../types';
+import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder } from '../types';
 
 const mapToDb = (obj: any) => {
   if (!obj) return null;
@@ -91,6 +91,29 @@ export const storage = {
   },
   deleteExpense: async (id: string) => {
     const { error } = await supabase.from('expenses').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
+  // Reminders Support
+  getReminders: async (): Promise<Reminder[]> => {
+    try {
+      const { data, error } = await supabase.from('reminders').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Reminders):", err);
+      return [];
+    }
+  },
+  saveReminder: async (reminder: Partial<Reminder>) => {
+    const payload = mapToDb(reminder);
+    const operation = payload.id ? supabase.from('reminders').upsert(payload) : supabase.from('reminders').insert(payload);
+    const { data, error } = await operation.select().single();
+    if (error) throw new Error(error.message);
+    return mapFromDb(data);
+  },
+  deleteReminder: async (id: string) => {
+    const { error } = await supabase.from('reminders').delete().eq('id', id);
     if (error) throw new Error(error.message);
   },
 
