@@ -20,7 +20,8 @@ import {
   CheckCircle2,
   BellRing,
   Wallet,
-  Clock
+  Clock,
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Notification, Business, DailySale, Reminder, MonthlyExpense } from '../types';
@@ -33,13 +34,14 @@ interface SidebarItemProps {
   active: boolean;
   onClick?: () => void;
   badge?: number;
+  hasNew?: boolean;
 }
 
-const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onClick, badge }) => (
+const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onClick, badge, hasNew }) => (
   <Link
     to={to}
     onClick={onClick}
-    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 relative group ${
       active 
         ? 'bg-teal-600 text-white shadow-lg shadow-teal-900/20' 
         : 'text-slate-400 hover:bg-slate-800 hover:text-white'
@@ -47,11 +49,20 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
   >
     {icon}
     <span className="font-medium">{label}</span>
+    
+    {/* NEW Indicator for standard user tabs */}
+    {hasNew && !active && (
+      <span className="ml-auto flex items-center gap-1 bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md animate-bounce shadow-lg shadow-blue-500/30">
+        <Sparkles size={8} /> NEW
+      </span>
+    )}
+
+    {/* Numeric Badge (e.g. for Reminders) */}
     {badge && badge > 0 ? (
-      <span className="ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse scale-110 shadow-lg shadow-rose-900/50">
+      <span className={`ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badge > 0 ? 'animate-pulse scale-110' : ''}`}>
         {badge}
       </span>
-    ) : active && <ChevronRight className="ml-auto w-4 h-4" />}
+    ) : (active && !hasNew) && <ChevronRight className="ml-auto w-4 h-4" />}
   </Link>
 );
 
@@ -64,13 +75,23 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [remindersCount, setRemindersCount] = useState(0);
   const [shouldShake, setShouldShake] = useState(false);
-  const notifRef = useRef<HTMLDivElement>(null);
   
+  // Tab-specific alert states
+  const [hasNewSales, setHasNewSales] = useState(false);
+  const [hasNewExpenses, setHasNewExpenses] = useState(false);
+
+  const notifRef = useRef<HTMLDivElement>(null);
   const lastSalesIds = useRef<Set<string> | null>(null);
   const lastExpenseIds = useRef<Set<string> | null>(null);
   const lastReminderIds = useRef<Set<string> | null>(null);
 
   const isAdmin = user?.role === UserRole.ADMIN;
+
+  // Clear alerts when visiting the tabs
+  useEffect(() => {
+    if (location.pathname === '/sales') setHasNewSales(false);
+    if (location.pathname === '/expenses') setHasNewExpenses(false);
+  }, [location.pathname]);
 
   const isPast10PMPakistan = () => {
     try {
@@ -119,44 +140,52 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           });
         });
 
-        // 2. NEW ACTIVITY DETECTION
+        // 2. NEW ACTIVITY DETECTION & TAB ALERTS
         
         // --- Sales (For Users) ---
         if (!isAdmin) {
           const currentSalesIds = new Set(sales.map(s => s.id));
           if (lastSalesIds.current !== null) {
-            sales.filter(s => !lastSalesIds.current!.has(s.id)).forEach(sale => {
-              const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
-              activeNotifs.push({
-                id: `sale-added-${sale.id}`,
-                title: "New Sale Published",
-                description: `Admin recorded a sale for ${bizName}.`,
-                type: 'info',
-                timestamp: new Date().toISOString(),
-                isRead: false,
-                actionLabel: 'View Record',
-                link: '/sales'
+            const addedSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
+            if (addedSales.length > 0) {
+              setHasNewSales(true); // TRIGGER TAB ALERT
+              addedSales.forEach(sale => {
+                const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
+                activeNotifs.push({
+                  id: `sale-added-${sale.id}`,
+                  title: "New Sale Published",
+                  description: `Admin recorded a sale for ${bizName}.`,
+                  type: 'info',
+                  timestamp: new Date().toISOString(),
+                  isRead: false,
+                  actionLabel: 'View Record',
+                  link: '/sales'
+                });
               });
-            });
+            }
           }
           lastSalesIds.current = currentSalesIds;
 
           // --- Expenses (For Users) ---
           const currentExpenseIds = new Set(expenses.map(e => e.id));
           if (lastExpenseIds.current !== null) {
-            expenses.filter(e => !lastExpenseIds.current!.has(e.id)).forEach(exp => {
-              const bizName = businesses.find(b => b.id === exp.businessId)?.name || 'a business';
-              activeNotifs.push({
-                id: `expense-added-${exp.id}`,
-                title: "New Expense Logged",
-                description: `Admin updated operational costs for ${bizName}.`,
-                type: 'info',
-                timestamp: new Date().toISOString(),
-                isRead: false,
-                actionLabel: 'View Expenses',
-                link: '/expenses'
+            const addedExpenses = expenses.filter(e => !lastExpenseIds.current!.has(e.id));
+            if (addedExpenses.length > 0) {
+              setHasNewExpenses(true); // TRIGGER TAB ALERT
+              addedExpenses.forEach(exp => {
+                const bizName = businesses.find(b => b.id === exp.businessId)?.name || 'a business';
+                activeNotifs.push({
+                  id: `expense-added-${exp.id}`,
+                  title: "New Expense Logged",
+                  description: `Admin updated operational costs for ${bizName}.`,
+                  type: 'info',
+                  timestamp: new Date().toISOString(),
+                  isRead: false,
+                  actionLabel: 'View Expenses',
+                  link: '/expenses'
+                });
               });
-            });
+            }
           }
           lastExpenseIds.current = currentExpenseIds;
         }
@@ -164,8 +193,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         // --- Reminders (For Admins) ---
         if (isAdmin) {
           const currentReminderIds = new Set(reminders.map(r => r.id));
-          
-          // Show persistent alert for ANY pending reminder, not just new ones
           const pendingFromUsers = reminders.filter(r => r.status === 'pending');
           if (pendingFromUsers.length > 0) {
             activeNotifs.push({
@@ -180,7 +207,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             });
           }
 
-          // Also catch NEWLY arrived reminders to trigger shake/pulse
           if (lastReminderIds.current !== null) {
             const added = reminders.filter(r => !lastReminderIds.current!.has(r.id) && r.status === 'pending');
             if (added.length > 0) {
@@ -191,7 +217,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           lastReminderIds.current = currentReminderIds;
         }
 
-        // Apply findings to state with smart merging
+        // Apply findings to notifications
         setNotifications(prev => {
           const prevIds = new Set(prev.map(n => n.id));
           const toAdd = activeNotifs.filter(n => !prevIds.has(n.id));
@@ -201,9 +227,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             setTimeout(() => setShouldShake(false), 1000);
           }
           
-          // Keep active ones and previously detected ones that are still relevant
           const combined = [...toAdd, ...prev].filter(n => {
-            // Cleanup missing-sale alerts for previous days
             if (n.id.startsWith('missing-sale-') && !n.id.endsWith(today)) return false;
             return true;
           });
@@ -211,7 +235,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           return combined.slice(0, 20);
         });
 
-        // 4. SIDEBAR BADGE CALCULATION
+        // 3. SIDEBAR BADGE CALCULATION
         const missingCount = missingBusinesses.length;
         if (isAdmin) {
           const pendingReminderCount = reminders.filter(r => r.status === 'pending').length;
@@ -225,9 +249,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 5000); // 5s polling for better "real-time" feel
+    const interval = setInterval(checkAlerts, 5000); 
     return () => clearInterval(interval);
-  }, [user, location.pathname]);
+  }, [user]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -242,8 +266,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const menuItems = [
     { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
     { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
-    { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
-    { to: '/expenses', label: 'Monthly Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
+    { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.USER], hasNew: hasNewSales },
+    { to: '/expenses', label: 'Monthly Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.USER], hasNew: hasNewExpenses },
     { to: '/reports', label: 'Reports', icon: <FileBarChart size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
     { to: '/reminders', label: 'Reminders', icon: <Send size={20} />, roles: [UserRole.ADMIN, UserRole.USER], badge: remindersCount },
     { to: '/users', label: 'User Management', icon: <Users size={20} />, roles: [UserRole.ADMIN] },
@@ -273,7 +297,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
           <nav className="space-y-2">
             {filteredItems.map((item) => (
-              <SidebarItem key={item.to} {...item} active={location.pathname === item.to} onClick={() => setIsSidebarOpen(false)} />
+              <SidebarItem 
+                key={item.to} 
+                {...item} 
+                active={location.pathname === item.to} 
+                onClick={() => setIsSidebarOpen(false)} 
+              />
             ))}
           </nav>
         </div>
