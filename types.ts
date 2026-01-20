@@ -1,4 +1,3 @@
-
 export enum UserRole {
   ADMIN = 'ADMIN',
   USER = 'USER'
@@ -56,7 +55,8 @@ export interface Filters {
     start: string;
     end: string;
   };
-  timeframe: 'day' | 'month' | 'year' | 'lifetime';
+  selectedMonth: string; // For YYYY-MM specific filtering
+  timeframe: 'today' | 'yesterday' | 'this_month' | 'select_month' | 'custom_range' | 'lifetime';
 }
 
 export interface AuthState {
