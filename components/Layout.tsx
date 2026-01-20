@@ -46,7 +46,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
     {icon}
     <span className="font-medium">{label}</span>
     {badge ? (
-      <span className="ml-auto bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse">
+      <span className={`ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badge > 0 ? 'animate-pulse scale-110 shadow-lg shadow-rose-900/50' : ''}`}>
         {badge}
       </span>
     ) : active && <ChevronRight className="ml-auto w-4 h-4" />}
@@ -63,7 +63,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [remindersCount, setRemindersCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
   
-  // Track specific IDs rather than just count for more accurate 'new sale' detection
   const lastSalesIds = useRef<Set<string> | null>(null);
 
   const isAdmin = user?.role === UserRole.ADMIN;
@@ -96,7 +95,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         const isUrgentWindow = isPast10PMPakistan();
         const newNotifs: Notification[] = [];
 
-        // 1. Missing Entry Alerts (For Everyone)
+        // 1. Missing Entry Alerts
         businesses.forEach(business => {
           const hasSaleToday = sales.some(s => s.businessId === business.id && s.date === today);
           if (!hasSaleToday) {
@@ -108,26 +107,23 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 : `No sales record found for ${business.name} today.`,
               type: isUrgentWindow ? 'urgent' : 'warning',
               timestamp: new Date().toISOString(),
-              link: isAdmin ? '/sales' : '/reminders',
+              link: '/reminders', // Ensure both roles go to Reminders page to see missing entries
               isRead: false,
-              actionLabel: isAdmin ? 'Enter Now' : 'Go to Reminders',
+              actionLabel: 'Go to Reminders',
               businessId: business.id
             });
           }
         });
 
-        // 2. DETECT NEW SALES: Show to standard users when Admin adds something
+        // 2. DETECT NEW SALES: Only show to standard users when Admin adds something
         if (!isAdmin) {
           const currentIds = new Set(sales.map(s => s.id));
-          
           if (lastSalesIds.current !== null) {
-            // Find IDs present in current fetch but not in the last one
             const newSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
-            
             newSales.forEach(sale => {
               const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
               newNotifs.push({
-                id: `sale-added-${sale.id}-${Date.now()}`, // Unique ID per detection
+                id: `sale-added-${sale.id}-${Date.now()}`,
                 title: "Admin Published Sale",
                 description: `A new sales entry for ${bizName} was successfully recorded.`,
                 type: 'info',
@@ -138,11 +134,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               });
             });
           }
-          // Update known IDs for next interval
           lastSalesIds.current = currentIds;
         }
 
-        // Apply new notifications to state with deduplication
         setNotifications(prev => {
           const existingIds = new Set(prev.map(n => n.id));
           const filteredNew = newNotifs.filter(n => !existingIds.has(n.id));
@@ -150,12 +144,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           return [...filteredNew, ...prev].slice(0, 15);
         });
 
-        // 3. Update Sidebar Badge
+        // 3. Update Sidebar Badge (Admin logic: User alerts + Missing entries)
+        const missingCount = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today)).length;
         if (isAdmin) {
-          setRemindersCount(reminders.filter(r => r.status === 'pending').length);
+          const userSentReminders = reminders.filter(r => r.status === 'pending').length;
+          setRemindersCount(userSentReminders + missingCount);
         } else {
-          // Users see badge for missing entries they should care about
-          const missingCount = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today)).length;
           setRemindersCount(missingCount);
         }
       } catch (err) {
@@ -164,7 +158,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 10000); // Check every 10 seconds
+    const interval = setInterval(checkAlerts, 10000);
     return () => clearInterval(interval);
   }, [user, location.pathname]);
 

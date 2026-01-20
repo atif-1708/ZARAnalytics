@@ -67,7 +67,7 @@ const App: React.FC = () => {
           } />
 
           <Route path="/reminders" element={
-            <ProtectedRoute roles={[UserRole.ADMIN]}>
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.USER]}>
               <Reminders />
             </ProtectedRoute>
           } />
