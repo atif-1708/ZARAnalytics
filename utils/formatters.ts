@@ -7,6 +7,19 @@ export const formatZAR = (amount: number): string => {
   }).format(amount);
 };
 
+export const formatPKR = (amount: number): string => {
+  return new Intl.NumberFormat('en-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: 2
+  }).format(amount);
+};
+
+export const formatCurrency = (amount: number, currency: 'ZAR' | 'PKR'): string => {
+  if (currency === 'PKR') return formatPKR(amount);
+  return formatZAR(amount);
+};
+
 export const formatDate = (dateString: string): string => {
   return new Date(dateString).toLocaleDateString('en-ZA', {
     year: 'numeric',

@@ -13,7 +13,9 @@ import {
   Target,
   Zap,
   LayoutGrid,
-  ArrowUpRight
+  ArrowUpRight,
+  RefreshCw,
+  Coins
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -23,18 +25,40 @@ import { StatCard } from '../components/StatCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { Filters, DailySale, MonthlyExpense, Business } from '../types';
 import { storage } from '../services/mockStorage';
-import { formatZAR } from '../utils/formatters';
+import { formatCurrency, formatZAR, formatPKR } from '../utils/formatters';
 
 export const Dashboard: React.FC = () => {
   const [sales, setSales] = useState<DailySale[]>([]);
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currency, setCurrency] = useState<'ZAR' | 'PKR'>('ZAR');
+  const [exchangeRate, setExchangeRate] = useState<number>(1);
+  const [isFetchingRate, setIsFetchingRate] = useState(false);
+  
   const [filters, setFilters] = useState<Filters>({
     businessId: 'all',
     dateRange: { start: '', end: '' },
     timeframe: 'lifetime'
   });
+
+  const fetchExchangeRate = async () => {
+    setIsFetchingRate(true);
+    try {
+      // Fetching live ZAR to PKR rate from a reliable free public API
+      const response = await fetch('https://open.er-api.com/v6/latest/ZAR');
+      const data = await response.json();
+      if (data && data.rates && data.rates.PKR) {
+        setExchangeRate(data.rates.PKR);
+      }
+    } catch (err) {
+      console.error("Currency API Error:", err);
+      // Fallback rate if API fails
+      setExchangeRate(15.5); 
+    } finally {
+      setIsFetchingRate(false);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -56,7 +80,10 @@ export const Dashboard: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    fetchExchangeRate();
   }, []);
+
+  const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
   const dashboardMetrics = useMemo(() => {
     let fSales = sales;
@@ -72,17 +99,23 @@ export const Dashboard: React.FC = () => {
     if (filters.dateRange.end) fSales = fSales.filter(s => s.date <= filters.dateRange.end);
 
     // Totals
-    const totalSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
-    const totalProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
-    const totalExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
-    const netProfit = totalProfit - totalExpenses;
+    const rawTotalSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+    const rawTotalProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
+    const rawTotalExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
+    const rawNetProfit = rawTotalProfit - rawTotalExpenses;
+
+    // Convert values
+    const totalSales = convert(rawTotalSales);
+    const totalProfit = convert(rawTotalProfit);
+    const totalExpenses = convert(rawTotalExpenses);
+    const netProfit = convert(rawNetProfit);
 
     // Chart Data
     const sortedSales = [...fSales].sort((a, b) => a.date.localeCompare(b.date)).slice(-15);
     const dailyMetricsChart = sortedSales.map(s => ({ 
       name: s.date.split('-').slice(1).join('/'),
-      profit: s.profitAmount,
-      sales: s.salesAmount 
+      profit: convert(s.profitAmount),
+      sales: convert(s.salesAmount) 
     }));
 
     // Ranking Logic (When All Businesses is selected)
@@ -100,8 +133,8 @@ export const Dashboard: React.FC = () => {
         id: biz.id,
         name: biz.name,
         location: biz.location,
-        totalSales: totalBizSales,
-        totalProfit: totalBizProfit,
+        totalSales: convert(totalBizSales),
+        totalProfit: convert(totalBizProfit),
         margin: margin,
         count: filteredBizSales.length
       };
@@ -120,7 +153,7 @@ export const Dashboard: React.FC = () => {
       topByRevenue,
       topByMargin
     };
-  }, [filters, sales, expenses, businesses]);
+  }, [filters, sales, expenses, businesses, currency, exchangeRate]);
 
   if (loading) {
     return (
@@ -135,14 +168,59 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <FilterPanel filters={filters} setFilters={setFilters} />
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="flex-1 w-full">
+          <FilterPanel filters={filters} setFilters={setFilters} />
+        </div>
+        
+        {/* Currency Switcher */}
+        <div className="flex items-center bg-white p-1 rounded-2xl border border-slate-200 shadow-sm self-stretch md:self-auto no-print">
+          <button 
+            onClick={() => setCurrency('ZAR')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${currency === 'ZAR' ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            ZAR (R)
+          </button>
+          <button 
+            onClick={() => {
+              if (exchangeRate === 1) fetchExchangeRate();
+              setCurrency('PKR');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${currency === 'PKR' ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/20' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <Coins size={14} />
+            PKR (₨)
+          </button>
+          {currency === 'PKR' && (
+            <button 
+              onClick={fetchExchangeRate}
+              className={`p-2 text-slate-400 hover:text-teal-600 transition-transform ${isFetchingRate ? 'animate-spin' : ''}`}
+              title={`1 ZAR = ${exchangeRate.toFixed(2)} PKR (Refresh)`}
+            >
+              <RefreshCw size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {currency === 'PKR' && (
+        <div className="bg-teal-50 border border-teal-100 p-3 rounded-xl flex items-center justify-between no-print">
+          <div className="flex items-center gap-2 text-teal-800 text-[10px] font-bold uppercase tracking-widest">
+            <Coins size={14} className="text-teal-600" />
+            Live Conversion Active
+          </div>
+          <div className="text-[10px] text-teal-600 font-black">
+            1 ZAR = ₨ {exchangeRate.toFixed(4)} PKR
+          </div>
+        </div>
+      )}
 
       {/* High-Level Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Total Revenue" value={dashboardMetrics.totalSales} icon={DollarSign} color="emerald" />
-        <StatCard label="Gross Profit" value={dashboardMetrics.totalProfit} icon={TrendingUp} color="teal" />
-        <StatCard label="Business Expenses" value={dashboardMetrics.totalExpenses} icon={ArrowDownCircle} color="rose" />
-        <StatCard label="Net Income" value={dashboardMetrics.netProfit} icon={Briefcase} color="blue" />
+        <StatCard label="Total Revenue" value={formatCurrency(dashboardMetrics.totalSales, currency)} icon={DollarSign} color="emerald" />
+        <StatCard label="Gross Profit" value={formatCurrency(dashboardMetrics.totalProfit, currency)} icon={TrendingUp} color="teal" />
+        <StatCard label="Business Expenses" value={formatCurrency(dashboardMetrics.totalExpenses, currency)} icon={ArrowDownCircle} color="rose" />
+        <StatCard label="Net Income" value={formatCurrency(dashboardMetrics.netProfit, currency)} icon={Briefcase} color="blue" />
       </div>
 
       {/* Comparison Highlights (All Businesses View) */}
@@ -159,7 +237,7 @@ export const Dashboard: React.FC = () => {
             </div>
             <h4 className="text-xl font-black text-slate-800 mb-1">{dashboardMetrics.topByRevenue?.name}</h4>
             <div className="flex items-center gap-2 text-2xl font-black text-emerald-600">
-              {formatZAR(dashboardMetrics.topByRevenue?.totalSales || 0)}
+              {formatCurrency(dashboardMetrics.topByRevenue?.totalSales || 0, currency)}
               <ArrowUpRight size={20} />
             </div>
             <p className="text-xs text-slate-400 mt-2 font-medium">Ranked #1 by total volume across {dashboardMetrics.topByRevenue?.count} records</p>
@@ -191,7 +269,7 @@ export const Dashboard: React.FC = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="flex items-center gap-2 mb-6 text-slate-800">
               <LayoutGrid size={20} className="text-indigo-600" />
-              <h3 className="font-bold">Revenue Comparison (Top to Low)</h3>
+              <h3 className="font-bold">Revenue Comparison ({currency})</h3>
             </div>
             <div className="h-[350px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -206,7 +284,7 @@ export const Dashboard: React.FC = () => {
                     fontSize={10} 
                     tickLine={false} 
                     axisLine={false} 
-                    tickFormatter={(v) => `R${v/1000}k`} 
+                    tickFormatter={(v) => currency === 'ZAR' ? `R${v/1000}k` : `₨${(v/1000).toFixed(0)}k`} 
                   />
                   <YAxis 
                     dataKey="name" 
@@ -218,7 +296,7 @@ export const Dashboard: React.FC = () => {
                   />
                   <Tooltip 
                     cursor={{ fill: '#f8fafc' }}
-                    formatter={(v: number) => [formatZAR(v), 'Total Revenue']} 
+                    formatter={(v: number) => [formatCurrency(v, currency), 'Total Revenue']} 
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
                   />
                   <Bar dataKey="totalSales" radius={[0, 4, 4, 0]} barSize={20}>
@@ -234,17 +312,17 @@ export const Dashboard: React.FC = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="flex items-center gap-2 mb-6 text-slate-800">
               <BarChart3 size={20} className="text-emerald-600" />
-              <h3 className="font-bold">Daily Revenue Trends</h3>
+              <h3 className="font-bold">Daily Revenue Trends ({currency})</h3>
             </div>
             <div className="h-[350px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dashboardMetrics.dailyMetricsChart}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
-                  <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `R${v/1000}k`} />
+                  <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => currency === 'ZAR' ? `R${v/1000}k` : `₨${(v/1000).toFixed(0)}k`} />
                   <Tooltip 
                     cursor={{ fill: 'transparent' }}
-                    formatter={(v: number) => [formatZAR(v), 'Daily Revenue']} 
+                    formatter={(v: number) => [formatCurrency(v, currency), 'Daily Revenue']} 
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
                   />
                   <Bar 
@@ -263,16 +341,16 @@ export const Dashboard: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center gap-2 mb-6 text-slate-800">
             <LineChartIcon size={20} className="text-teal-600" />
-            <h3 className="font-bold">Profit Velocity</h3>
+            <h3 className="font-bold">Profit Velocity ({currency})</h3>
           </div>
           <div className="h-[350px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={dashboardMetrics.dailyMetricsChart}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `R${v/1000}k`} />
+                <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => currency === 'ZAR' ? `R${v/1000}k` : `₨${(v/1000).toFixed(0)}k`} />
                 <Tooltip 
-                  formatter={(v: number) => [formatZAR(v), 'Gross Profit']} 
+                  formatter={(v: number) => [formatCurrency(v, currency), 'Gross Profit']} 
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
                 />
                 <Line 
@@ -306,8 +384,8 @@ export const Dashboard: React.FC = () => {
                   <th className="px-6 py-4">Rank</th>
                   <th className="px-6 py-4">Business Unit</th>
                   <th className="px-6 py-4 text-right">Records</th>
-                  <th className="px-6 py-4 text-right">Total Revenue</th>
-                  <th className="px-6 py-4 text-right">Gross Profit</th>
+                  <th className="px-6 py-4 text-right">Revenue ({currency})</th>
+                  <th className="px-6 py-4 text-right">Gross Profit ({currency})</th>
                   <th className="px-6 py-4">Efficiency</th>
                 </tr>
               </thead>
@@ -331,8 +409,8 @@ export const Dashboard: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right font-medium text-slate-600">{biz.count}</td>
-                    <td className="px-6 py-4 text-right font-bold text-slate-900">{formatZAR(biz.totalSales)}</td>
-                    <td className="px-6 py-4 text-right font-bold text-emerald-600">{formatZAR(biz.totalProfit)}</td>
+                    <td className="px-6 py-4 text-right font-bold text-slate-900">{formatCurrency(biz.totalSales, currency)}</td>
+                    <td className="px-6 py-4 text-right font-bold text-emerald-600">{formatCurrency(biz.totalProfit, currency)}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden shrink-0">

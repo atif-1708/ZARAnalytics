@@ -1,11 +1,10 @@
 
 import React from 'react';
 import { LucideIcon } from 'lucide-react';
-import { formatZAR } from '../utils/formatters';
 
 interface StatCardProps {
   label: string;
-  value: number;
+  value: string; // Changed from number to string to handle formatted currency
   icon: LucideIcon;
   trend?: {
     value: number;
@@ -37,7 +36,7 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon: Icon, tr
       </div>
       <div>
         <p className="text-sm font-medium text-slate-500 mb-1">{label}</p>
-        <h3 className="text-2xl font-bold text-slate-900">{formatZAR(value)}</h3>
+        <h3 className="text-2xl font-bold text-slate-900 truncate" title={value}>{value}</h3>
       </div>
     </div>
   );
