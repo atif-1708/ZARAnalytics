@@ -7,11 +7,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-        window.process = { 
-          env: { NODE_ENV: 'production' },
-          cwd: () => '/',
-          browser: true
-        };
+        window.process = window.process || {};
+        window.process.env = window.process.env || {};
+        window.process.env.NODE_ENV = window.process.env.NODE_ENV || 'production';
     </script>
     <style>
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: #f8fafc; }
@@ -19,35 +17,21 @@
         #app-mount-loader {
             position: fixed; inset: 0; display: flex; flex-direction: column;
             align-items: center; justify-content: center; background-color: #f8fafc;
-            z-index: 99999; transition: opacity 0.4s ease-out;
+            z-index: 99999;
         }
         
         .spinner {
-            width: 40px; height: 40px; border: 3px solid #e2e8f0;
+            width: 32px; height: 32px; border: 3px solid #e2e8f0;
             border-top: 3px solid #0d9488; border-radius: 50%;
-            animation: spin 1s linear infinite; margin-bottom: 16px;
+            animation: spin 0.8s linear infinite; margin-bottom: 12px;
         }
 
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        .app-loaded #app-mount-loader { opacity: 0; pointer-events: none; }
+        .app-loaded #app-mount-loader { display: none !important; }
 
-        /* Print Media Utilities */
         @media print {
             .no-print { display: none !important; }
-            aside, header, nav, button, .filter-panel { display: none !important; }
-            main { margin: 0 !important; padding: 0 !important; width: 100% !important; background: white !important; }
-            body { background: white !important; }
-            .print-document { 
-                box-shadow: none !important; 
-                border: none !important; 
-                padding: 0 !important;
-                margin: 0 !important;
-                width: 100% !important;
-            }
-            .page-break { page-break-before: always; }
-            tr { page-break-inside: avoid; }
-            @page { margin: 1.5cm; }
         }
     </style>
 <script type="importmap">
@@ -70,7 +54,7 @@
 <body class="bg-slate-50 text-slate-900">
     <div id="app-mount-loader">
         <div class="spinner"></div>
-        <div style="font-weight: 800; color: #1e293b;">ZARlytics</div>
+        <div style="font-weight: 700; color: #0f172a; font-size: 14px;">ZARlytics</div>
     </div>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
