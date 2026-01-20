@@ -50,7 +50,13 @@ export const storage = {
 
   getSales: async (): Promise<DailySale[]> => {
     try {
-      const { data, error } = await supabase.from('sales').select('*').order('date', { ascending: false });
+      // Improved sorting: by business date primarily, then by creation time for notification tracking
+      const { data, error } = await supabase
+        .from('sales')
+        .select('*')
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false });
+      
       if (error) throw error;
       return (data || []).map(mapFromDb).filter(Boolean);
     } catch (err) {
@@ -94,7 +100,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // Reminders Support
   getReminders: async (): Promise<Reminder[]> => {
     try {
       const { data, error } = await supabase.from('reminders').select('*').order('created_at', { ascending: false });

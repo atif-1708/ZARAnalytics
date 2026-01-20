@@ -62,7 +62,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [remindersCount, setRemindersCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
-  const lastSalesCount = useRef<number | null>(null);
+  
+  // Track specific IDs rather than just count for more accurate 'new sale' detection
+  const lastSalesIds = useRef<Set<string> | null>(null);
 
   const isAdmin = user?.role === UserRole.ADMIN;
 
@@ -76,32 +78,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       return pktHour >= 22 || pktHour < 5;
     } catch (e) {
       return false;
-    }
-  };
-
-  const sendReminderToAdmin = async (notif: Notification) => {
-    if (!user || !notif.businessId) return;
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const biz = (await storage.getBusinesses()).find(b => b.id === notif.businessId);
-      
-      await storage.saveReminder({
-        businessId: notif.businessId,
-        businessName: biz?.name || 'Unknown Business',
-        date: today,
-        sentBy: user.id,
-        sentByUserName: user.name,
-        status: 'pending',
-        type: 'user_sent'
-      });
-
-      setNotifications(prev => prev.map(n => 
-        n.id === notif.id 
-          ? { ...n, type: 'success', title: 'Reminder Sent', description: 'The Admin has been notified.', actionLabel: undefined } 
-          : n
-      ));
-    } catch (err) {
-      console.error("Reminder failed:", err);
     }
   };
 
@@ -120,7 +96,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         const isUrgentWindow = isPast10PMPakistan();
         const newNotifs: Notification[] = [];
 
-        // 1. Check for missing daily sales (For Everyone)
+        // 1. Missing Entry Alerts (For Everyone)
         businesses.forEach(business => {
           const hasSaleToday = sales.some(s => s.businessId === business.id && s.date === today);
           if (!hasSaleToday) {
@@ -140,28 +116,37 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           }
         });
 
-        // 2. Notification for Users: Admin added sale entry
+        // 2. DETECT NEW SALES: Show to standard users when Admin adds something
         if (!isAdmin) {
-          if (lastSalesCount.current !== null && sales.length > lastSalesCount.current) {
-            const latestSale = sales[0];
-            const bizName = businesses.find(b => b.id === latestSale.businessId)?.name || 'a business';
-            newNotifs.push({
-              id: `sale-added-${latestSale.id}`,
-              title: "New Sale Entry",
-              description: `Admin just added a sale entry for ${bizName}.`,
-              type: 'info',
-              timestamp: new Date().toISOString(),
-              isRead: false,
-              actionLabel: 'View Sales',
-              link: '/sales'
+          const currentIds = new Set(sales.map(s => s.id));
+          
+          if (lastSalesIds.current !== null) {
+            // Find IDs present in current fetch but not in the last one
+            const newSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
+            
+            newSales.forEach(sale => {
+              const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
+              newNotifs.push({
+                id: `sale-added-${sale.id}-${Date.now()}`, // Unique ID per detection
+                title: "Admin Published Sale",
+                description: `A new sales entry for ${bizName} was successfully recorded.`,
+                type: 'info',
+                timestamp: new Date().toISOString(),
+                isRead: false,
+                actionLabel: 'View Records',
+                link: '/sales'
+              });
             });
           }
-          lastSalesCount.current = sales.length;
+          // Update known IDs for next interval
+          lastSalesIds.current = currentIds;
         }
 
+        // Apply new notifications to state with deduplication
         setNotifications(prev => {
           const existingIds = new Set(prev.map(n => n.id));
           const filteredNew = newNotifs.filter(n => !existingIds.has(n.id));
+          if (filteredNew.length === 0) return prev;
           return [...filteredNew, ...prev].slice(0, 15);
         });
 
@@ -179,7 +164,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 10 * 1000); // Check every 10s for snappy updates
+    const interval = setInterval(checkAlerts, 10000); // Check every 10 seconds
     return () => clearInterval(interval);
   }, [user, location.pathname]);
 
@@ -236,7 +221,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold">{user?.name.charAt(0)}</div>
             <div className="overflow-hidden">
               <p className="text-sm font-semibold truncate">{user?.name}</p>
-              <p className="text-xs text-slate-400 truncate uppercase tracking-tighter">{user?.role}</p>
+              <p className="text-xs text-slate-400 truncate uppercase tracking-tighter font-black">{user?.role}</p>
             </div>
           </div>
           <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors">
@@ -270,7 +255,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 z-50">
                   <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                     <h3 className="font-bold text-slate-800 text-sm">Action Center</h3>
-                    <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-[10px] font-black rounded-full uppercase">{unreadCount} Items</span>
+                    <span className="px-2 py-0.5 bg-teal-100 text-teal-700 text-[10px] font-black rounded-full uppercase">{unreadCount} Updates</span>
                   </div>
                   
                   <div className="max-h-[400px] overflow-y-auto">
