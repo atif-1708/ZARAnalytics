@@ -18,10 +18,11 @@ import {
   CalendarDays,
   Send,
   CheckCircle2,
-  BellRing
+  BellRing,
+  Wallet
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole, Notification, Business, DailySale, Reminder } from '../types';
+import { UserRole, Notification, Business, DailySale, Reminder, MonthlyExpense } from '../types';
 import { storage } from '../services/mockStorage';
 
 interface SidebarItemProps {
@@ -63,7 +64,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [remindersCount, setRemindersCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
   
+  // High-precision tracking for new entries
   const lastSalesIds = useRef<Set<string> | null>(null);
+  const lastExpenseIds = useRef<Set<string> | null>(null);
+  const lastReminderIds = useRef<Set<string> | null>(null);
 
   const isAdmin = user?.role === UserRole.ADMIN;
 
@@ -85,9 +89,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       if (!user) return;
       
       try {
-        const [businesses, sales, reminders] = await Promise.all([
+        const [businesses, sales, expenses, reminders] = await Promise.all([
           storage.getBusinesses(),
           storage.getSales(),
+          storage.getExpenses(),
           storage.getReminders()
         ]);
 
@@ -95,7 +100,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         const isUrgentWindow = isPast10PMPakistan();
         const newNotifs: Notification[] = [];
 
-        // 1. Missing Entry Alerts
+        // 1. MISSING ENTRY ALERTS (Both Roles)
         businesses.forEach(business => {
           const hasSaleToday = sales.some(s => s.businessId === business.id && s.date === today);
           if (!hasSaleToday) {
@@ -107,7 +112,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 : `No sales record found for ${business.name} today.`,
               type: isUrgentWindow ? 'urgent' : 'warning',
               timestamp: new Date().toISOString(),
-              link: '/reminders', // Ensure both roles go to Reminders page to see missing entries
+              link: '/reminders',
               isRead: false,
               actionLabel: 'Go to Reminders',
               businessId: business.id
@@ -115,28 +120,71 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           }
         });
 
-        // 2. DETECT NEW SALES: Only show to standard users when Admin adds something
+        // 2. DETECTION FOR STANDARD USERS (Admin Activity)
         if (!isAdmin) {
-          const currentIds = new Set(sales.map(s => s.id));
+          // Detect New Sales
+          const currentSalesIds = new Set(sales.map(s => s.id));
           if (lastSalesIds.current !== null) {
-            const newSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
-            newSales.forEach(sale => {
+            const addedSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
+            addedSales.forEach(sale => {
               const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
               newNotifs.push({
-                id: `sale-added-${sale.id}-${Date.now()}`,
-                title: "Admin Published Sale",
-                description: `A new sales entry for ${bizName} was successfully recorded.`,
+                id: `sale-added-${sale.id}`,
+                title: "New Sale Recorded",
+                description: `Admin published a new sale entry for ${bizName}.`,
                 type: 'info',
                 timestamp: new Date().toISOString(),
                 isRead: false,
-                actionLabel: 'View Records',
+                actionLabel: 'View Sales',
                 link: '/sales'
               });
             });
           }
-          lastSalesIds.current = currentIds;
+          lastSalesIds.current = currentSalesIds;
+
+          // Detect New Expenses
+          const currentExpenseIds = new Set(expenses.map(e => e.id));
+          if (lastExpenseIds.current !== null) {
+            const addedExpenses = expenses.filter(e => !lastExpenseIds.current!.has(e.id));
+            addedExpenses.forEach(exp => {
+              const bizName = businesses.find(b => b.id === exp.businessId)?.name || 'a business';
+              newNotifs.push({
+                id: `expense-added-${exp.id}`,
+                title: "New Expense Logged",
+                description: `Admin recorded a new expense for ${bizName}.`,
+                type: 'info',
+                timestamp: new Date().toISOString(),
+                isRead: false,
+                actionLabel: 'Check Expenses',
+                link: '/expenses'
+              });
+            });
+          }
+          lastExpenseIds.current = currentExpenseIds;
         }
 
+        // 3. DETECTION FOR ADMINS (User Activity)
+        if (isAdmin) {
+          const currentReminderIds = new Set(reminders.map(r => r.id));
+          if (lastReminderIds.current !== null) {
+            const addedReminders = reminders.filter(r => !lastReminderIds.current!.has(r.id) && r.status === 'pending');
+            addedReminders.forEach(rem => {
+              newNotifs.push({
+                id: `reminder-sent-${rem.id}`,
+                title: "User Action Request",
+                description: `${rem.sentByUserName} sent a compliance reminder for ${rem.businessName}.`,
+                type: 'info',
+                timestamp: new Date().toISOString(),
+                isRead: false,
+                actionLabel: 'Handle Now',
+                link: '/reminders'
+              });
+            });
+          }
+          lastReminderIds.current = currentReminderIds;
+        }
+
+        // Apply findings to state
         setNotifications(prev => {
           const existingIds = new Set(prev.map(n => n.id));
           const filteredNew = newNotifs.filter(n => !existingIds.has(n.id));
@@ -144,7 +192,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           return [...filteredNew, ...prev].slice(0, 15);
         });
 
-        // 3. Update Sidebar Badge (Admin logic: User alerts + Missing entries)
+        // 4. UPDATE SIDEBAR BADGES
         const missingCount = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today)).length;
         if (isAdmin) {
           const userSentReminders = reminders.filter(r => r.status === 'pending').length;
@@ -158,7 +206,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 10000);
+    const interval = setInterval(checkAlerts, 8000); // More frequent polling (8s)
     return () => clearInterval(interval);
   }, [user, location.pathname]);
 
