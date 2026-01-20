@@ -12,7 +12,6 @@ interface AuthContextType extends AuthState {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Helper to wrap promises with a timeout
-// Using generic P for Promise-like objects to support Supabase's PostgrestBuilder
 const withTimeout = <T,>(promise: Promise<T> | any, timeoutMs: number, fallback: T): Promise<T> => {
   return Promise.race([
     Promise.resolve(promise),
@@ -30,38 +29,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initHandled = useRef(false);
 
   const fetchProfile = async (sbUser: any, token: string) => {
-    console.log("Fetching profile for user:", sbUser.id);
+    console.log("Validating profile for user:", sbUser.id);
     try {
-      // Cast the Supabase query to any to satisfy the withTimeout promise parameter
+      // Fetch user profile with a strict check
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
         5000,
-        { data: null, error: { message: 'Profile Fetch Timeout' } }
+        { data: null, error: { message: 'Timeout' } }
       ) as any;
 
       const { data: profile, error } = response;
 
-      if (error || !profile) {
-        console.warn("Profile fetch failed or timed out. Falling back to basic auth.", error);
-        setAuth({
-          user: { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'User', email: sbUser.email, role: UserRole.USER },
-          token,
-          isAuthenticated: true
-        });
-      } else {
-        setAuth({
-          user: { id: profile.id, name: profile.name, email: sbUser.email, role: profile.role as UserRole },
-          token,
-          isAuthenticated: true
-        });
+      // CRITICAL SECURITY FIX: 
+      // If no profile is found, it means the user has been deleted from the app's allowed users list.
+      // We must immediately revoke the session.
+      if (!profile) {
+        console.error("Access Revoked: Profile missing from database. Logging out.");
+        await supabase.auth.signOut();
+        setAuth({ user: null, token: null, isAuthenticated: false });
+        return;
       }
-    } catch (err) {
-      console.error("Critical Profile fetch error:", err);
+
       setAuth({
-        user: { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'User', email: sbUser.email, role: UserRole.USER },
+        user: { 
+          id: profile.id, 
+          name: profile.name, 
+          email: sbUser.email, 
+          role: profile.role as UserRole 
+        },
         token,
         isAuthenticated: true
       });
+    } catch (err) {
+      console.error("Critical Profile fetch error:", err);
+      // On connection error, we stay unauthenticated for safety
+      setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       setIsInitializing(false);
     }
@@ -76,28 +78,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn("Auth initialization safety timeout triggered.");
         setIsInitializing(false);
       }
-    }, 10000); // 10 second absolute maximum wait
+    }, 10000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
-        console.warn("Supabase not configured. Stopping initialization.");
         setIsInitializing(false);
         return;
       }
 
       try {
-        console.log("Checking session...");
-        const { data: { session }, error } = await withTimeout(
+        const { data: { session } } = await withTimeout(
           supabase.auth.getSession() as any,
           4000,
           { data: { session: null }, error: null }
         ) as any;
 
         if (session) {
-          console.log("Session found.");
           await fetchProfile(session.user, session.access_token);
         } else {
-          console.log("No active session.");
           setIsInitializing(false);
         }
       } catch (err) {
@@ -111,7 +109,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event);
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session) {
         await fetchProfile(session.user, session.access_token);
       } else if (event === 'SIGNED_OUT') {
@@ -137,6 +134,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) return { success: false, error: error.message };
       
       if (data.session) {
+        // Double check profile exists before confirming login
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
+        if (!profile) {
+          await supabase.auth.signOut();
+          return { success: false, error: "Access denied. Your account has been disabled or deleted." };
+        }
         await fetchProfile(data.user, data.session.access_token);
         return { success: true };
       }
