@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, AuthState, UserRole } from '../types';
 import { supabase, isConfigured } from '../services/supabase';
@@ -13,9 +12,10 @@ interface AuthContextType extends AuthState {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Helper to wrap promises with a timeout
-const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+// Using generic P for Promise-like objects to support Supabase's PostgrestBuilder
+const withTimeout = <T,>(promise: Promise<T> | any, timeoutMs: number, fallback: T): Promise<T> => {
   return Promise.race([
-    promise,
+    Promise.resolve(promise),
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))
   ]);
 };
@@ -32,8 +32,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchProfile = async (sbUser: any, token: string) => {
     console.log("Fetching profile for user:", sbUser.id);
     try {
+      // Cast the Supabase query to any to satisfy the withTimeout promise parameter
       const response = await withTimeout(
-        supabase.from('profiles').select('*').eq('id', sbUser.id).single(),
+        supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
         5000,
         { data: null, error: { message: 'Profile Fetch Timeout' } }
       ) as any;
@@ -87,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         console.log("Checking session...");
         const { data: { session }, error } = await withTimeout(
-          supabase.auth.getSession(),
+          supabase.auth.getSession() as any,
           4000,
           { data: { session: null }, error: null }
         ) as any;
@@ -128,7 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (email: string, pass: string) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.auth.signInWithPassword({ email, password: pass }),
+        supabase.auth.signInWithPassword({ email, password: pass }) as any,
         10000,
         { data: { user: null, session: null }, error: { message: 'Login connection timed out.' } }
       ) as any;
