@@ -11,6 +11,14 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to wrap promises with a timeout
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))
+  ]);
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [auth, setAuth] = useState<AuthState>({
     user: null,
@@ -18,19 +26,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAuthenticated: false
   });
   const [isInitializing, setIsInitializing] = useState(true);
-  
   const initHandled = useRef(false);
 
   const fetchProfile = async (sbUser: any, token: string) => {
     try {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', sbUser.id)
-        .single();
+      // Use a timeout for the database query to prevent hanging
+      const response = await withTimeout(
+        supabase.from('profiles').select('*').eq('id', sbUser.id).single(),
+        4000,
+        { data: null, error: { message: 'Timeout' } }
+      ) as any;
 
-      if (error) {
-        // Fallback for missing profile
+      const { data: profile, error } = response;
+
+      if (error || !profile) {
+        // Fallback for missing profile or timeout - allow app entry as basic user
         setAuth({
           user: { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'User', email: sbUser.email, role: UserRole.USER },
           token,
@@ -45,6 +55,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error("Profile fetch error:", err);
+      // Ensure we don't hang even on exception
+      setAuth({
+        user: { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'User', email: sbUser.email, role: UserRole.USER },
+        token,
+        isAuthenticated: true
+      });
     } finally {
       setIsInitializing(false);
     }
@@ -54,10 +70,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Absolute timeout to prevent infinite loader
+    // Hard 7-second fail-safe for the entire initialization process
     const safetyTimeout = setTimeout(() => {
-      setIsInitializing(false);
-    }, 10000);
+      if (isInitializing) {
+        console.warn("Auth initialization timed out. Forcing app entry.");
+        setIsInitializing(false);
+      }
+    }, 7000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
@@ -66,7 +85,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await withTimeout(
+          supabase.auth.getSession(),
+          3000,
+          { data: { session: null }, error: null }
+        ) as any;
+
         if (session) {
           await fetchProfile(session.user, session.access_token);
         } else {
@@ -83,7 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session) {
         await fetchProfile(session.user, session.access_token);
       } else if (event === 'SIGNED_OUT') {
         setAuth({ user: null, token: null, isAuthenticated: false });
@@ -95,19 +119,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = async (email: string, pass: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-    if (error) return { success: false, error: error.message };
-    if (data.session) {
-      await fetchProfile(data.user, data.session.access_token);
-      return { success: true };
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password: pass }),
+        8000,
+        { data: { user: null, session: null }, error: { message: 'Login request timed out. Please try again.' } }
+      ) as any;
+
+      if (error) return { success: false, error: error.message };
+      
+      if (data.session) {
+        await fetchProfile(data.user, data.session.access_token);
+        return { success: true };
+      }
+      return { success: false, error: "Authentication failed. No session returned." };
+    } catch (err: any) {
+      return { success: false, error: err.message || "A connection error occurred during login." };
     }
-    return { success: false, error: "Auth failed." };
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
-    setAuth({ user: null, token: null, isAuthenticated: false });
-    window.location.reload();
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setAuth({ user: null, token: null, isAuthenticated: false });
+      window.location.reload();
+    }
   };
 
   const refreshProfile = async () => {
@@ -117,9 +154,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-6">
-        <div className="w-10 h-10 border-2 border-slate-100 border-t-teal-600 rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">Initialising ZARlytics...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6">
+        <div className="relative mb-6">
+          <div className="w-12 h-12 border-4 border-slate-200 border-t-teal-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center font-black text-[8px] text-teal-600 uppercase">ZAR</div>
+        </div>
+        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] animate-pulse">Initialising Secure Portal</p>
       </div>
     );
   }
