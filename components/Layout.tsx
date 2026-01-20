@@ -19,7 +19,8 @@ import {
   Send,
   CheckCircle2,
   BellRing,
-  Wallet
+  Wallet,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Notification, Business, DailySale, Reminder, MonthlyExpense } from '../types';
@@ -46,8 +47,8 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
   >
     {icon}
     <span className="font-medium">{label}</span>
-    {badge ? (
-      <span className={`ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badge > 0 ? 'animate-pulse scale-110 shadow-lg shadow-rose-900/50' : ''}`}>
+    {badge && badge > 0 ? (
+      <span className="ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 animate-pulse scale-110 shadow-lg shadow-rose-900/50">
         {badge}
       </span>
     ) : active && <ChevronRight className="ml-auto w-4 h-4" />}
@@ -62,9 +63,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [remindersCount, setRemindersCount] = useState(0);
+  const [shouldShake, setShouldShake] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   
-  // High-precision tracking for new entries
   const lastSalesIds = useRef<Set<string> | null>(null);
   const lastExpenseIds = useRef<Set<string> | null>(null);
   const lastReminderIds = useRef<Set<string> | null>(null);
@@ -98,64 +99,61 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
         const today = new Date().toISOString().split('T')[0];
         const isUrgentWindow = isPast10PMPakistan();
-        const newNotifs: Notification[] = [];
+        const activeNotifs: Notification[] = [];
 
-        // 1. MISSING ENTRY ALERTS (Both Roles)
-        businesses.forEach(business => {
-          const hasSaleToday = sales.some(s => s.businessId === business.id && s.date === today);
-          if (!hasSaleToday) {
-            newNotifs.push({
-              id: `missing-sale-${business.id}-${today}`,
-              title: isUrgentWindow ? "URGENT: Entry Deadline" : "Pending Daily Entry",
-              description: isUrgentWindow 
-                ? `10 PM PKT Reached. ${business.name} sales are missing!` 
-                : `No sales record found for ${business.name} today.`,
-              type: isUrgentWindow ? 'urgent' : 'warning',
-              timestamp: new Date().toISOString(),
-              link: '/reminders',
-              isRead: false,
-              actionLabel: 'Go to Reminders',
-              businessId: business.id
-            });
-          }
+        // 1. MISSING ENTRY ALERTS (Dynamic / Persistent)
+        const missingBusinesses = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today));
+        missingBusinesses.forEach(business => {
+          activeNotifs.push({
+            id: `missing-sale-${business.id}-${today}`,
+            title: isUrgentWindow ? "URGENT: Entry Deadline" : "Pending Daily Entry",
+            description: isUrgentWindow 
+              ? `10 PM PKT Reached. ${business.name} sales are missing!` 
+              : `No sales record found for ${business.name} today.`,
+            type: isUrgentWindow ? 'urgent' : 'warning',
+            timestamp: new Date().toISOString(),
+            link: '/reminders',
+            isRead: false,
+            actionLabel: 'Go to Reminders',
+            businessId: business.id
+          });
         });
 
-        // 2. DETECTION FOR STANDARD USERS (Admin Activity)
+        // 2. NEW ACTIVITY DETECTION
+        
+        // --- Sales (For Users) ---
         if (!isAdmin) {
-          // Detect New Sales
           const currentSalesIds = new Set(sales.map(s => s.id));
           if (lastSalesIds.current !== null) {
-            const addedSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
-            addedSales.forEach(sale => {
+            sales.filter(s => !lastSalesIds.current!.has(s.id)).forEach(sale => {
               const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
-              newNotifs.push({
+              activeNotifs.push({
                 id: `sale-added-${sale.id}`,
-                title: "New Sale Recorded",
-                description: `Admin published a new sale entry for ${bizName}.`,
+                title: "New Sale Published",
+                description: `Admin recorded a sale for ${bizName}.`,
                 type: 'info',
                 timestamp: new Date().toISOString(),
                 isRead: false,
-                actionLabel: 'View Sales',
+                actionLabel: 'View Record',
                 link: '/sales'
               });
             });
           }
           lastSalesIds.current = currentSalesIds;
 
-          // Detect New Expenses
+          // --- Expenses (For Users) ---
           const currentExpenseIds = new Set(expenses.map(e => e.id));
           if (lastExpenseIds.current !== null) {
-            const addedExpenses = expenses.filter(e => !lastExpenseIds.current!.has(e.id));
-            addedExpenses.forEach(exp => {
+            expenses.filter(e => !lastExpenseIds.current!.has(e.id)).forEach(exp => {
               const bizName = businesses.find(b => b.id === exp.businessId)?.name || 'a business';
-              newNotifs.push({
+              activeNotifs.push({
                 id: `expense-added-${exp.id}`,
                 title: "New Expense Logged",
-                description: `Admin recorded a new expense for ${bizName}.`,
+                description: `Admin updated operational costs for ${bizName}.`,
                 type: 'info',
                 timestamp: new Date().toISOString(),
                 isRead: false,
-                actionLabel: 'Check Expenses',
+                actionLabel: 'View Expenses',
                 link: '/expenses'
               });
             });
@@ -163,50 +161,71 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           lastExpenseIds.current = currentExpenseIds;
         }
 
-        // 3. DETECTION FOR ADMINS (User Activity)
+        // --- Reminders (For Admins) ---
         if (isAdmin) {
           const currentReminderIds = new Set(reminders.map(r => r.id));
-          if (lastReminderIds.current !== null) {
-            const addedReminders = reminders.filter(r => !lastReminderIds.current!.has(r.id) && r.status === 'pending');
-            addedReminders.forEach(rem => {
-              newNotifs.push({
-                id: `reminder-sent-${rem.id}`,
-                title: "User Action Request",
-                description: `${rem.sentByUserName} sent a compliance reminder for ${rem.businessName}.`,
-                type: 'info',
-                timestamp: new Date().toISOString(),
-                isRead: false,
-                actionLabel: 'Handle Now',
-                link: '/reminders'
-              });
+          
+          // Show persistent alert for ANY pending reminder, not just new ones
+          const pendingFromUsers = reminders.filter(r => r.status === 'pending');
+          if (pendingFromUsers.length > 0) {
+            activeNotifs.push({
+              id: 'persistent-admin-reminder',
+              title: "User Action Required",
+              description: `You have ${pendingFromUsers.length} pending reminder requests from staff.`,
+              type: 'urgent',
+              timestamp: new Date().toISOString(),
+              isRead: false,
+              actionLabel: 'Review Requests',
+              link: '/reminders'
             });
+          }
+
+          // Also catch NEWLY arrived reminders to trigger shake/pulse
+          if (lastReminderIds.current !== null) {
+            const added = reminders.filter(r => !lastReminderIds.current!.has(r.id) && r.status === 'pending');
+            if (added.length > 0) {
+              setShouldShake(true);
+              setTimeout(() => setShouldShake(false), 1000);
+            }
           }
           lastReminderIds.current = currentReminderIds;
         }
 
-        // Apply findings to state
+        // Apply findings to state with smart merging
         setNotifications(prev => {
-          const existingIds = new Set(prev.map(n => n.id));
-          const filteredNew = newNotifs.filter(n => !existingIds.has(n.id));
-          if (filteredNew.length === 0) return prev;
-          return [...filteredNew, ...prev].slice(0, 15);
+          const prevIds = new Set(prev.map(n => n.id));
+          const toAdd = activeNotifs.filter(n => !prevIds.has(n.id));
+          
+          if (toAdd.length > 0) {
+            setShouldShake(true);
+            setTimeout(() => setShouldShake(false), 1000);
+          }
+          
+          // Keep active ones and previously detected ones that are still relevant
+          const combined = [...toAdd, ...prev].filter(n => {
+            // Cleanup missing-sale alerts for previous days
+            if (n.id.startsWith('missing-sale-') && !n.id.endsWith(today)) return false;
+            return true;
+          });
+
+          return combined.slice(0, 20);
         });
 
-        // 4. UPDATE SIDEBAR BADGES
-        const missingCount = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today)).length;
+        // 4. SIDEBAR BADGE CALCULATION
+        const missingCount = missingBusinesses.length;
         if (isAdmin) {
-          const userSentReminders = reminders.filter(r => r.status === 'pending').length;
-          setRemindersCount(userSentReminders + missingCount);
+          const pendingReminderCount = reminders.filter(r => r.status === 'pending').length;
+          setRemindersCount(pendingReminderCount + missingCount);
         } else {
           setRemindersCount(missingCount);
         }
       } catch (err) {
-        console.error("Integrity Check Error:", err);
+        console.error("Layout Integrity Monitor Error:", err);
       }
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 8000); // More frequent polling (8s)
+    const interval = setInterval(checkAlerts, 5000); // 5s polling for better "real-time" feel
     return () => clearInterval(interval);
   }, [user, location.pathname]);
 
@@ -286,7 +305,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
           <div className="flex items-center gap-4">
             <div className="relative" ref={notifRef}>
-              <button onClick={() => setIsNotifOpen(!isNotifOpen)} className={`p-2 rounded-xl transition-all relative ${isNotifOpen ? 'bg-slate-100 text-teal-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>
+              <button 
+                onClick={() => setIsNotifOpen(!isNotifOpen)} 
+                className={`p-2 rounded-xl transition-all relative ${isNotifOpen ? 'bg-slate-100 text-teal-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'} ${shouldShake ? 'animate-shake' : ''}`}
+              >
                 <Bell size={22} />
                 {unreadCount > 0 && (
                   <span className={`absolute top-2 right-2 w-2.5 h-2.5 ${notifications.some(n => n.type === 'urgent') ? 'bg-rose-500 animate-ping' : 'bg-rose-500'} border-2 border-white rounded-full`} />
@@ -317,7 +339,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                                 notif.type === 'warning' ? 'bg-amber-100 text-amber-600' : 
                                 'bg-teal-100 text-teal-600'
                               }`}>
-                                {notif.type === 'info' ? <BellRing size={16} /> : <CalendarDays size={16} />}
+                                {notif.type === 'info' ? <BellRing size={16} /> : notif.type === 'urgent' ? <Clock size={16} /> : <CalendarDays size={16} />}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className={`text-sm font-bold truncate ${notif.type === 'urgent' ? 'text-rose-600' : 'text-slate-900'}`}>{notif.title}</p>
