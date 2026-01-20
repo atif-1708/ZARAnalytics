@@ -50,16 +50,16 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
     {icon}
     <span className="font-medium">{label}</span>
     
-    {/* NEW Indicator for standard user tabs */}
+    {/* NEW Indicator for standard user tabs (Bounce Animation) */}
     {hasNew && !active && (
       <span className="ml-auto flex items-center gap-1 bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md animate-bounce shadow-lg shadow-blue-500/30">
         <Sparkles size={8} /> NEW
       </span>
     )}
 
-    {/* Numeric Badge (e.g. for Reminders) */}
+    {/* Numeric Badge (e.g. for Reminders or Missing Entries) */}
     {badge && badge > 0 ? (
-      <span className={`ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badge > 0 ? 'animate-pulse scale-110' : ''}`}>
+      <span className={`ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badge > 0 ? 'animate-pulse scale-110 shadow-lg shadow-rose-900/50' : ''}`}>
         {badge}
       </span>
     ) : (active && !hasNew) && <ChevronRight className="ml-auto w-4 h-4" />}
@@ -76,19 +76,24 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [remindersCount, setRemindersCount] = useState(0);
   const [shouldShake, setShouldShake] = useState(false);
   
-  // Tab-specific alert states
+  // Tab-specific alert states for standard users
+  const [hasNewBusinesses, setHasNewBusinesses] = useState(false);
   const [hasNewSales, setHasNewSales] = useState(false);
   const [hasNewExpenses, setHasNewExpenses] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
+  
+  // High-precision tracking refs
+  const lastBusinessIds = useRef<Set<string> | null>(null);
   const lastSalesIds = useRef<Set<string> | null>(null);
   const lastExpenseIds = useRef<Set<string> | null>(null);
   const lastReminderIds = useRef<Set<string> | null>(null);
 
   const isAdmin = user?.role === UserRole.ADMIN;
 
-  // Clear alerts when visiting the tabs
+  // Clear alerts immediately when visiting the corresponding tabs
   useEffect(() => {
+    if (location.pathname === '/businesses') setHasNewBusinesses(false);
     if (location.pathname === '/sales') setHasNewSales(false);
     if (location.pathname === '/expenses') setHasNewExpenses(false);
   }, [location.pathname]);
@@ -122,7 +127,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         const isUrgentWindow = isPast10PMPakistan();
         const activeNotifs: Notification[] = [];
 
-        // 1. MISSING ENTRY ALERTS (Dynamic / Persistent)
+        // 1. MISSING ENTRY ALERTS (Both Roles - Persistent)
         const missingBusinesses = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today));
         missingBusinesses.forEach(business => {
           activeNotifs.push({
@@ -140,15 +145,36 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           });
         });
 
-        // 2. NEW ACTIVITY DETECTION & TAB ALERTS
-        
-        // --- Sales (For Users) ---
+        // 2. NEW ACTIVITY DETECTION & TAB ALERTS (Mainly for Users)
         if (!isAdmin) {
+          // --- Businesses Alert ---
+          const currentBizIds = new Set(businesses.map(b => b.id));
+          if (lastBusinessIds.current !== null) {
+            const added = businesses.filter(b => !lastBusinessIds.current!.has(b.id));
+            if (added.length > 0) {
+              setHasNewBusinesses(true);
+              added.forEach(b => {
+                activeNotifs.push({
+                  id: `biz-added-${b.id}`,
+                  title: "New Business Added",
+                  description: `Admin registered a new location: ${b.name}.`,
+                  type: 'info',
+                  timestamp: new Date().toISOString(),
+                  isRead: false,
+                  actionLabel: 'Explore Location',
+                  link: '/businesses'
+                });
+              });
+            }
+          }
+          lastBusinessIds.current = currentBizIds;
+
+          // --- Sales Alert ---
           const currentSalesIds = new Set(sales.map(s => s.id));
           if (lastSalesIds.current !== null) {
             const addedSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
             if (addedSales.length > 0) {
-              setHasNewSales(true); // TRIGGER TAB ALERT
+              setHasNewSales(true);
               addedSales.forEach(sale => {
                 const bizName = businesses.find(b => b.id === sale.businessId)?.name || 'a business';
                 activeNotifs.push({
@@ -166,12 +192,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           }
           lastSalesIds.current = currentSalesIds;
 
-          // --- Expenses (For Users) ---
+          // --- Expenses Alert ---
           const currentExpenseIds = new Set(expenses.map(e => e.id));
           if (lastExpenseIds.current !== null) {
             const addedExpenses = expenses.filter(e => !lastExpenseIds.current!.has(e.id));
             if (addedExpenses.length > 0) {
-              setHasNewExpenses(true); // TRIGGER TAB ALERT
+              setHasNewExpenses(true);
               addedExpenses.forEach(exp => {
                 const bizName = businesses.find(b => b.id === exp.businessId)?.name || 'a business';
                 activeNotifs.push({
@@ -235,7 +261,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           return combined.slice(0, 20);
         });
 
-        // 3. SIDEBAR BADGE CALCULATION
+        // 3. SIDEBAR BADGE CALCULATION (Red dot count)
         const missingCount = missingBusinesses.length;
         if (isAdmin) {
           const pendingReminderCount = reminders.filter(r => r.status === 'pending').length;
@@ -249,7 +275,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     };
 
     checkAlerts();
-    const interval = setInterval(checkAlerts, 5000); 
+    const interval = setInterval(checkAlerts, 5000); // 5s High-frequency polling
     return () => clearInterval(interval);
   }, [user]);
 
@@ -265,7 +291,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const menuItems = [
     { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
-    { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
+    { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.USER], hasNew: hasNewBusinesses },
     { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.USER], hasNew: hasNewSales },
     { to: '/expenses', label: 'Monthly Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.USER], hasNew: hasNewExpenses },
     { to: '/reports', label: 'Reports', icon: <FileBarChart size={20} />, roles: [UserRole.ADMIN, UserRole.USER] },
