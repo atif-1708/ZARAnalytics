@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, AuthState, UserRole } from '../types';
 import { supabase, isConfigured } from '../services/supabase';
@@ -29,18 +30,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initHandled = useRef(false);
 
   const fetchProfile = async (sbUser: any, token: string) => {
+    console.log("Fetching profile for user:", sbUser.id);
     try {
-      // Use a timeout for the database query to prevent hanging
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single(),
-        4000,
-        { data: null, error: { message: 'Timeout' } }
+        5000,
+        { data: null, error: { message: 'Profile Fetch Timeout' } }
       ) as any;
 
       const { data: profile, error } = response;
 
       if (error || !profile) {
-        // Fallback for missing profile or timeout - allow app entry as basic user
+        console.warn("Profile fetch failed or timed out. Falling back to basic auth.", error);
         setAuth({
           user: { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'User', email: sbUser.email, role: UserRole.USER },
           token,
@@ -54,8 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
     } catch (err) {
-      console.error("Profile fetch error:", err);
-      // Ensure we don't hang even on exception
+      console.error("Critical Profile fetch error:", err);
       setAuth({
         user: { id: sbUser.id, name: sbUser.email?.split('@')[0] || 'User', email: sbUser.email, role: UserRole.USER },
         token,
@@ -70,34 +70,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Hard 7-second fail-safe for the entire initialization process
     const safetyTimeout = setTimeout(() => {
       if (isInitializing) {
-        console.warn("Auth initialization timed out. Forcing app entry.");
+        console.warn("Auth initialization safety timeout triggered.");
         setIsInitializing(false);
       }
-    }, 7000);
+    }, 10000); // 10 second absolute maximum wait
 
     const checkAuth = async () => {
       if (!isConfigured()) {
+        console.warn("Supabase not configured. Stopping initialization.");
         setIsInitializing(false);
         return;
       }
 
       try {
+        console.log("Checking session...");
         const { data: { session }, error } = await withTimeout(
           supabase.auth.getSession(),
-          3000,
+          4000,
           { data: { session: null }, error: null }
         ) as any;
 
         if (session) {
+          console.log("Session found.");
           await fetchProfile(session.user, session.access_token);
         } else {
+          console.log("No active session.");
           setIsInitializing(false);
         }
       } catch (err) {
-        console.error("Auth check failed:", err);
+        console.error("Auth session check failed:", err);
         setIsInitializing(false);
       } finally {
         clearTimeout(safetyTimeout);
@@ -107,6 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event);
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session) {
         await fetchProfile(session.user, session.access_token);
       } else if (event === 'SIGNED_OUT') {
@@ -115,15 +119,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(safetyTimeout);
+    };
   }, []);
 
   const login = async (email: string, pass: string) => {
     try {
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password: pass }),
-        8000,
-        { data: { user: null, session: null }, error: { message: 'Login request timed out. Please try again.' } }
+        10000,
+        { data: { user: null, session: null }, error: { message: 'Login connection timed out.' } }
       ) as any;
 
       if (error) return { success: false, error: error.message };
@@ -132,9 +139,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchProfile(data.user, data.session.access_token);
         return { success: true };
       }
-      return { success: false, error: "Authentication failed. No session returned." };
+      return { success: false, error: "Authentication failed. Please check your credentials." };
     } catch (err: any) {
-      return { success: false, error: err.message || "A connection error occurred during login." };
+      return { success: false, error: err.message || "An unexpected error occurred during login." };
     }
   };
 
@@ -159,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           <div className="w-12 h-12 border-4 border-slate-200 border-t-teal-600 rounded-full animate-spin"></div>
           <div className="absolute inset-0 flex items-center justify-center font-black text-[8px] text-teal-600 uppercase">ZAR</div>
         </div>
-        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] animate-pulse">Initialising Secure Portal</p>
+        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] animate-pulse">Establishing Secure Connection</p>
       </div>
     );
   }
