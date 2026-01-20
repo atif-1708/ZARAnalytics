@@ -31,6 +31,24 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
         .app-loaded #app-mount-loader { opacity: 0; pointer-events: none; }
+
+        /* Print Media Utilities */
+        @media print {
+            .no-print { display: none !important; }
+            aside, header, nav, button, .filter-panel { display: none !important; }
+            main { margin: 0 !important; padding: 0 !important; width: 100% !important; background: white !important; }
+            body { background: white !important; }
+            .print-document { 
+                box-shadow: none !important; 
+                border: none !important; 
+                padding: 0 !important;
+                margin: 0 !important;
+                width: 100% !important;
+            }
+            .page-break { page-break-before: always; }
+            tr { page-break-inside: avoid; }
+            @page { margin: 1.5cm; }
+        }
     </style>
 <script type="importmap">
 {
