@@ -14,7 +14,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Helper to scrub problematic storage keys without clearing user preferences
 const clearAuthCache = () => {
-  console.warn("ZARlytics: Purging potentially corrupted auth cache...");
+  console.warn("ZARlytics: Manual purge of auth cache initiated.");
   Object.keys(localStorage).forEach(key => {
     if (key.includes('supabase.auth.token') || key.startsWith('sb-')) {
       localStorage.removeItem(key);
@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAuthenticated: false
   });
   const [isInitializing, setIsInitializing] = useState(true);
-  const [initStatus, setInitStatus] = useState("Verifying connection...");
+  const [initStatus, setInitStatus] = useState("Establishing secure link...");
   const [initError, setInitError] = useState<string | null>(null);
   
   const profileFetchInProgress = useRef(false);
@@ -40,7 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchAndSetProfile = async (sbUser: any, token: string) => {
     if (profileFetchInProgress.current) return;
     profileFetchInProgress.current = true;
-    setInitStatus("Synchronizing business profile...");
+    setInitStatus("Retrieving business credentials...");
 
     try {
       const { data: profile, error } = await supabase
@@ -75,8 +75,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error("Auth sync failure:", err);
-      // If we fail here, the cache might be bad
-      setInitError("Database synchronization timed out.");
+      // We don't force a reload here anymore to avoid loops
+      setInitStatus("Sync failed. Retrying...");
     } finally {
       profileFetchInProgress.current = false;
       setIsInitializing(false);
@@ -98,8 +98,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error("Initialization error:", err);
-      // Auto-clear on critical failure to prevent "loading loop"
-      clearAuthCache();
       setIsInitializing(false);
     }
   };
@@ -110,22 +108,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // --- AUTOMATED WATCHDOG ---
-    // If we've been loading for more than 6 seconds, we assume a hang.
-    // We try to auto-heal by clearing storage and refreshing once.
+    // Patient Watchdog: Only show the "Reset" option after 15 seconds.
+    // We no longer automatically reload or clear cache.
     watchdogTimer.current = window.setTimeout(() => {
       if (isInitializing) {
-        const hasRecovered = sessionStorage.getItem('zl_auto_recovered');
-        if (!hasRecovered) {
-          sessionStorage.setItem('zl_auto_recovered', 'true');
-          setInitStatus("Detected stall. Auto-clearing cache and recovering...");
-          clearAuthCache();
-          window.location.reload();
-        } else {
-          setInitError("The system is struggling to connect. Please check your network or reset the session below.");
-        }
+        setInitError("The connection is unusually slow.");
       }
-    }, 6000);
+    }, 15000);
 
     initializeAuth();
 
@@ -133,7 +122,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session) await fetchAndSetProfile(session.user, session.access_token);
       } else if (event === 'SIGNED_OUT') {
-        clearAuthCache();
         setAuth({ user: null, token: null, isAuthenticated: false });
         setIsInitializing(false);
       }
@@ -176,31 +164,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 transition-opacity duration-500">
-        <div className="relative mb-8">
-          <div className="w-20 h-20 border-[4px] border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
-          <div className="absolute inset-0 flex items-center justify-center font-black text-emerald-600">ZL</div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 transition-opacity duration-700">
+        <div className="relative mb-10">
+          <div className="w-24 h-24 border-[3px] border-slate-200 border-t-teal-600 rounded-full animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center font-black text-teal-600 tracking-tighter">ZAR</div>
         </div>
         
-        <div className="text-center space-y-2">
-          <p className="text-slate-800 font-bold text-xl tracking-tight">{initStatus}</p>
-          <p className="text-slate-400 text-sm max-w-xs mx-auto leading-relaxed">
-            Please wait while we establish a secure, low-latency bridge to the South African business database.
+        <div className="text-center space-y-3">
+          <p className="text-slate-900 font-extrabold text-2xl tracking-tight animate-pulse">{initStatus}</p>
+          <p className="text-slate-400 text-sm max-w-[280px] mx-auto leading-relaxed font-medium">
+            This may take a moment depending on your network conditions.
           </p>
         </div>
         
         {initError && (
-          <div className="mt-12 p-8 bg-white border border-slate-200 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 max-w-sm text-center animate-shake ring-4 ring-rose-50">
-            <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div className="mt-12 p-8 bg-white border border-slate-200 rounded-[2.5rem] shadow-2xl shadow-slate-200/50 max-w-sm text-center animate-shake">
+            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             </div>
-            <p className="text-slate-900 font-black text-lg mb-2">{initError}</p>
-            <p className="text-slate-400 text-xs mb-8 leading-relaxed">Local storage contains a stale session that is blocking your access. This reset will completely clear the app's local memory.</p>
+            <p className="text-slate-900 font-black text-xl mb-3">Still loading?</p>
+            <p className="text-slate-400 text-xs mb-8 leading-relaxed px-4">If the app is stuck, your browser cache might contain a conflicting session. You can try a hard reset below.</p>
             <button 
               onClick={logout}
-              className="w-full bg-rose-600 text-white font-bold py-4 rounded-2xl hover:bg-rose-700 transition-all shadow-xl shadow-rose-600/20 active:scale-95"
+              className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-black transition-all shadow-xl shadow-slate-900/20 active:scale-95 flex items-center justify-center gap-2"
             >
-              Forced Cache Purge & Reload
+              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+              Purge Cache & Refresh
             </button>
           </div>
         )}
