@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, 
@@ -177,7 +176,7 @@ export const Dashboard: React.FC = () => {
         <div className="flex items-center bg-white p-1 rounded-2xl border border-slate-200 shadow-sm self-stretch md:self-auto no-print">
           <button 
             onClick={() => setCurrency('ZAR')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${currency === 'ZAR' ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/20' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${currency === 'ZAR' ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/20' : 'text-slate-400 hover:text-slate-600'}`}
           >
             ZAR (R)
           </button>

@@ -36,7 +36,7 @@ export const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6 font-sans">
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-900 rounded-2xl shadow-xl shadow-slate-900/10 mb-6 text-white text-2xl font-black">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-teal-600 rounded-2xl shadow-xl shadow-teal-600/20 mb-6 text-white text-2xl font-black">
             ZL
           </div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tighter">ZARlytics Suite</h1>
