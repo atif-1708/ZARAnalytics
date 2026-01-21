@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { User, Shield, Lock, Save, CheckCircle, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { User, Shield, Lock, Save, CheckCircle, Loader2, AlertTriangle, RefreshCw, Camera, Image as ImageIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { storage } from '../services/mockStorage';
 import { supabase } from '../services/supabase';
@@ -14,6 +13,7 @@ export const Profile: React.FC = () => {
   
   const [formData, setFormData] = useState({
     name: '',
+    avatarUrl: '',
     password: '',
     confirmPassword: ''
   });
@@ -21,7 +21,11 @@ export const Profile: React.FC = () => {
   // Sync local form with user context only once on load or when user explicitly changes
   useEffect(() => {
     if (user && !formData.name) {
-      setFormData(prev => ({ ...prev, name: user.name }));
+      setFormData(prev => ({ 
+        ...prev, 
+        name: user.name,
+        avatarUrl: user.avatarUrl || ''
+      }));
     }
   }, [user]);
 
@@ -46,11 +50,12 @@ export const Profile: React.FC = () => {
 
     setIsSaving(true);
     try {
-      // 2. Update Display Name first (Database operation)
-      setStatusMessage("Synchronizing profile name...");
+      // 2. Update Profile metadata (Database operation)
+      setStatusMessage("Synchronizing profile changes...");
       await storage.saveProfile({
         id: user?.id,
-        name: formData.name
+        name: formData.name,
+        avatarUrl: formData.avatarUrl
       });
 
       // 3. Update Password if provided (Auth operation)
@@ -58,8 +63,8 @@ export const Profile: React.FC = () => {
         setStatusMessage("Updating security credentials...");
         
         // Ensure session is still valid before attempting password change
-        const { data: { user: freshUser }, error: sessionError } = await supabase.auth.getUser();
-        if (sessionError || !freshUser) {
+        const { data: fresh, error: sessionError } = await supabase.auth.getUser();
+        if (sessionError || !fresh.user) {
           throw new Error("Session expired. Please sign out and sign back in to change your password.");
         }
 
@@ -77,9 +82,6 @@ export const Profile: React.FC = () => {
       setIsSuccess(true);
       setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
       
-      // We don't call refreshProfile here because the global listener 
-      // in AuthContext will trigger on USER_UPDATED automatically.
-      
       setTimeout(() => setIsSuccess(false), 4000);
       
     } catch (err: any) {
@@ -94,17 +96,31 @@ export const Profile: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div className="bg-white rounded-3xl p-10 shadow-sm border border-slate-200">
-        <div className="flex items-center gap-8 mb-10">
-          <div className="w-24 h-24 bg-slate-900 text-white rounded-full flex items-center justify-center text-4xl font-bold shadow-2xl shrink-0">
-            {user?.name.charAt(0)}
+        <div className="flex flex-col sm:flex-row items-center gap-8 mb-10">
+          <div className="relative group shrink-0">
+            {formData.avatarUrl ? (
+              <img 
+                src={formData.avatarUrl} 
+                alt={user?.name} 
+                className="w-32 h-32 bg-slate-100 rounded-full object-cover shadow-2xl ring-4 ring-slate-50 border border-slate-200 transition-transform group-hover:scale-105 duration-300" 
+                onError={(e) => (e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'U')}&background=0f172a&color=fff`)}
+              />
+            ) : (
+              <div className="w-32 h-32 bg-slate-900 text-white rounded-full flex items-center justify-center text-5xl font-bold shadow-2xl group-hover:scale-105 transition-transform duration-300">
+                {user?.name.charAt(0)}
+              </div>
+            )}
+            <div className="absolute -bottom-1 -right-1 bg-teal-500 text-white p-2 rounded-xl shadow-lg ring-4 ring-white">
+              <Camera size={18} />
+            </div>
           </div>
-          <div className="overflow-hidden">
+          <div className="text-center sm:text-left overflow-hidden">
             <h2 className="text-3xl font-extrabold text-slate-800 truncate">{user?.name}</h2>
-            <div className="flex items-center gap-2 text-slate-500 mt-1">
+            <div className="flex items-center justify-center sm:justify-start gap-2 text-slate-500 mt-1">
               <Shield size={18} className="text-teal-600" />
               <span className="text-sm font-bold uppercase tracking-widest">{user?.role} Tier Account</span>
             </div>
-            <p className="text-slate-400 text-xs mt-1 truncate">{user?.email}</p>
+            <p className="text-slate-400 text-xs mt-1 truncate italic">{user?.email}</p>
           </div>
         </div>
 
@@ -123,17 +139,33 @@ export const Profile: React.FC = () => {
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Account Display Name</label>
-            <input 
-              type="text"
-              required
-              disabled={isSaving}
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-teal-500 outline-none transition-all text-lg font-medium"
-              placeholder="e.g. John Doe"
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Account Display Name</label>
+              <input 
+                type="text"
+                required
+                disabled={isSaving}
+                value={formData.name}
+                onChange={(e) => setFormData({...formData, name: e.target.value})}
+                className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-teal-500 outline-none transition-all text-sm font-bold"
+                placeholder="Full Name"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-2 ml-1">Profile Image URL</label>
+              <div className="relative">
+                <ImageIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                <input 
+                  type="url"
+                  disabled={isSaving}
+                  value={formData.avatarUrl}
+                  onChange={(e) => setFormData({...formData, avatarUrl: e.target.value})}
+                  className="w-full pl-11 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-teal-500 outline-none transition-all text-sm font-medium"
+                  placeholder="https://images.com/avatar.jpg"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="pt-8 border-t border-slate-100">
@@ -151,7 +183,7 @@ export const Profile: React.FC = () => {
                   placeholder="Min 6 characters"
                   value={formData.password}
                   onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition-all"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition-all text-sm"
                 />
               </div>
               <div>
@@ -163,18 +195,18 @@ export const Profile: React.FC = () => {
                   placeholder="Repeat new password"
                   value={formData.confirmPassword}
                   onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition-all"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition-all text-sm"
                 />
               </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-8 gap-6">
-            <div className="flex flex-col gap-1">
-              <p className="text-[10px] text-slate-400 max-w-[200px] font-bold leading-tight uppercase tracking-tighter">
+          <div className="flex flex-col sm:flex-row items-center justify-between pt-8 gap-6">
+            <div className="flex flex-col gap-1 text-center sm:text-left">
+              <p className="text-[10px] text-slate-400 font-bold leading-tight uppercase tracking-tighter">
                 * Security Protocol
               </p>
-              <p className="text-[10px] text-slate-400 max-w-[200px] leading-relaxed">
+              <p className="text-[10px] text-slate-400 leading-relaxed">
                 Updates will be reflected across all linked devices immediately.
               </p>
             </div>

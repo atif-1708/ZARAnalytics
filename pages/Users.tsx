@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Shield, Mail, Edit, Loader2, Plus, Key, Trash2 } from 'lucide-react';
+import { UserPlus, Shield, Mail, Edit, Loader2, Plus, Key, Trash2, Image as ImageIcon } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { User, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -18,6 +17,7 @@ export const UsersPage: React.FC = () => {
     name: '',
     email: '',
     role: UserRole.USER,
+    avatarUrl: '',
     password: ''
   });
 
@@ -45,7 +45,8 @@ export const UsersPage: React.FC = () => {
         await storage.saveProfile({
           id: editingUser.id,
           name: formData.name,
-          role: formData.role
+          role: formData.role,
+          avatarUrl: formData.avatarUrl
         });
       } else {
         await storage.createNewUser({
@@ -54,6 +55,7 @@ export const UsersPage: React.FC = () => {
           role: formData.role,
           password: formData.password || 'User123!' 
         });
+        // Note: New user API might need update if you want to set avatar during signUp
       }
       
       await loadUsers();
@@ -87,13 +89,13 @@ export const UsersPage: React.FC = () => {
 
   const openAdd = () => {
     setEditingUser(null);
-    setFormData({ name: '', email: '', role: UserRole.USER, password: '' });
+    setFormData({ name: '', email: '', role: UserRole.USER, avatarUrl: '', password: '' });
     setIsModalOpen(true);
   };
 
   const openEdit = (u: User) => {
     setEditingUser(u);
-    setFormData({ name: u.name, email: u.email || '', role: u.role, password: '' });
+    setFormData({ name: u.name, email: u.email || '', role: u.role, avatarUrl: u.avatarUrl || '', password: '' });
     setIsModalOpen(true);
   };
 
@@ -119,9 +121,17 @@ export const UsersPage: React.FC = () => {
         {users.map((u) => (
           <div key={u.id} className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:border-teal-400 transition-all ${deletingId === u.id ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
             <div className="flex items-start justify-between mb-4">
-              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 text-lg uppercase group-hover:bg-teal-50 group-hover:text-teal-600 transition-colors">
-                {u.name.charAt(0)}
-              </div>
+              {u.avatarUrl ? (
+                <img 
+                  src={u.avatarUrl} 
+                  alt={u.name} 
+                  className="w-12 h-12 rounded-full object-cover ring-2 ring-slate-100 group-hover:ring-teal-100 transition-all" 
+                />
+              ) : (
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 text-lg uppercase group-hover:bg-teal-50 group-hover:text-teal-600 transition-colors">
+                  {u.name.charAt(0)}
+                </div>
+              )}
               <span className={`px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider ${u.role === UserRole.ADMIN ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
                 {u.role}
               </span>
@@ -201,7 +211,7 @@ export const UsersPage: React.FC = () => {
                     <div className="relative">
                       <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                       <input 
-                        type="password"
+                        type="password" 
                         required
                         disabled={isSaving}
                         value={formData.password}
@@ -212,6 +222,23 @@ export const UsersPage: React.FC = () => {
                     </div>
                   </div>
                 </>
+              )}
+
+              {editingUser && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Avatar URL</label>
+                  <div className="relative">
+                    <ImageIcon className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                      type="url"
+                      disabled={isSaving}
+                      value={formData.avatarUrl}
+                      onChange={(e) => setFormData({...formData, avatarUrl: e.target.value})}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none transition-all"
+                      placeholder="https://images.com/image.png"
+                    />
+                  </div>
+                </div>
               )}
 
               <div>

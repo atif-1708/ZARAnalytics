@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { 
@@ -21,7 +20,8 @@ import {
   BellRing,
   Wallet,
   Clock,
-  Sparkles
+  Sparkles,
+  Camera
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Notification, Business, DailySale, Reminder, MonthlyExpense } from '../types';
@@ -334,7 +334,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
         <div className="absolute bottom-0 w-full p-6 border-t border-slate-800">
           <div className="flex items-center gap-3 mb-6 px-2">
-            <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold">{user?.name.charAt(0)}</div>
+            {user?.avatarUrl ? (
+              <img src={user.avatarUrl} alt={user.name} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-700" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold ring-2 ring-slate-600 uppercase">
+                {user?.name.charAt(0)}
+              </div>
+            )}
             <div className="overflow-hidden">
               <p className="text-sm font-semibold truncate">{user?.name}</p>
               <p className="text-xs text-slate-400 truncate uppercase tracking-tighter font-black">{user?.role}</p>
@@ -416,7 +422,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </div>
             <div className="h-6 w-px bg-slate-200 hidden sm:block" />
             <Link to="/profile" className="flex items-center gap-2 text-slate-500 hover:text-teal-600 transition-colors">
-              <UserCircle size={20} />
+              {user?.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+              ) : (
+                <UserCircle size={20} />
+              )}
               <span className="text-sm font-medium hidden sm:inline">{user?.name}</span>
             </Link>
           </div>
