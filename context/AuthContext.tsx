@@ -29,24 +29,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initHandled = useRef(false);
 
   const fetchProfile = async (sbUser: any, token: string) => {
-    console.log("Validating profile for user:", sbUser.id);
     try {
       // Fetch user profile with a strict check
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
-        5000,
+        4000,
         { data: null, error: { message: 'Timeout' } }
       ) as any;
 
-      const { data: profile, error } = response;
+      const { data: profile } = response;
 
-      // CRITICAL SECURITY FIX: 
+      // SECURITY FIX: 
       // If no profile is found, it means the user has been deleted from the app's allowed users list.
-      // We must immediately revoke the session.
       if (!profile) {
-        console.error("Access Revoked: Profile missing from database. Logging out.");
+        console.error("Access Revoked: Profile missing from database.");
         await supabase.auth.signOut();
+        // Clear everything for safety
+        localStorage.clear();
         setAuth({ user: null, token: null, isAuthenticated: false });
+        setIsInitializing(false);
         return;
       }
 
@@ -61,8 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: true
       });
     } catch (err) {
-      console.error("Critical Profile fetch error:", err);
-      // On connection error, we stay unauthenticated for safety
+      console.error("Profile fetch error:", err);
       setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       setIsInitializing(false);
@@ -73,12 +73,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
+    // Faster safety timeout (6 seconds)
     const safetyTimeout = setTimeout(() => {
       if (isInitializing) {
         console.warn("Auth initialization safety timeout triggered.");
         setIsInitializing(false);
       }
-    }, 10000);
+    }, 6000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
@@ -89,11 +90,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession() as any,
-          4000,
+          3000,
           { data: { session: null }, error: null }
         ) as any;
 
-        if (session) {
+        if (session && session.user) {
           await fetchProfile(session.user, session.access_token);
         } else {
           setIsInitializing(false);
@@ -134,7 +135,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) return { success: false, error: error.message };
       
       if (data.session) {
-        // Double check profile exists before confirming login
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
         if (!profile) {
           await supabase.auth.signOut();
@@ -153,7 +153,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await supabase.auth.signOut();
     } finally {
+      localStorage.clear();
       setAuth({ user: null, token: null, isAuthenticated: false });
+      window.location.href = '#/login';
       window.location.reload();
     }
   };
