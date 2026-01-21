@@ -42,6 +42,17 @@ export const Reminders: React.FC = () => {
       setBusinesses(bData);
       setSales(sData);
       setAllReminders(rData);
+
+      // Auto-clear local badge for this user upon viewing the data
+      if ((isAdmin || isViewOnly) && user) {
+        const pendingIds = rData.filter(r => r.type === 'system_alert' && r.status === 'pending').map(r => r.id);
+        if (pendingIds.length > 0) {
+          const seenKey = `seen_alerts_${user.id}`;
+          const currentSeen = JSON.parse(localStorage.getItem(seenKey) || '[]');
+          const updatedSeen = Array.from(new Set([...currentSeen, ...pendingIds]));
+          localStorage.setItem(seenKey, JSON.stringify(updatedSeen));
+        }
+      }
     } catch (err) {
       console.error("Failed to load reminders", err);
     } finally {
@@ -54,13 +65,13 @@ export const Reminders: React.FC = () => {
   const todayStr = new Date().toISOString().split('T')[0];
 
   const derivedData = useMemo(() => {
-    // 1. Missing entries for Staff (Tasks - Always based on current state)
+    // 1. Missing entries for Staff (Tasks)
     const assignedBusinesses = businesses.filter(b => user?.assignedBusinessIds?.includes(b.id));
     const missingForStaff = assignedBusinesses.filter(b => 
       !sales.some(s => s.businessId === b.id && s.date === todayStr)
     );
 
-    // 2. Activity Alerts (For Admin/View-Only - Based on reminder table status)
+    // 2. Activity Alerts (For Admin/View-Only - Based on global pending status)
     const activeAlerts = allReminders.filter(r => 
       r.type === 'system_alert' && r.status === 'pending'
     );
@@ -68,23 +79,38 @@ export const Reminders: React.FC = () => {
     return { missingForStaff, activeAlerts };
   }, [businesses, sales, allReminders, user, todayStr]);
 
-  const handleDismiss = async (id: string, navigateToSales = false) => {
+  const handleDismissGlobal = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't trigger the card click
     if (isProcessing) return;
     setIsProcessing(true);
     try {
       await storage.saveReminder({ id, status: 'read' });
       setAllReminders(prev => prev.map(r => r.id === id ? { ...r, status: 'read' as const } : r));
-      if (navigateToSales) {
-        navigate('/sales');
-      }
     } catch (err) {
-      console.error("Failed to dismiss alert", err);
+      console.error("Failed to dismiss alert globally", err);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleDismissAll = async () => {
+  const handleClearLocal = (id: string) => {
+    // This card is already considered "seen" once the page loads, 
+    // but clicking it provides feedback and marks it locally.
+    if (!user) return;
+    const seenKey = `seen_alerts_${user.id}`;
+    const currentSeen = JSON.parse(localStorage.getItem(seenKey) || '[]');
+    if (!currentSeen.includes(id)) {
+      localStorage.setItem(seenKey, JSON.stringify([...currentSeen, id]));
+      // Trigger a refresh of any components listening to the badge
+      window.dispatchEvent(new Event('storage'));
+    }
+    // Visually "hide" it by marking globally as read? 
+    // The user said "auto hide alert when clicked", so we'll do the global mark-as-read on click 
+    // to remove it from the list entirely for EVERYONE, but the badge clearing was the user-specific part.
+    handleDismissGlobal(id, { stopPropagation: () => {} } as any);
+  };
+
+  const handleDismissAllGlobal = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
     try {
@@ -92,7 +118,7 @@ export const Reminders: React.FC = () => {
       await Promise.all(pending.map(r => storage.saveReminder({ id: r.id, status: 'read' })));
       await loadData();
     } catch (err) {
-      console.error("Failed to dismiss all alerts", err);
+      console.error("Failed to dismiss all alerts globally", err);
     } finally {
       setIsProcessing(false);
     }
@@ -177,12 +203,12 @@ export const Reminders: React.FC = () => {
             </div>
             {derivedData.activeAlerts.length > 0 && (
               <button 
-                onClick={handleDismissAll}
+                onClick={handleDismissAllGlobal}
                 disabled={isProcessing}
                 className="text-[10px] font-black text-teal-600 hover:text-teal-800 flex items-center gap-2 uppercase tracking-widest bg-teal-50 px-4 py-2 rounded-xl transition-all border border-teal-100 disabled:opacity-50"
               >
                 <Check size={14} />
-                Clear All
+                Dismiss All Globally
               </button>
             )}
           </div>
@@ -194,13 +220,13 @@ export const Reminders: React.FC = () => {
                   <Zap size={32} />
                 </div>
                 <h4 className="text-lg font-bold text-slate-900 mb-1">No New Alerts</h4>
-                <p className="text-slate-500 text-sm font-medium italic">You're all caught up with staff activity for today.</p>
+                <p className="text-slate-500 text-sm font-medium italic">You're all caught up with staff activity.</p>
               </div>
             ) : (
               derivedData.activeAlerts.map(alert => (
                 <div 
                   key={alert.id} 
-                  onClick={() => handleDismiss(alert.id)}
+                  onClick={() => handleClearLocal(alert.id)}
                   className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md hover:border-teal-200 transition-all group cursor-pointer relative overflow-hidden"
                 >
                   <div className="flex items-center gap-5 z-10">
@@ -211,7 +237,7 @@ export const Reminders: React.FC = () => {
                       <h4 className="font-black text-slate-900 text-base uppercase tracking-tight">{alert.businessName}</h4>
                       <p className="text-[10px] font-black text-emerald-600 group-hover:text-teal-700 uppercase tracking-widest flex items-center gap-1.5 transition-colors">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-teal-600 transition-colors"></span>
-                        New Entry by {alert.sentByUserName}
+                        Logged by {alert.sentByUserName}
                       </p>
                     </div>
                   </div>
@@ -225,8 +251,8 @@ export const Reminders: React.FC = () => {
                     </div>
                     
                     <div className="flex items-center gap-2">
-                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 duration-300">
-                         Click to Hide
+                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 duration-300">
+                         Dismiss Alert
                        </span>
                        <div className="p-3 bg-slate-50 text-slate-300 group-hover:bg-teal-50 group-hover:text-teal-600 rounded-2xl transition-all">
                         <ChevronRight size={18} />
@@ -234,7 +260,6 @@ export const Reminders: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Visual hint for dismissal */}
                   <div className="absolute inset-y-0 right-0 w-1 bg-teal-500 translate-x-full group-hover:translate-x-0 transition-transform duration-300" />
                 </div>
               ))

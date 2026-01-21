@@ -65,8 +65,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const isAdmin = user?.role === UserRole.ADMIN;
   const isStaff = user?.role === UserRole.STAFF;
 
-  // Fix: Explicitly type MenuItem to prevent string inference for badgeColor
-  // and handle extra properties like 'roles' properly.
   interface MenuItem extends Omit<SidebarItemProps, 'active'> {
     roles: UserRole[];
   }
@@ -83,7 +81,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       icon: <Bell size={20} />, 
       roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], 
       badge: remindersCount,
-      badgeColor: isStaff ? 'rose' : 'teal' // Staff see rose (missing), Admin see teal (activity alert)
+      badgeColor: isStaff ? 'rose' : 'teal' 
     },
     { to: '/users', label: 'User Management', icon: <Users size={20} />, roles: [UserRole.ADMIN] },
     { to: '/profile', label: 'My Profile', icon: <UserCircle size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
@@ -91,37 +89,53 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const filteredItems = menuItems.filter(item => item.roles.includes(user?.role as UserRole));
 
-  useEffect(() => {
-    const checkAlerts = async () => {
-      if (!user) return;
-      try {
-        const todayStr = new Date().toISOString().split('T')[0];
+  // Notification logic: Calculate alerts that haven't been "seen" locally by this specific user
+  const checkAlerts = async () => {
+    if (!user) return;
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      
+      if (isStaff) {
+        const [businesses, sales] = await Promise.all([
+          storage.getBusinesses(),
+          storage.getSales()
+        ]);
+        const missingForStaff = businesses.filter(b => 
+          user.assignedBusinessIds?.includes(b.id) &&
+          !sales.some(s => s.businessId === b.id && s.date === todayStr)
+        );
+        setRemindersCount(missingForStaff.length);
+      } else {
+        // Admin / View Only: Per-user "Seen" Tracking
+        const reminders = await storage.getReminders();
+        const pendingAlerts = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending');
         
-        if (isStaff) {
-          const [businesses, sales] = await Promise.all([
-            storage.getBusinesses(),
-            storage.getSales()
-          ]);
-          // Staff: Count missing entries for assigned shops (Urgent reminder)
-          const missingForStaff = businesses.filter(b => 
-            user.assignedBusinessIds?.includes(b.id) &&
-            !sales.some(s => s.businessId === b.id && s.date === todayStr)
-          );
-          setRemindersCount(missingForStaff.length);
-        } else {
-          // Admin / View Only: Count UNREAD activity alerts from the reminders table
-          const reminders = await storage.getReminders();
-          const pendingAlerts = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending');
-          setRemindersCount(pendingAlerts.length);
+        // Get seen IDs from localStorage for this specific user
+        const seenKey = `seen_alerts_${user.id}`;
+        const seenIds = JSON.parse(localStorage.getItem(seenKey) || '[]');
+        
+        // Count only alerts NOT in the seenIds list
+        const unseenCount = pendingAlerts.filter(r => !seenIds.includes(r.id)).length;
+        setRemindersCount(unseenCount);
+
+        // If user is currently on the reminders page, auto-mark all as seen for them
+        if (location.pathname === '/reminders' && pendingAlerts.length > 0) {
+          const allCurrentPendingIds = pendingAlerts.map(r => r.id);
+          const updatedSeenIds = Array.from(new Set([...seenIds, ...allCurrentPendingIds]));
+          localStorage.setItem(seenKey, JSON.stringify(updatedSeenIds));
+          setRemindersCount(0);
         }
-      } catch (err) {
-        console.error("Alert check error:", err);
       }
-    };
+    } catch (err) {
+      console.error("Alert check error:", err);
+    }
+  };
+
+  useEffect(() => {
     checkAlerts();
-    const interval = setInterval(checkAlerts, 15000);
+    const interval = setInterval(checkAlerts, 10000);
     return () => clearInterval(interval);
-  }, [user, isStaff]);
+  }, [user, isStaff, location.pathname]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -137,7 +151,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
           <nav className="space-y-2">
             {filteredItems.map((item) => {
-              // Fix: Destructure 'roles' to avoid passing unexpected props to SidebarItem
               const { roles, ...sidebarProps } = item;
               return (
                 <SidebarItem 
