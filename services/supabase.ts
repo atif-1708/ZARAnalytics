@@ -13,8 +13,8 @@ const getEnv = (key: string): string => {
   return '';
 };
 
-const URL = getEnv('SUPABASE_URL') || 'https://hzdygswlxcyeuccmdsro.supabase.co';
-const KEY = getEnv('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6ZHlnc3dseGN5ZXVjY21kc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4MzU3NDAsImV4cCI6MjA4NDQxMTc0MH0.ewiqIwzzBJTuKSzek6Y9ZbVRXveiVzWztqYCiFiEz8g';
+const URL = getEnv('SUPABASE_URL') || 'https://ckinhujgmapqmmcfrfaa.supabase.co';
+const KEY = getEnv('SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNraW5odWpnbWFwcW1tY2ZyZmFhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkwMTI4MTUsImV4cCI6MjA4NDU4ODgxNX0.Kl72l22FlmGzeCQuqvBgAcgicZYq3Z3bTsRVMyyqJBo';
 
 export const SUPABASE_URL = URL;
 export const SUPABASE_ANON_KEY = KEY;
