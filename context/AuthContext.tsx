@@ -13,7 +13,8 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const withTimeout = <T,>(promise: Promise<T> | any, timeoutMs: number, fallback: T): Promise<T> => {
+// Using more explicit generic constraint to avoid JSX ambiguity
+const withTimeout = <T extends unknown>(promise: Promise<T> | any, timeoutMs: number, fallback: T): Promise<T> => {
   return Promise.race([
     Promise.resolve(promise),
     new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs))

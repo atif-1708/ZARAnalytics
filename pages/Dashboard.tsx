@@ -6,9 +6,7 @@ import {
   ArrowDownCircle, 
   Loader2,
   Trophy,
-  Target,
   Zap,
-  Activity,
   Layers,
   Store
 } from 'lucide-react';
@@ -36,7 +34,6 @@ export const Dashboard: React.FC = () => {
   const [isFetchingRate, setIsFetchingRate] = useState(false);
   
   const isAdmin = user?.role === UserRole.ADMIN;
-  const isScoped = !isAdmin && (user?.assignedBusinessIds?.length || 0) > 0;
 
   const [filters, setFilters] = useState<Filters>({
     businessId: 'all',
@@ -86,7 +83,7 @@ export const Dashboard: React.FC = () => {
     const currentYear = now.getFullYear();
     const currentMonthIndex = now.getMonth();
     
-    // --- 1. FILTER LOGIC FOR TOP STAT CARDS (Reactive to Filters) ---
+    // 1. STAT CARD FILTERING (Reactive to filters)
     let startDate: Date;
     let endDate: Date;
     const endOfToday = new Date(currentYear, currentMonthIndex, now.getDate(), 23, 59, 59, 999);
@@ -163,12 +160,11 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // --- 2. DYNAMIC GRAPH LOGIC: LOCKED TO FULL CURRENT MONTH ---
+    // 2. GRAPH DATA (Locked to current month)
     const chartData = [];
     const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
-
-    // Index current month sales into a lookup map for speed and accuracy
     const currentMonthSalesMap = new Map();
+    
     sales.forEach(s => {
       const sDate = new Date(s.date);
       if (sDate.getFullYear() === currentYear && sDate.getMonth() === currentMonthIndex) {
@@ -179,21 +175,14 @@ export const Dashboard: React.FC = () => {
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const dayEntry: any = { 
-        dayLabel: day.toString(),
-        fullDate: dateStr
-      };
+      const dayEntry: any = { dayLabel: day.toString(), fullDate: dateStr };
       
       businesses.forEach(biz => {
-        // Access control check
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
-        
-        // Respect Business selection on graph but NOT global date filters
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
         
         const sale = currentMonthSalesMap.get(`${dateStr}_${biz.id}`);
-        // Use biz.id as stable key for Recharts lines/bars
         dayEntry[`biz_${biz.id}`] = sale ? convert(Number(sale.salesAmount)) : 0;
       });
       chartData.push(dayEntry);
@@ -204,7 +193,6 @@ export const Dashboard: React.FC = () => {
       totalGrossProfit: convert(totalGP), 
       totalExpenses: convert(totalEx), 
       netProfit: convert(totalGP - totalEx),
-      expenseRatio: totalRev > 0 ? (totalEx / totalRev) * 100 : 0,
       bestUnit: businessRanking[0] || null,
       businessRanking,
       chartData
@@ -214,7 +202,7 @@ export const Dashboard: React.FC = () => {
   if (loading) return (
     <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400">
       <Loader2 className="animate-spin mb-4" size={40} />
-      <p className="font-bold uppercase tracking-widest text-[10px]">Syncing Performance Hub</p>
+      <p className="font-bold uppercase tracking-widest text-[10px]">Syncing Portal</p>
     </div>
   );
 
@@ -233,65 +221,28 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Graph Card */}
         <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           <div className="p-8 pb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-slate-900 text-white rounded-lg"><Layers size={20} /></div>
               <div className="text-left">
                 <h3 className="text-xl font-black text-slate-900 tracking-tight">Daily Sales Volume</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fixed View: Current Calendar Month</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Calendar Month Velocity</p>
               </div>
             </div>
-            <div className="hidden sm:flex items-center gap-2">
-               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Velocity Monitor</span>
-            </div>
           </div>
-          
           <div className="p-8 flex-1 min-h-[500px] lg:h-[800px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                data={metrics.chartData}
-                margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
-              >
+              <BarChart data={metrics.chartData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis 
-                  dataKey="dayLabel" 
-                  fontSize={10} 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontWeight: 700 }}
-                  dy={10}
-                />
-                <YAxis 
-                  fontSize={10} 
-                  axisLine={false} 
-                  tickLine={false} 
-                  tick={{ fill: '#94a3b8', fontWeight: 700 }}
-                  tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val}
-                />
-                <Tooltip 
-                  cursor={{ fill: '#f8fafc' }}
-                  contentStyle={{ 
-                    borderRadius: '16px', 
-                    border: 'none', 
-                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-                    padding: '12px'
-                  }} 
-                  labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '8px' }}
-                  itemStyle={{ fontSize: '11px', fontWeight: 700 }}
-                />
-                <Legend 
-                  verticalAlign="top" 
-                  align="right"
-                  wrapperStyle={{ paddingBottom: '30px', fontSize: '10px', textTransform: 'uppercase', fontWeight: '900' }} 
-                  iconType="circle" 
-                />
+                <XAxis dataKey="dayLabel" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} dy={10} />
+                <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val} />
+                <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '12px' }} labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '8px' }} itemStyle={{ fontSize: '11px', fontWeight: 700 }} />
+                <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '30px', fontSize: '10px', textTransform: 'uppercase', fontWeight: '900' }} iconType="circle" />
                 {businesses.map((biz, idx) => {
-                  const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
-                  if (!userHasAccess) return null;
+                  if (!(isAdmin || user?.assignedBusinessIds?.includes(biz.id))) return null;
                   if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
-                  
                   return (
                     <Bar 
                       key={biz.id} 
@@ -299,7 +250,7 @@ export const Dashboard: React.FC = () => {
                       name={`${biz.name} (${biz.location})`}
                       stackId="a" 
                       fill={CHART_COLORS[idx % CHART_COLORS.length]} 
-                      radius={[idx === (businesses.filter(b => filters.businessId === 'all' || b.id === filters.businessId).length - 1) ? 4 : 0, idx === (businesses.filter(b => filters.businessId === 'all' || b.id === filters.businessId).length - 1) ? 4 : 0, 0, 0]}
+                      radius={[4, 4, 0, 0]}
                     />
                   );
                 })}
@@ -308,15 +259,33 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
+        {/* Unit Standings Sidebar */}
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col">
           <h3 className="font-bold text-slate-800 mb-6 uppercase text-xs tracking-widest text-left">Unit Standings</h3>
+          
+          {/* Current Leader Badge - MOVED TO TOP */}
+          <div className="mb-8">
+             <div className="flex items-center gap-3 bg-indigo-50 p-5 rounded-3xl border border-indigo-100/50 shadow-sm">
+                <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200"><Trophy size={20} /></div>
+                <div className="text-left overflow-hidden">
+                   <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest leading-none mb-1.5">Current Leader</p>
+                   <p className="text-base font-black text-slate-900 truncate leading-tight">{metrics.bestUnit?.name || '...'}</p>
+                </div>
+             </div>
+          </div>
+
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <span className="w-4 h-[1px] bg-slate-200"></span>
+            Performance Ranking
+          </h4>
+
           <div className="space-y-4 flex-1 overflow-y-auto pr-1">
             {metrics.businessRanking.map((biz, idx) => (
-              <div key={biz.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-white hover:shadow-md hover:border-teal-100 transition-all group">
+              <div key={biz.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-white hover:shadow-lg hover:border-teal-200 transition-all group cursor-default">
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg bg-white text-slate-500 group-hover:bg-teal-600 group-hover:text-white flex items-center justify-center text-xs font-black shadow-sm transition-colors">#{idx + 1}</span>
+                  <span className="w-8 h-8 rounded-xl bg-white text-slate-500 group-hover:bg-teal-600 group-hover:text-white flex items-center justify-center text-xs font-black shadow-sm transition-all">#{idx + 1}</span>
                   <div className="text-left">
-                    <h4 className="text-xs font-bold text-slate-800">{biz.name}</h4>
+                    <h4 className="text-xs font-bold text-slate-800 group-hover:text-teal-900 transition-colors">{biz.name}</h4>
                     <p className="text-[9px] text-slate-400 font-bold uppercase">{biz.location}</p>
                   </div>
                 </div>
@@ -324,26 +293,16 @@ export const Dashboard: React.FC = () => {
                   <span className={`text-xs font-black block ${biz.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {formatCurrency(biz.profit, currency)}
                   </span>
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Net Profit</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Profit</span>
                 </div>
               </div>
             ))}
             {metrics.businessRanking.length === 0 && (
               <div className="flex flex-col items-center justify-center py-20 text-slate-300">
                 <Store size={40} className="mb-4 opacity-20" />
-                <p className="text-xs font-bold uppercase tracking-widest italic">No Data to Rank</p>
+                <p className="text-xs font-bold uppercase tracking-widest italic">No Ranking Data</p>
               </div>
             )}
-          </div>
-          
-          <div className="mt-8 pt-6 border-t border-slate-100">
-             <div className="flex items-center gap-3 bg-indigo-50 p-4 rounded-2xl">
-                <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center shadow-lg"><Trophy size={18} /></div>
-                <div className="text-left overflow-hidden">
-                   <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest leading-none mb-1">Current Leader</p>
-                   <p className="text-sm font-bold text-slate-800 truncate">{metrics.bestUnit?.name || 'Computing Standings...'}</p>
-                </div>
-             </div>
           </div>
         </div>
       </div>

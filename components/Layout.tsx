@@ -45,7 +45,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
     }`}
   >
     {icon}
-    <span className="font-medium">{label}</span>
+    <span className="font-medium text-sm">{label}</span>
     {hasNew && !active && (
       <span className="ml-auto flex items-center gap-1 bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md animate-bounce">
         <Sparkles size={8} /> NEW
@@ -76,7 +76,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/expenses', label: 'Monthly Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/reports', label: 'Reports', icon: <FileBarChart size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
-    { to: '/reminders', label: 'Reminders', icon: <Send size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], badge: remindersCount },
+    { to: '/reminders', label: 'Compliance', icon: <Bell size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], badge: remindersCount },
     { to: '/users', label: 'User Management', icon: <Users size={20} />, roles: [UserRole.ADMIN] },
     { to: '/profile', label: 'My Profile', icon: <UserCircle size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
   ];
@@ -87,29 +87,34 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const checkAlerts = async () => {
       if (!user) return;
       try {
-        const [businesses, sales, reminders] = await Promise.all([
+        const [businesses, sales] = await Promise.all([
           storage.getBusinesses(),
-          storage.getSales(),
-          storage.getReminders()
+          storage.getSales()
         ]);
-        const today = new Date().toISOString().split('T')[0];
+        const todayStr = new Date().toISOString().split('T')[0];
         
-        // Scope alert logic to assigned business IDs
-        const missingBusinesses = businesses.filter(b => {
-            const hasAccess = isAdmin || user.assignedBusinessIds?.includes(b.id);
-            if (!hasAccess) return false;
-            return !sales.some(s => s.businessId === b.id && s.date === today);
-        });
-        
-        setRemindersCount(isAdmin ? reminders.filter(r => r.status === 'pending').length + missingBusinesses.length : missingBusinesses.length);
+        if (isStaff) {
+          // Staff: Count missing entries for assigned shops
+          const missingForStaff = businesses.filter(b => 
+            user.assignedBusinessIds?.includes(b.id) &&
+            !sales.some(s => s.businessId === b.id && s.date === todayStr)
+          );
+          setRemindersCount(missingForStaff.length);
+        } else {
+          // Admin / View Only: Count global missing entries as urgent alerts
+          const missingGlobal = businesses.filter(b => 
+            !sales.some(s => s.businessId === b.id && s.date === todayStr)
+          );
+          setRemindersCount(missingGlobal.length);
+        }
       } catch (err) {
         console.error("Alert check error:", err);
       }
     };
     checkAlerts();
-    const interval = setInterval(checkAlerts, 10000);
+    const interval = setInterval(checkAlerts, 15000);
     return () => clearInterval(interval);
-  }, [user]);
+  }, [user, isStaff]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex">

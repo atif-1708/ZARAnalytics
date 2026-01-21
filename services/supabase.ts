@@ -1,13 +1,14 @@
+
 import { createClient } from '@supabase/supabase-js';
 
 const getEnv = (key: string): string => {
-  if (typeof window !== 'undefined' && (window as any).process?.env?.[key]) {
-    return (window as any).process.env[key];
-  }
-  // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env?.[key]) {
-    // @ts-ignore
-    return import.meta.env[key];
+  // Use a safer, more standard way to access process.env in the browser
+  try {
+    if (typeof window !== 'undefined' && (window as any).process?.env) {
+      return (window as any).process.env[key] || '';
+    }
+  } catch (e) {
+    // Fallback if process.env access is restricted
   }
   return '';
 };
@@ -19,7 +20,7 @@ export const SUPABASE_URL = URL;
 export const SUPABASE_ANON_KEY = KEY;
 
 export const isConfigured = () => {
-  return SUPABASE_URL && SUPABASE_ANON_KEY && !SUPABASE_URL.includes('your-project-id');
+  return !!(SUPABASE_URL && SUPABASE_ANON_KEY && !SUPABASE_URL.includes('your-project-id'));
 };
 
 if (!isConfigured()) {
