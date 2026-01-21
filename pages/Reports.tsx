@@ -17,7 +17,7 @@ export const Reports: React.FC = () => {
     businessId: 'all',
     dateRange: { start: '', end: '' },
     selectedMonth: '',
-    timeframe: 'today'
+    timeframe: 'this_month'
   });
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -122,18 +122,21 @@ export const Reports: React.FC = () => {
     const fSales = filterDataByRange(sales, startDate, endDate, filters.businessId);
     const fExpenses = filterDataByRange(expenses, startDate, endDate, filters.businessId);
 
-    const totalSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
-    const totalProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
-    const totalExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
-    const netProfit = totalProfit - totalExpenses;
+    const rawTotalSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+    const rawTotalProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
+    const rawTotalExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
+    const rawNetProfit = rawTotalProfit - rawTotalExpenses;
+
+    const avgMargin = rawTotalSales > 0 ? (rawTotalProfit / rawTotalSales) * 100 : 0;
 
     return { 
       fSales, 
       fExpenses, 
-      totalSales: convert(totalSales), 
-      totalProfit: convert(totalProfit), 
-      totalExpenses: convert(totalExpenses), 
-      netProfit: convert(netProfit) 
+      totalSales: convert(rawTotalSales), 
+      totalProfit: convert(rawTotalProfit), 
+      totalExpenses: convert(rawTotalExpenses), 
+      netProfit: convert(rawNetProfit),
+      avgMargin
     };
   }, [filters, sales, expenses, currency, exchangeRate]);
 
@@ -220,6 +223,7 @@ export const Reports: React.FC = () => {
               <tr>
                 <th className="px-6 py-4">Business Unit</th>
                 <th className="px-6 py-4">Date</th>
+                <th className="px-6 py-4 text-center">Margin %</th>
                 <th className="px-6 py-4 text-right">Revenue ({currency})</th>
                 <th className="px-6 py-4 text-right">Profit ({currency})</th>
               </tr>
@@ -227,7 +231,7 @@ export const Reports: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {reportData.fSales.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic text-sm">No records match the current filters.</td>
+                  <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No records match the current filters.</td>
                 </tr>
               ) : (
                 reportData.fSales.map(s => (
@@ -236,6 +240,11 @@ export const Reports: React.FC = () => {
                       {businesses.find(b => b.id === s.businessId)?.name || 'Unknown'}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
+                        {s.profitPercentage}%
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
                     <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
                   </tr>
@@ -246,6 +255,9 @@ export const Reports: React.FC = () => {
               <tfoot className="bg-slate-50 font-black">
                 <tr>
                   <td colSpan={2} className="px-6 py-4 text-xs uppercase tracking-wider text-slate-500">Consolidated Totals</td>
+                  <td className="px-6 py-4 text-center text-slate-900 border-t-2 border-slate-200">
+                    {reportData.avgMargin.toFixed(2)}%
+                  </td>
                   <td className="px-6 py-4 text-right text-slate-900 border-t-2 border-slate-200">{formatCurrency(reportData.totalSales, currency)}</td>
                   <td className="px-6 py-4 text-right text-teal-700 border-t-2 border-slate-200">{formatCurrency(reportData.totalProfit, currency)}</td>
                 </tr>

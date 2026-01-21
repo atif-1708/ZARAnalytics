@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit3, AlertCircle, TrendingUp, Loader2 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
@@ -235,7 +234,7 @@ export const Sales: React.FC = () => {
                     disabled={isSaving}
                     min="0"
                     max="100"
-                    step="0.1"
+                    step="any"
                     value={formData.profitPercentage}
                     onChange={(e) => setFormData({...formData, profitPercentage: parseFloat(e.target.value) || 0})}
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-teal-500 outline-none font-semibold text-emerald-600"

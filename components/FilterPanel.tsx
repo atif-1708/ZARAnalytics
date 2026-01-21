@@ -41,7 +41,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
       businessId: 'all',
       dateRange: { start: '', end: '' },
       selectedMonth: '',
-      timeframe: 'today'
+      timeframe: 'this_month'
     });
   };
 

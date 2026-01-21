@@ -47,7 +47,7 @@ export const Dashboard: React.FC = () => {
     businessId: 'all',
     dateRange: { start: '', end: '' },
     selectedMonth: '',
-    timeframe: 'today'
+    timeframe: 'this_month'
   });
 
   const fetchExchangeRate = async () => {
