@@ -128,11 +128,26 @@ export const Sales: React.FC = () => {
     setIsSaving(true);
     try {
       const profitAmount = formData.salesAmount * (formData.profitPercentage / 100);
-      await storage.saveSale({
+      const savedSale = await storage.saveSale({
         ...(editingSale || {}),
         ...formData,
         profitAmount
       });
+
+      // Trigger Alert for Admins
+      if (!editingSale) {
+        const bizName = businesses.find(b => b.id === formData.businessId)?.name || 'Unit';
+        await storage.saveReminder({
+          businessId: formData.businessId,
+          businessName: bizName,
+          date: formData.date,
+          sentBy: user?.id,
+          sentByUserName: user?.name,
+          status: 'pending',
+          type: 'system_alert'
+        });
+      }
+
       await loadData();
       setIsModalOpen(false);
     } catch (err: any) {

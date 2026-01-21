@@ -23,60 +23,43 @@
 
             window.performNuclearReset = async function(reason) {
                 console.error("Watchdog: Recovery triggered. Reason: " + reason);
-                
-                // Clear state
                 localStorage.clear();
                 sessionStorage.clear();
-                
                 try {
                     document.cookie.split(";").forEach(function(c) { 
                         document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
                     });
                 } catch(e) {}
-
                 try {
                     if (window.caches) {
                         const keys = await caches.keys();
                         await Promise.all(keys.map(key => caches.delete(key)));
                     }
                 } catch(e) {}
-
-                // Mark as ready so the next reload doesn't count as a failure
                 localStorage.setItem(READY_KEY, 'true');
                 window.location.href = window.location.origin + window.location.pathname + '#/login';
                 window.location.reload();
             };
 
-            // Detect if we crashed during the previous load attempt
-            // Only trigger if the last attempt was within a reasonable window (e.g. 2 minutes)
-            // and didn't complete.
             if (lastStart > 0 && !appWasReady && (now - lastStart < 120000)) {
                 let failCount = parseInt(localStorage.getItem(FAIL_KEY) || '0') + 1;
                 localStorage.setItem(FAIL_KEY, failCount);
-                console.warn("Watchdog: Detected previous load hang. Fail count: " + failCount);
-                
-                if (failCount >= 3) { // Increased threshold to 3 attempts
+                if (failCount >= 3) {
                     window.performNuclearReset("Multiple boot failures detected.");
                     return;
                 }
             }
-
-            // Mark start of new load attempt
             localStorage.setItem(LOAD_TS_KEY, now.toString());
             localStorage.setItem(READY_KEY, 'false');
-
-            // Failsafe UI: Show reset button if React takes too long to mount (12 seconds)
             setTimeout(() => {
                 if (localStorage.getItem(READY_KEY) !== 'true') {
                     const btn = document.getElementById('failsafe-reset');
                     if (btn) btn.style.display = 'block';
                 }
             }, 12000);
-
-            // Listener for app-ready signal from index.tsx
             window.addEventListener('app-ready', function() {
                 localStorage.setItem(READY_KEY, 'true');
-                localStorage.setItem(FAIL_KEY, '0'); // Reset failure count on success
+                localStorage.setItem(FAIL_KEY, '0');
                 document.body.classList.add('app-loaded');
             });
         })();
@@ -96,21 +79,11 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .app-loaded #app-mount-loader { display: none !important; }
         @media print { .no-print { display: none !important; } }
-        
         #failsafe-reset {
-            display: none;
-            margin-top: 24px;
-            padding: 8px 16px;
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 11px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: #64748b;
-            cursor: pointer;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            display: none; margin-top: 24px; padding: 8px 16px; background: #fff;
+            border: 1px solid #e2e8f0; border-radius: 8px; font-size: 11px;
+            font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;
+            color: #64748b; cursor: pointer; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
         }
         #failsafe-reset:hover { background: #f8fafc; color: #ef4444; border-color: #fecaca; }
     </style>

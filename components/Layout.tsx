@@ -16,7 +16,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole, Business, DailySale } from '../types';
+import { UserRole, Business, DailySale, Reminder } from '../types';
 import { storage } from '../services/mockStorage';
 
 interface SidebarItemProps {
@@ -83,7 +83,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       icon: <Bell size={20} />, 
       roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], 
       badge: remindersCount,
-      badgeColor: isStaff ? 'rose' : 'teal' // Staff see rose (missing), Admin see teal (completed)
+      badgeColor: isStaff ? 'rose' : 'teal' // Staff see rose (missing), Admin see teal (activity alert)
     },
     { to: '/users', label: 'User Management', icon: <Users size={20} />, roles: [UserRole.ADMIN] },
     { to: '/profile', label: 'My Profile', icon: <UserCircle size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
@@ -95,13 +95,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     const checkAlerts = async () => {
       if (!user) return;
       try {
-        const [businesses, sales] = await Promise.all([
-          storage.getBusinesses(),
-          storage.getSales()
-        ]);
         const todayStr = new Date().toISOString().split('T')[0];
         
         if (isStaff) {
+          const [businesses, sales] = await Promise.all([
+            storage.getBusinesses(),
+            storage.getSales()
+          ]);
           // Staff: Count missing entries for assigned shops (Urgent reminder)
           const missingForStaff = businesses.filter(b => 
             user.assignedBusinessIds?.includes(b.id) &&
@@ -109,11 +109,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           );
           setRemindersCount(missingForStaff.length);
         } else {
-          // Admin / View Only: Count completed entries for today (Activity alert)
-          const completedToday = businesses.filter(b => 
-            sales.some(s => s.businessId === b.id && s.date === todayStr)
-          );
-          setRemindersCount(completedToday.length);
+          // Admin / View Only: Count UNREAD activity alerts from the reminders table
+          const reminders = await storage.getReminders();
+          const pendingAlerts = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending');
+          setRemindersCount(pendingAlerts.length);
         }
       } catch (err) {
         console.error("Alert check error:", err);
