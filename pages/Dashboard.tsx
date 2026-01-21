@@ -66,9 +66,9 @@ export const Dashboard: React.FC = () => {
         storage.getExpenses(),
         storage.getBusinesses()
       ]);
-      setSales(s);
-      setExpenses(e);
-      setBusinesses(b);
+      setSales(s || []);
+      setExpenses(e || []);
+      setBusinesses(b || []);
     } finally {
       setLoading(false);
     }
@@ -88,7 +88,7 @@ export const Dashboard: React.FC = () => {
 
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-    // Standard Metrics Filter Logic (StatCards only)
+    // Filter Logic for StatCards (reacts to user date filters)
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
@@ -161,19 +161,16 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // FIXED CURRENT MONTH GRAPH DATA GENERATION
-    // This part ignores the 'filters' and always calculates for the current month
+    // FIXED GRAPH DATA: ALWAYS CURRENT MONTH, NO DATE FILTER IMPACT
     const comparisonData = [];
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const graphYear = now.getFullYear();
+    const graphMonth = now.getMonth();
+    const daysInMonth = new Date(graphYear, graphMonth + 1, 0).getDate();
 
-    for (let day = 1; day <= daysInCurrentMonth; day++) {
-      // Create date string in YYYY-MM-DD format manually to avoid timezone shifting
-      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${graphYear}-${String(graphMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dayPoint: any = { 
-        dayLabel: `${day}/${currentMonth + 1}`,
+        dayLabel: `${day}/${graphMonth + 1}`,
         fullDate: dateStr
       };
       
@@ -181,12 +178,14 @@ export const Dashboard: React.FC = () => {
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
         
-        // We still respect the "Shop Filter" dropdown so the user can isolate a specific shop 
-        // on the graph, but NOT the "Date Filter"
+        // Only respect business selector for graph visualization
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
         
-        const sale = sales.find(s => s.businessId === biz.id && s.date === dateStr);
-        dayPoint[`${biz.name} (${biz.location})`] = sale ? convert(Number(sale.salesAmount)) : 0;
+        const sale = sales.find(s => 
+          s.businessId === biz.id && 
+          (s.date && s.date.split('T')[0] === dateStr)
+        );
+        dayPoint[biz.id] = sale ? convert(Number(sale.salesAmount)) : 0;
       });
       comparisonData.push(dayPoint);
     }
@@ -199,7 +198,7 @@ export const Dashboard: React.FC = () => {
       businessRanking,
       comparisonData
     };
-  }, [filters, sales, expenses, businesses, currency, exchangeRate, user, isAdmin]);
+  }, [filters.businessId, sales, expenses, businesses, currency, exchangeRate, user, isAdmin]);
 
   if (loading) return <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400"><Loader2 className="animate-spin mb-4" size={40} /><p className="font-bold uppercase tracking-widest text-[10px]">Syncing Portal</p></div>;
 
@@ -256,11 +255,10 @@ export const Dashboard: React.FC = () => {
             </div>
             <div className="hidden sm:flex items-center gap-2">
                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Date Filter Independent</span>
+               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Fixed View Mode</span>
             </div>
           </div>
           
-          {/* HIGH IMPACT 850PX TALL CHART */}
           <div className="p-8 flex-1 h-[850px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
@@ -307,7 +305,8 @@ export const Dashboard: React.FC = () => {
                   return (
                     <Bar 
                       key={biz.id} 
-                      dataKey={`${biz.name} (${biz.location})`} 
+                      dataKey={biz.id} 
+                      name={`${biz.name} (${biz.location})`}
                       stackId="a" 
                       fill={CHART_COLORS[idx % CHART_COLORS.length]} 
                       radius={[idx === businesses.length - 1 ? 4 : 0, idx === businesses.length - 1 ? 4 : 0, 0, 0]}

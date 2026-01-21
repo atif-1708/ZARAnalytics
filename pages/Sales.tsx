@@ -197,7 +197,7 @@ export const Sales: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1">
-                      {/* Action restriction: ONLY isStaff (on assigned shops) can edit or delete */}
+                      {/* Action restriction: ONLY isStaff can edit or delete their assigned shops. ADMIN is restricted. */}
                       {!isViewOnly && !isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
                         <>
                           <button 
