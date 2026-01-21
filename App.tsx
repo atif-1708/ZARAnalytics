@@ -67,7 +67,8 @@ const App: React.FC = () => {
           } />
 
           <Route path="/reminders" element={
-            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.USER]}>
+            // Fix: UserRole.USER does not exist, using STAFF and VIEW_ONLY instead
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY]}>
               <Reminders />
             </ProtectedRoute>
           } />

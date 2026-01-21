@@ -1,6 +1,8 @@
+
 export enum UserRole {
   ADMIN = 'ADMIN',
-  USER = 'USER'
+  STAFF = 'STAFF',
+  VIEW_ONLY = 'VIEW_ONLY'
 }
 
 export interface User {
@@ -8,6 +10,7 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
+  assignedBusinessIds?: string[];
   avatarUrl?: string;
   password?: string;
 }
@@ -25,14 +28,14 @@ export interface DailySale {
   date: string;
   salesAmount: number;
   profitPercentage: number;
-  profitAmount: number; // Calculated: sales * (profit% / 100)
+  profitAmount: number;
   createdAt: string;
 }
 
 export interface MonthlyExpense {
   id: string;
   businessId: string;
-  month: string; // YYYY-MM
+  month: string;
   amount: number;
   description: string;
   createdAt: string;
@@ -46,7 +49,7 @@ export interface Reminder {
   sentBy: string;
   sentByUserName: string;
   status: 'pending' | 'read';
-  type: 'user_sent' | 'system_alert'; // Differentiate between user-triggered and auto-generated
+  type: 'user_sent' | 'system_alert';
   createdAt: string;
 }
 
@@ -56,7 +59,7 @@ export interface Filters {
     start: string;
     end: string;
   };
-  selectedMonth: string; // For YYYY-MM specific filtering
+  selectedMonth: string;
   timeframe: 'today' | 'yesterday' | 'this_month' | 'select_month' | 'custom_range' | 'lifetime';
 }
 

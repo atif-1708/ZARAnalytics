@@ -50,7 +50,6 @@ export const storage = {
 
   getSales: async (): Promise<DailySale[]> => {
     try {
-      // Improved sorting: by business date primarily, then by creation time for notification tracking
       const { data, error } = await supabase
         .from('sales')
         .select('*')
@@ -133,18 +132,27 @@ export const storage = {
     }
   },
   
-  createNewUser: async (userData: { name: string, email: string, role: UserRole, password?: string }) => {
+  createNewUser: async (userData: { name: string, email: string, role: UserRole, assignedBusinessIds?: string[], password?: string }) => {
     const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const { data: authData, error: authError } = await backgroundSupabase.auth.signUp({
       email: userData.email,
       password: userData.password || 'Temporary123!',
       options: { data: { full_name: userData.name } }
     });
+    
     if (authError) throw new Error(authError.message);
     if (!authData.user) throw new Error("User creation failed.");
-    const profilePayload = { id: authData.user.id, name: userData.name, role: userData.role };
-    const { error: profileError } = await supabase.from('profiles').upsert(mapToDb(profilePayload));
+    
+    const profilePayload = { 
+      id: authData.user.id, 
+      name: userData.name, 
+      role: userData.role,
+      assigned_business_ids: userData.assignedBusinessIds || [] 
+    };
+    
+    const { error: profileError } = await supabase.from('profiles').upsert(profilePayload);
     if (profileError) throw new Error(profileError.message);
+    
     return authData.user;
   },
 

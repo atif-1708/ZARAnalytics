@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Filter, Calendar, Store, RotateCcw, Clock, ArrowRight, Coins, RefreshCw } from 'lucide-react';
-import { Business, Filters } from '../types';
+import { Filter, Calendar, Store, RotateCcw, Clock, ArrowRight, Coins, RefreshCw, Lock } from 'lucide-react';
+import { Business, Filters, UserRole } from '../types';
 import { storage } from '../services/mockStorage';
+import { useAuth } from '../context/AuthContext';
 
 interface FilterPanelProps {
   filters: Filters;
@@ -23,19 +24,33 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
   isFetchingRate, 
   onRefreshRate 
 }) => {
+  const { user } = useAuth();
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isScoped = !isAdmin && (user?.assignedBusinessIds?.length || 0) > 0;
 
   useEffect(() => {
     const fetchBusinesses = async () => {
       try {
         const data = await storage.getBusinesses();
-        setBusinesses(data);
+        // Filter business list to only assigned ones if scoped
+        const filteredList = isScoped 
+          ? data.filter(b => user?.assignedBusinessIds?.includes(b.id))
+          : data;
+        
+        setBusinesses(filteredList);
+        
+        // Auto-lock for scoped users if their current selection isn't in their list
+        if (isScoped && filters.businessId !== 'all' && !user?.assignedBusinessIds?.includes(filters.businessId)) {
+          setFilters({ ...filters, businessId: 'all' }); // 'all' now effectively means 'all my assigned shops'
+        }
       } catch (err) {
         console.error("Failed to load businesses in FilterPanel", err);
       }
     };
     fetchBusinesses();
-  }, []);
+  }, [user]);
 
   const handleReset = () => {
     setFilters({
@@ -58,7 +73,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
     <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 w-full xl:w-auto">
       <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4">
         
-        {/* Currency Toggle with Exchange Rate Display */}
+        {/* Currency Toggle */}
         <div className="flex items-center bg-slate-50 p-1 rounded-xl border border-slate-200 shrink-0">
           <button 
             onClick={() => setCurrency('ZAR')} 
@@ -91,15 +106,19 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
 
         <div className="w-px h-6 bg-slate-200 hidden md:block" />
 
-        {/* Unit Selector - Updated to show Name (Location) */}
-        <div className="relative min-w-[180px]">
-          <Store size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        {/* Unit Selector */}
+        <div className="relative min-w-[200px]">
+          {isScoped ? (
+             <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-teal-500" />
+          ) : (
+             <Store size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          )}
           <select
             value={filters.businessId}
             onChange={(e) => setFilters({ ...filters, businessId: e.target.value })}
-            className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-100 rounded-xl text-[11px] font-bold focus:outline-none appearance-none cursor-pointer truncate"
+            className={`w-full pl-9 pr-8 py-2 border rounded-xl text-[11px] font-bold focus:outline-none appearance-none cursor-pointer truncate transition-all ${isScoped ? 'bg-teal-50 border-teal-100 text-teal-800' : 'bg-slate-50 border-slate-100 text-slate-900'}`}
           >
-            <option value="all">Global (All Units)</option>
+            <option value="all">{isScoped ? 'All My Units' : 'Global (All Units)'}</option>
             {businesses.map(b => (
               <option key={b.id} value={b.id}>
                 {b.name} ({b.location})

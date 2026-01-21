@@ -1,18 +1,24 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, TrendingUp, Briefcase, Loader2, 
-  ArrowDownCircle, DollarSign, Download
+  ArrowDownCircle, DollarSign, Download, Store
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { FilterPanel } from '../components/FilterPanel';
-import { Filters, Business, DailySale, MonthlyExpense } from '../types';
+import { Filters, Business, DailySale, MonthlyExpense, UserRole } from '../types';
+import { useAuth } from '../context/AuthContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
 export const Reports: React.FC = () => {
+  const { user } = useAuth();
   const [currency, setCurrency] = useState<'ZAR' | 'PKR'>('ZAR');
   const [exchangeRate, setExchangeRate] = useState<number>(1);
   const [isFetchingRate, setIsFetchingRate] = useState(false);
   
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isNoAssignment = !isAdmin && (user?.assignedBusinessIds?.length || 0) === 0;
+
   const [filters, setFilters] = useState<Filters>({
     businessId: 'all',
     dateRange: { start: '', end: '' },
@@ -67,18 +73,18 @@ export const Reports: React.FC = () => {
     let startDate: Date;
     let endDate: Date;
 
-    // 1. Calculate Date Ranges (Consistent with Dashboard)
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
-      endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : now;
+      endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
       endDate.setHours(23, 59, 59, 999);
     } else {
       switch (filters.timeframe) {
         case 'today':
           startDate = new Date();
           startDate.setHours(0, 0, 0, 0);
-          endDate = new Date();
-          endDate.setHours(23, 59, 59, 999);
+          endDate = endOfToday;
           break;
         case 'yesterday':
           startDate = new Date();
@@ -90,7 +96,7 @@ export const Reports: React.FC = () => {
           break;
         case 'this_month':
           startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          endDate = now;
+          endDate = endOfToday;
           break;
         case 'select_month':
           if (filters.selectedMonth) {
@@ -99,22 +105,26 @@ export const Reports: React.FC = () => {
             endDate = new Date(year, month, 0, 23, 59, 59, 999);
           } else {
             startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-            endDate = now;
+            endDate = endOfToday;
           }
           break;
         case 'lifetime':
         default:
-          endDate = now;
+          endDate = endOfToday;
           startDate = new Date(2000, 0, 1);
           break;
       }
     }
 
-    const filterDataByRange = (data: any[], start: Date, end: Date, bizId: string) => {
+    const filterDataByRange = (data: any[], start: Date, end: Date, bizFilter: string) => {
       return data.filter(item => {
         const itemDate = new Date(item.date || item.month + '-01');
         const inRange = itemDate >= start && itemDate <= end;
-        const matchesBiz = bizId === 'all' || item.businessId === bizId;
+        
+        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        if (!userHasAccess) return false;
+
+        const matchesBiz = bizFilter === 'all' || item.businessId === bizFilter;
         return inRange && matchesBiz;
       });
     };
@@ -138,7 +148,7 @@ export const Reports: React.FC = () => {
       netProfit: convert(rawNetProfit),
       avgMargin
     };
-  }, [filters, sales, expenses, currency, exchangeRate]);
+  }, [filters, sales, expenses, currency, exchangeRate, user, isAdmin]);
 
   if (loading) {
     return (
@@ -149,10 +159,22 @@ export const Reports: React.FC = () => {
     );
   }
 
+  if (isNoAssignment) {
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center text-center p-10 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
+        <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-3xl flex items-center justify-center mb-6">
+          <Store size={32} />
+        </div>
+        <h3 className="text-xl font-bold text-slate-900 mb-2">Reports Locked</h3>
+        <p className="text-slate-500 max-w-sm">Financial reports are generated based on your assigned locations.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-20">
       <div className="flex justify-between items-center">
-        <div>
+        <div className="text-left">
           <h2 className="text-2xl font-bold text-slate-800">Financial Reports</h2>
           <p className="text-slate-500 text-sm">Consolidated business performance data</p>
         </div>
@@ -178,31 +200,23 @@ export const Reports: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl w-fit mb-4">
-            <DollarSign size={20} />
-          </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl w-fit mb-4"><DollarSign size={20} /></div>
           <p className="text-sm font-medium text-slate-500">Gross Revenue</p>
           <h3 className="text-xl font-bold text-slate-900">{formatCurrency(reportData.totalSales, currency)}</h3>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="p-3 bg-teal-50 text-teal-600 rounded-xl w-fit mb-4">
-            <TrendingUp size={20} />
-          </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
+          <div className="p-3 bg-teal-50 text-teal-600 rounded-xl w-fit mb-4"><TrendingUp size={20} /></div>
           <p className="text-sm font-medium text-slate-500">Gross Profit</p>
           <h3 className="text-xl font-bold text-teal-600">{formatCurrency(reportData.totalProfit, currency)}</h3>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl w-fit mb-4">
-            <ArrowDownCircle size={20} />
-          </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl w-fit mb-4"><ArrowDownCircle size={20} /></div>
           <p className="text-sm font-medium text-slate-500">Total Expenses</p>
           <h3 className="text-xl font-bold text-rose-600">{formatCurrency(reportData.totalExpenses, currency)}</h3>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4">
-            <Briefcase size={20} />
-          </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4"><Briefcase size={20} /></div>
           <p className="text-sm font-medium text-slate-500">Net Position</p>
           <h3 className={`text-xl font-bold ${reportData.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
             {formatCurrency(reportData.netProfit, currency)}
@@ -211,7 +225,7 @@ export const Reports: React.FC = () => {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+        <div className="p-6 border-b border-slate-100 bg-slate-50/50 text-left">
           <h3 className="font-bold text-slate-800 flex items-center gap-2">
             <FileText size={18} className="text-slate-400" />
             Performance Schedule
@@ -234,35 +248,30 @@ export const Reports: React.FC = () => {
                   <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No records match the current filters.</td>
                 </tr>
               ) : (
-                reportData.fSales.map(s => (
-                  <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-bold text-slate-800">
-                      {businesses.find(b => b.id === s.businessId)?.name || 'Unknown'}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
-                    <td className="px-6 py-4 text-center">
-                      <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
-                        {s.profitPercentage}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
-                    <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
+                <>
+                  {reportData.fSales.map(s => (
+                    <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 font-bold text-slate-800">{businesses.find(b => b.id === s.businessId)?.name || 'Unknown'}</td>
+                      <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
+                          {s.profitPercentage}%
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
+                      <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
+                    </tr>
+                  ))}
+                  {/* Totals Row */}
+                  <tr className="bg-slate-900 text-white font-bold">
+                    <td className="px-6 py-4 text-xs uppercase tracking-widest font-black" colSpan={2}>Report Totals</td>
+                    <td className="px-6 py-4 text-center text-[10px] uppercase font-black">Avg: {reportData.avgMargin.toFixed(1)}%</td>
+                    <td className="px-6 py-4 text-right text-sm font-black">{formatCurrency(reportData.totalSales, currency)}</td>
+                    <td className="px-6 py-4 text-right text-sm font-black text-teal-400">{formatCurrency(reportData.totalProfit, currency)}</td>
                   </tr>
-                ))
+                </>
               )}
             </tbody>
-            {reportData.fSales.length > 0 && (
-              <tfoot className="bg-slate-50 font-black">
-                <tr>
-                  <td colSpan={2} className="px-6 py-4 text-xs uppercase tracking-wider text-slate-500">Consolidated Totals</td>
-                  <td className="px-6 py-4 text-center text-slate-900 border-t-2 border-slate-200">
-                    {reportData.avgMargin.toFixed(2)}%
-                  </td>
-                  <td className="px-6 py-4 text-right text-slate-900 border-t-2 border-slate-200">{formatCurrency(reportData.totalSales, currency)}</td>
-                  <td className="px-6 py-4 text-right text-teal-700 border-t-2 border-slate-200">{formatCurrency(reportData.totalProfit, currency)}</td>
-                </tr>
-              </tfoot>
-            )}
           </table>
         </div>
       </div>

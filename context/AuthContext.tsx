@@ -52,7 +52,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { data: profile, error } = response;
 
-      // Handle missing profile record
       if (!profile && !error?.message?.includes('avatar_url')) {
         setCriticalError("ACCESS_REVOKED");
         setAuth({ user: null, token: null, isAuthenticated: false });
@@ -60,14 +59,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // If we have an error related to avatar_url, the column is likely missing.
-      // We fall back to standard data to prevent app crash.
       setAuth({
         user: { 
           id: sbUser.id, 
           name: profile?.name || sbUser.user_metadata?.full_name || 'Business User', 
           email: sbUser.email, 
-          role: (profile?.role as UserRole) || UserRole.USER,
+          role: (profile?.role as UserRole) || UserRole.VIEW_ONLY,
+          assignedBusinessIds: profile?.assigned_business_ids || [], 
           avatarUrl: profile?.avatar_url || null
         },
         token,
@@ -76,13 +74,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCriticalError(null);
     } catch (err) {
       console.error("Profile fetch sequence failed. Entering degraded mode.", err);
-      // Degraded mode: allow login even if profile table fetch fails, as long as auth is valid
       setAuth({
         user: { 
           id: sbUser.id, 
           name: sbUser.user_metadata?.full_name || 'Business User', 
           email: sbUser.email, 
-          role: UserRole.USER 
+          role: UserRole.VIEW_ONLY 
         },
         token,
         isAuthenticated: true
