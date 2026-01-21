@@ -109,14 +109,22 @@ export const UsersPage: React.FC = () => {
                 </span>
               </div>
               <h3 className="font-bold text-slate-800 truncate mb-1">{u.name}</h3>
-              <div className="flex items-center gap-2 text-teal-600 text-xs font-bold mb-4">
-                <Store size={14} />
-                <span className="truncate">
-                    {u.role === UserRole.ADMIN ? 'Full Global Access' : 
-                     assignedCount === 0 ? 'No shops assigned' :
-                     firstAssigned ? `${firstAssigned.name} (${firstAssigned.location})` :
-                     `${assignedCount} assigned shops`}
-                </span>
+              <div className="flex items-start gap-2 text-teal-600 font-bold mb-4">
+                <Store size={14} className="mt-0.5 shrink-0" />
+                <div className="overflow-hidden">
+                    {u.role === UserRole.ADMIN ? (
+                      <span className="text-xs">Full Global Access</span>
+                    ) : assignedCount === 0 ? (
+                      <span className="text-xs text-slate-400">No shops assigned</span>
+                    ) : firstAssigned ? (
+                      <>
+                        <div className="text-xs truncate">{firstAssigned.name}</div>
+                        <div className="text-[10px] text-teal-500 uppercase tracking-tight">{firstAssigned.location}</div>
+                      </>
+                    ) : (
+                      <span className="text-xs">{assignedCount} assigned shops</span>
+                    )}
+                </div>
               </div>
               <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[10px] text-slate-400 font-bold uppercase tracking-tighter"><Shield size={10} /><span>{u.id === currentUser?.id ? 'System Administrator' : 'Access Level Control'}</span></div>

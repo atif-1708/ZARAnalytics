@@ -95,7 +95,6 @@ export const Dashboard: React.FC = () => {
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
       endDate.setHours(23, 59, 59, 999);
       
-      // For custom ranges, we compare to the same duration before the start
       const duration = endDate.getTime() - startDate.getTime();
       prevStartDate = new Date(startDate.getTime() - duration);
       prevEndDate = new Date(startDate.getTime() - 1);
@@ -343,8 +342,11 @@ export const Dashboard: React.FC = () => {
                 <div className="text-left overflow-hidden">
                    <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest leading-none mb-1.5">Current Leader</p>
                    <p className="text-base font-black text-slate-900 truncate leading-tight">
-                     {metrics.bestUnit ? `${metrics.bestUnit.name} (${metrics.bestUnit.location})` : '...'}
+                     {metrics.bestUnit?.name || '...'}
                    </p>
+                   {metrics.bestUnit && (
+                     <p className="text-[10px] text-slate-500 font-bold uppercase truncate">{metrics.bestUnit.location}</p>
+                   )}
                 </div>
              </div>
           </div>
@@ -360,8 +362,8 @@ export const Dashboard: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <span className="w-8 h-8 rounded-xl bg-white text-slate-500 group-hover:bg-teal-600 group-hover:text-white flex items-center justify-center text-xs font-black shadow-sm transition-all">#{idx + 1}</span>
                   <div className="text-left">
-                    <h4 className="text-xs font-bold text-slate-800 group-hover:text-teal-900 transition-colors">{biz.name}</h4>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase">{biz.location}</p>
+                    <h4 className="text-xs font-black text-slate-800 group-hover:text-teal-900 transition-colors leading-tight">{biz.name}</h4>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">{biz.location}</p>
                   </div>
                 </div>
                 <div className="text-right">

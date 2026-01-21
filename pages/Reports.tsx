@@ -314,8 +314,15 @@ export const Reports: React.FC = () => {
                     const b = businesses.find(bx => bx.id === s.businessId);
                     return (
                       <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-800">
-                          {b ? `${b.name} (${b.location})` : 'Unknown'}
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-black text-slate-800 leading-tight">
+                            {b ? b.name : 'Unknown'}
+                          </div>
+                          {b && (
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+                              {b.location}
+                            </div>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
                         <td className="px-6 py-4 text-center">

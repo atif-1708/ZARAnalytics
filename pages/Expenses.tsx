@@ -181,8 +181,15 @@ export const Expenses: React.FC = () => {
                 return (
                   <tr key={ex.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4 text-sm font-bold">{formatMonth(ex.month)}</td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {b ? `${b.name} (${b.location})` : 'Unknown'}
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-black text-slate-800 leading-tight">
+                        {b ? b.name : 'Unknown'}
+                      </div>
+                      {b && (
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+                          {b.location}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-right font-bold text-rose-600">{formatCurrency(convert(ex.amount), currency)}</td>
                     <td className="px-6 py-4 text-right">
