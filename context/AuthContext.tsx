@@ -28,11 +28,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isInitializing, setIsInitializing] = useState(true);
   const initHandled = useRef(false);
 
-  const performHardReset = () => {
-    console.error("AuthContext: Initialization hung. Clearing data and restarting.");
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.reload();
+  const performEmergencyReset = () => {
+    // Call the global recovery function defined in index.html
+    if (typeof (window as any).performNuclearReset === 'function') {
+      (window as any).performNuclearReset("Auth initialization hung.");
+    } else {
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.reload();
+    }
   };
 
   const fetchProfile = async (sbUser: any, token: string) => {
@@ -40,7 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fetch user profile with a strict check
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
-        4000,
+        3500,
         { data: null, error: { message: 'Timeout' } }
       ) as any;
 
@@ -50,11 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // If no profile is found, it means the user has been deleted from the app's allowed users list.
       if (!profile) {
         console.error("Access Revoked: Profile missing from database.");
-        await supabase.auth.signOut();
-        // Clear everything for safety
-        localStorage.clear();
-        setAuth({ user: null, token: null, isAuthenticated: false });
-        setIsInitializing(false);
+        // Attempt clean sign out with timeout
+        await withTimeout(supabase.auth.signOut(), 2000, null);
+        performEmergencyReset();
         return;
       }
 
@@ -70,8 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (err) {
       console.error("Profile fetch error:", err);
-      // If we can't fetch the profile but have a session, something is wrong.
-      // We'll set initializing to false to show login or a blank state.
+      // On connection error, fallback to unauthenticated
       setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       setIsInitializing(false);
@@ -82,13 +83,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Safety timeout: If auth hasn't initialized in 5 seconds, trigger an auto-reset
-    // to break any corrupted persistence loops.
+    // Safety timeout: If auth hasn't initialized in 4 seconds, trigger an auto-reset
     const safetyTimeout = setTimeout(() => {
       if (isInitializing) {
-        performHardReset();
+        performEmergencyReset();
       }
-    }, 5000);
+    }, 4000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
@@ -99,7 +99,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession() as any,
-          2500,
+          2000,
           { data: { session: null }, error: null }
         ) as any;
 
@@ -160,13 +160,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await supabase.auth.signOut();
+      await withTimeout(supabase.auth.signOut(), 2000, null);
     } finally {
-      localStorage.clear();
-      sessionStorage.clear();
-      setAuth({ user: null, token: null, isAuthenticated: false });
-      window.location.href = '#/login';
-      window.location.reload();
+      performEmergencyReset();
     }
   };
 

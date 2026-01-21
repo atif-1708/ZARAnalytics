@@ -11,46 +11,71 @@
         window.process.env = window.process.env || {};
         window.process.env.NODE_ENV = window.process.env.NODE_ENV || 'production';
 
-        // PROACTIVE LOADING WATCHDOG
+        // NUCLEAR RECOVERY WATCHDOG
         (function() {
-            const FAIL_THRESHOLD = 2; // Number of failed load attempts before auto-reset
-            const loadState = JSON.parse(localStorage.getItem('zarlytics_watchdog') || '{"count":0, "loading":false}');
+            const FAIL_KEY = 'zarlytics_recovery_fail_count';
+            const LOAD_TS_KEY = 'zarlytics_load_start_ts';
+            const READY_KEY = 'zarlytics_app_ready_signal';
             
-            window.clearAppData = function() {
-                console.warn("Watchdog: Performing hard reset of all application data.");
+            const now = Date.now();
+            const lastStart = parseInt(localStorage.getItem(LOAD_TS_KEY) || '0');
+            const appWasReady = localStorage.getItem(READY_KEY) === 'true';
+
+            window.performNuclearReset = async function(reason) {
+                console.error("Watchdog: Recovery triggered. Reason: " + reason);
+                
+                // 1. Clear Storage
                 localStorage.clear();
                 sessionStorage.clear();
+                
+                // 2. Clear Cookies
+                try {
+                    document.cookie.split(";").forEach(function(c) { 
+                        document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+                    });
+                } catch(e) {}
+
+                // 3. Clear Caches (Nuclear option for stuck service workers/assets)
+                try {
+                    if (window.caches) {
+                        const keys = await caches.keys();
+                        await Promise.all(keys.map(key => caches.delete(key)));
+                    }
+                } catch(e) {}
+
+                // 4. Reload to Login
+                window.location.href = window.location.origin + window.location.pathname + '#/login';
                 window.location.reload();
             };
 
-            // If we were already in a "loading" state when the page started, it means the last attempt failed.
-            if (loadState.loading) {
-                loadState.count += 1;
-                console.warn(`Watchdog: Detected previous load failure. Attempt: ${loadState.count}`);
+            // Detect if we crashed during the previous load attempt
+            if (lastStart > 0 && !appWasReady) {
+                let failCount = parseInt(localStorage.getItem(FAIL_KEY) || '0') + 1;
+                localStorage.setItem(FAIL_KEY, failCount);
+                console.warn("Watchdog: Detected previous load hang. Fail count: " + failCount);
                 
-                if (loadState.count >= FAIL_THRESHOLD) {
-                    localStorage.removeItem('zarlytics_watchdog');
-                    window.clearAppData();
+                if (failCount >= 2) {
+                    window.performNuclearReset("Consecutive boot failures detected.");
                     return;
                 }
             }
-            
-            // Mark as loading
-            loadState.loading = true;
-            localStorage.setItem('zarlytics_watchdog', JSON.stringify(loadState));
 
-            // Failsafe: If the app hasn't cleared the loading flag in 10 seconds, assume it's stuck
+            // Mark start of new load attempt
+            localStorage.setItem(LOAD_TS_KEY, now.toString());
+            localStorage.setItem(READY_KEY, 'false');
+
+            // Failsafe UI: Show reset button if React takes too long to mount
             setTimeout(() => {
-                const current = JSON.parse(localStorage.getItem('zarlytics_watchdog') || '{}');
-                if (current.loading) {
+                if (localStorage.getItem(READY_KEY) !== 'true') {
                     const btn = document.getElementById('failsafe-reset');
                     if (btn) btn.style.display = 'block';
                 }
-            }, 8000);
+            }, 7000);
 
-            // Global listener for the app to signal it's ready
+            // Listener for app-ready signal from index.tsx
             window.addEventListener('app-ready', function() {
-                localStorage.setItem('zarlytics_watchdog', JSON.stringify({count: 0, loading: false}));
+                localStorage.setItem(READY_KEY, 'true');
+                localStorage.setItem(FAIL_KEY, '0'); // Reset failure count on success
                 document.body.classList.add('app-loaded');
             });
         })();
@@ -74,14 +99,19 @@
         #failsafe-reset {
             display: none;
             margin-top: 24px;
+            padding: 8px 16px;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
             font-size: 11px;
             font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.1em;
             color: #64748b;
             cursor: pointer;
-            text-decoration: underline;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
         }
+        #failsafe-reset:hover { background: #f8fafc; color: #ef4444; border-color: #fecaca; }
     </style>
 <script type="importmap">
 {
@@ -105,7 +135,7 @@
     <div id="app-mount-loader">
         <div class="spinner"></div>
         <div style="font-weight: 700; color: #0f172a; font-size: 14px;">ZARlytics</div>
-        <div id="failsafe-reset" onclick="window.clearAppData()">Stuck? Reset Application</div>
+        <button id="failsafe-reset" onclick="window.performNuclearReset('Manual User Reset Request')">Repair & Restart App</button>
     </div>
     <div id="root"></div>
     <script type="module" src="./index.tsx"></script>
