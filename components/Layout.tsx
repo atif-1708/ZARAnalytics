@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { 
@@ -50,14 +51,14 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
     {icon}
     <span className="font-medium">{label}</span>
     
-    {/* NEW Indicator for standard user tabs (Bounce Animation) */}
+    {/* NEW Indicator for standard user tabs */}
     {hasNew && !active && (
       <span className="ml-auto flex items-center gap-1 bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md animate-bounce shadow-lg shadow-blue-500/30">
         <Sparkles size={8} /> NEW
       </span>
     )}
 
-    {/* Numeric Badge (e.g. for Reminders or Missing Entries) */}
+    {/* Numeric Badge */}
     {badge && badge > 0 ? (
       <span className={`ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badge > 0 ? 'animate-pulse scale-110 shadow-lg shadow-rose-900/50' : ''}`}>
         {badge}
@@ -76,14 +77,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [remindersCount, setRemindersCount] = useState(0);
   const [shouldShake, setShouldShake] = useState(false);
   
-  // Tab-specific alert states for standard users
   const [hasNewBusinesses, setHasNewBusinesses] = useState(false);
   const [hasNewSales, setHasNewSales] = useState(false);
   const [hasNewExpenses, setHasNewExpenses] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
-  
-  // High-precision tracking refs
   const lastBusinessIds = useRef<Set<string> | null>(null);
   const lastSalesIds = useRef<Set<string> | null>(null);
   const lastExpenseIds = useRef<Set<string> | null>(null);
@@ -91,7 +89,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const isAdmin = user?.role === UserRole.ADMIN;
 
-  // Clear alerts immediately when visiting the corresponding tabs
   useEffect(() => {
     if (location.pathname === '/businesses') setHasNewBusinesses(false);
     if (location.pathname === '/sales') setHasNewSales(false);
@@ -114,7 +111,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   useEffect(() => {
     const checkAlerts = async () => {
       if (!user) return;
-      
       try {
         const [businesses, sales, expenses, reminders] = await Promise.all([
           storage.getBusinesses(),
@@ -122,13 +118,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           storage.getExpenses(),
           storage.getReminders()
         ]);
-
         const today = new Date().toISOString().split('T')[0];
         const isUrgentWindow = isPast10PMPakistan();
         const activeNotifs: Notification[] = [];
-
-        // 1. MISSING ENTRY ALERTS (Both Roles - Persistent)
         const missingBusinesses = businesses.filter(b => !sales.some(s => s.businessId === b.id && s.date === today));
+        
         missingBusinesses.forEach(business => {
           activeNotifs.push({
             id: `missing-sale-${business.id}-${today}`,
@@ -145,9 +139,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           });
         });
 
-        // 2. NEW ACTIVITY DETECTION & TAB ALERTS (Mainly for Users)
         if (!isAdmin) {
-          // --- Businesses Alert ---
           const currentBizIds = new Set(businesses.map(b => b.id));
           if (lastBusinessIds.current !== null) {
             const added = businesses.filter(b => !lastBusinessIds.current!.has(b.id));
@@ -169,7 +161,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           }
           lastBusinessIds.current = currentBizIds;
 
-          // --- Sales Alert ---
           const currentSalesIds = new Set(sales.map(s => s.id));
           if (lastSalesIds.current !== null) {
             const addedSales = sales.filter(s => !lastSalesIds.current!.has(s.id));
@@ -192,7 +183,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           }
           lastSalesIds.current = currentSalesIds;
 
-          // --- Expenses Alert ---
           const currentExpenseIds = new Set(expenses.map(e => e.id));
           if (lastExpenseIds.current !== null) {
             const addedExpenses = expenses.filter(e => !lastExpenseIds.current!.has(e.id));
@@ -216,7 +206,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           lastExpenseIds.current = currentExpenseIds;
         }
 
-        // --- Reminders (For Admins) ---
         if (isAdmin) {
           const currentReminderIds = new Set(reminders.map(r => r.id));
           const pendingFromUsers = reminders.filter(r => r.status === 'pending');
@@ -232,7 +221,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               link: '/reminders'
             });
           }
-
           if (lastReminderIds.current !== null) {
             const added = reminders.filter(r => !lastReminderIds.current!.has(r.id) && r.status === 'pending');
             if (added.length > 0) {
@@ -243,25 +231,20 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           lastReminderIds.current = currentReminderIds;
         }
 
-        // Apply findings to notifications
         setNotifications(prev => {
           const prevIds = new Set(prev.map(n => n.id));
           const toAdd = activeNotifs.filter(n => !prevIds.has(n.id));
-          
           if (toAdd.length > 0) {
             setShouldShake(true);
             setTimeout(() => setShouldShake(false), 1000);
           }
-          
           const combined = [...toAdd, ...prev].filter(n => {
             if (n.id.startsWith('missing-sale-') && !n.id.endsWith(today)) return false;
             return true;
           });
-
           return combined.slice(0, 20);
         });
 
-        // 3. SIDEBAR BADGE CALCULATION (Red dot count)
         const missingCount = missingBusinesses.length;
         if (isAdmin) {
           const pendingReminderCount = reminders.filter(r => r.status === 'pending').length;
@@ -273,9 +256,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         console.error("Layout Integrity Monitor Error:", err);
       }
     };
-
     checkAlerts();
-    const interval = setInterval(checkAlerts, 5000); // 5s High-frequency polling
+    const interval = setInterval(checkAlerts, 5000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -315,8 +297,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden" onClick={() => setIsSidebarOpen(false)} />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 w-64 bg-slate-900 text-white z-50 transition-transform duration-300 lg:translate-x-0 lg:static lg:block ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-6">
+      {/* Sidebar Container: Use Flex column to pin the footer */}
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-slate-900 text-white z-50 transition-transform duration-300 lg:translate-x-0 lg:static lg:block flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        
+        {/* Scrollable Navigation Content */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
           <div className="flex items-center gap-3 mb-10">
             <div className="w-10 h-10 bg-teal-500 rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-teal-500/30">ZL</div>
             <h1 className="text-xl font-bold tracking-tight">ZARlytics</h1>
@@ -332,7 +317,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             ))}
           </nav>
         </div>
-        <div className="absolute bottom-0 w-full p-6 border-t border-slate-800">
+
+        {/* Pinned Bottom Section: Profile & Sign Out */}
+        <div className="p-6 border-t border-slate-800 bg-slate-900 shrink-0">
           <div className="flex items-center gap-3 mb-6 px-2">
             {user?.avatarUrl ? (
               <img src={user.avatarUrl} alt={user.name} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-700" />
@@ -343,18 +330,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             )}
             <div className="overflow-hidden">
               <p className="text-sm font-semibold truncate">{user?.name}</p>
-              <p className="text-xs text-slate-400 truncate uppercase tracking-tighter font-black">{user?.role}</p>
+              <p className="text-[9px] text-slate-400 truncate uppercase tracking-tighter font-black">{user?.role}</p>
             </div>
           </div>
-          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-colors">
-            <LogOut size={20} />
+          <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-rose-400 hover:bg-rose-500/10 transition-all group">
+            <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
             <span className="font-medium">Sign Out</span>
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-30">
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-30 shrink-0">
           <button className="p-2 -ml-2 text-slate-500 lg:hidden" onClick={() => setIsSidebarOpen(true)}>
             <Menu size={24} />
           </button>
