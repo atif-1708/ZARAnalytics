@@ -13,15 +13,10 @@ import {
   UserCircle,
   ChevronRight,
   Bell,
-  CheckCircle2,
-  BellRing,
-  Clock,
-  Sparkles,
-  Send,
-  CalendarDays
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole, Notification, Business, DailySale, Reminder, MonthlyExpense } from '../types';
+import { UserRole, Business, DailySale } from '../types';
 import { storage } from '../services/mockStorage';
 
 interface SidebarItemProps {
@@ -32,9 +27,10 @@ interface SidebarItemProps {
   onClick?: () => void;
   badge?: number;
   hasNew?: boolean;
+  badgeColor?: 'rose' | 'teal';
 }
 
-const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onClick, badge, hasNew }) => (
+const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onClick, badge, hasNew, badgeColor = 'rose' }) => (
   <Link
     to={to}
     onClick={onClick}
@@ -52,7 +48,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
       </span>
     )}
     {badge && badge > 0 ? (
-      <span className="ml-auto bg-rose-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900">
+      <span className={`ml-auto text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badgeColor === 'rose' ? 'bg-rose-600' : 'bg-teal-500'}`}>
         {badge}
       </span>
     ) : (active && !hasNew) && <ChevronRight className="ml-auto w-4 h-4" />}
@@ -68,15 +64,27 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   
   const isAdmin = user?.role === UserRole.ADMIN;
   const isStaff = user?.role === UserRole.STAFF;
-  const isViewOnly = user?.role === UserRole.VIEW_ONLY;
 
-  const menuItems = [
+  // Fix: Explicitly type MenuItem to prevent string inference for badgeColor
+  // and handle extra properties like 'roles' properly.
+  interface MenuItem extends Omit<SidebarItemProps, 'active'> {
+    roles: UserRole[];
+  }
+
+  const menuItems: MenuItem[] = [
     { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN] },
     { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/expenses', label: 'Monthly Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/reports', label: 'Reports', icon: <FileBarChart size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
-    { to: '/reminders', label: 'Compliance', icon: <Bell size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], badge: remindersCount },
+    { 
+      to: '/reminders', 
+      label: 'Compliance', 
+      icon: <Bell size={20} />, 
+      roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], 
+      badge: remindersCount,
+      badgeColor: isStaff ? 'rose' : 'teal' // Staff see rose (missing), Admin see teal (completed)
+    },
     { to: '/users', label: 'User Management', icon: <Users size={20} />, roles: [UserRole.ADMIN] },
     { to: '/profile', label: 'My Profile', icon: <UserCircle size={20} />, roles: [UserRole.ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
   ];
@@ -94,18 +102,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         const todayStr = new Date().toISOString().split('T')[0];
         
         if (isStaff) {
-          // Staff: Count missing entries for assigned shops
+          // Staff: Count missing entries for assigned shops (Urgent reminder)
           const missingForStaff = businesses.filter(b => 
             user.assignedBusinessIds?.includes(b.id) &&
             !sales.some(s => s.businessId === b.id && s.date === todayStr)
           );
           setRemindersCount(missingForStaff.length);
         } else {
-          // Admin / View Only: Count global missing entries as urgent alerts
-          const missingGlobal = businesses.filter(b => 
-            !sales.some(s => s.businessId === b.id && s.date === todayStr)
+          // Admin / View Only: Count completed entries for today (Activity alert)
+          const completedToday = businesses.filter(b => 
+            sales.some(s => s.businessId === b.id && s.date === todayStr)
           );
-          setRemindersCount(missingGlobal.length);
+          setRemindersCount(completedToday.length);
         }
       } catch (err) {
         console.error("Alert check error:", err);
@@ -129,14 +137,18 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <h1 className="text-xl font-bold tracking-tight">ZARlytics</h1>
           </div>
           <nav className="space-y-2">
-            {filteredItems.map((item) => (
-              <SidebarItem 
-                key={item.to} 
-                {...item} 
-                active={location.pathname === item.to} 
-                onClick={() => setIsSidebarOpen(false)} 
-              />
-            ))}
+            {filteredItems.map((item) => {
+              // Fix: Destructure 'roles' to avoid passing unexpected props to SidebarItem
+              const { roles, ...sidebarProps } = item;
+              return (
+                <SidebarItem 
+                  key={item.to} 
+                  {...sidebarProps} 
+                  active={location.pathname === item.to} 
+                  onClick={() => setIsSidebarOpen(false)} 
+                />
+              );
+            })}
           </nav>
         </div>
 
