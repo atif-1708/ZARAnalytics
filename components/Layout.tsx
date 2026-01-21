@@ -89,7 +89,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const filteredItems = menuItems.filter(item => item.roles.includes(user?.role as UserRole));
 
-  // Notification logic: Calculate alerts that haven't been "seen" locally by this specific user
   const checkAlerts = async () => {
     if (!user) return;
     try {
@@ -106,11 +105,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         );
         setRemindersCount(missingForStaff.length);
       } else {
-        // Admin / View Only: Per-user "Seen" Tracking
+        // Admin / View Only: Per-user "Seen" Tracking for Badge Count
         const reminders = await storage.getReminders();
         const pendingAlerts = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending');
         
-        // Get seen IDs from localStorage for this specific user
+        // seenKey tracks which alerts the user has seen (to clear the 1,2,3 badge)
         const seenKey = `seen_alerts_${user.id}`;
         const seenIds = JSON.parse(localStorage.getItem(seenKey) || '[]');
         
@@ -118,7 +117,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         const unseenCount = pendingAlerts.filter(r => !seenIds.includes(r.id)).length;
         setRemindersCount(unseenCount);
 
-        // If user is currently on the reminders page, auto-mark all as seen for them
+        // If user is currently on the compliance page, mark all current alerts as seen (clears badge)
         if (location.pathname === '/reminders' && pendingAlerts.length > 0) {
           const allCurrentPendingIds = pendingAlerts.map(r => r.id);
           const updatedSeenIds = Array.from(new Set([...seenIds, ...allCurrentPendingIds]));
