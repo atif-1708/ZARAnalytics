@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, AuthState, UserRole } from '../types';
 import { supabase, isConfigured } from '../services/supabase';
+import { LogOut, ShieldAlert, Loader2 } from 'lucide-react';
 
 interface AuthContextType extends AuthState {
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
@@ -26,11 +27,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAuthenticated: false
   });
   const [isInitializing, setIsInitializing] = useState(true);
+  const [criticalError, setCriticalError] = useState<string | null>(null);
   const initHandled = useRef(false);
 
   const performEmergencyReset = (reason: string) => {
-    console.error("Auth Recovery Triggered:", reason);
-    // Call the global recovery function defined in index.html
+    // Only trigger nuclear reset if we are actually stuck and NOT showing a critical error UI
+    if (criticalError) return;
+    
+    console.error("Auth Recovery Check:", reason);
     if (typeof (window as any).performNuclearReset === 'function') {
       (window as any).performNuclearReset(reason);
     } else {
@@ -42,23 +46,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (sbUser: any, token: string) => {
     try {
-      // Fetch user profile with a slightly longer timeout for resilience
+      // Use a robust timeout for profile fetching
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
-        6000,
-        { data: null, error: { message: 'Timeout' } }
+        10000,
+        { data: null, error: { message: 'Profile Fetch Timeout' } }
       ) as any;
 
       const { data: profile } = response;
 
-      // SECURITY & INTEGRITY CHECK:
-      // If no profile is found, it means the user's DB entry is missing.
-      // In a normal window, this often indicates a stale/corrupted Supabase session.
+      // Handle missing profile record without triggering a reload loop
       if (!profile) {
-        console.warn("Integrity Check Failed: Profile missing for authenticated user.");
-        // Try one more time with a refresh or give up
-        await withTimeout(supabase.auth.signOut(), 2000, null);
-        performEmergencyReset("Authenticated session detected but no database profile found.");
+        setCriticalError("ACCESS_REVOKED");
+        setAuth({ user: null, token: null, isAuthenticated: false });
+        setIsInitializing(false);
         return;
       }
 
@@ -72,9 +73,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         isAuthenticated: true
       });
+      setCriticalError(null);
     } catch (err) {
       console.error("Profile fetch error:", err);
-      // Fallback: Clear initialization but don't reset unless it's a critical loop
       setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       setIsInitializing(false);
@@ -85,12 +86,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Increased safety timeout to 8 seconds to allow for slow initial connections
+    // Safety timeout increased to 20 seconds for ultra-resilience
     const safetyTimeout = setTimeout(() => {
-      if (isInitializing) {
-        performEmergencyReset("Auth initialization hung for more than 8 seconds.");
+      if (isInitializing && !criticalError) {
+        performEmergencyReset("Auth initialization hung for more than 20 seconds.");
       }
-    }, 8000);
+    }, 20000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
@@ -101,7 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession() as any,
-          4000,
+          8000,
           { data: { session: null }, error: null }
         ) as any;
 
@@ -125,6 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchProfile(session.user, session.access_token);
       } else if (event === 'SIGNED_OUT') {
         setAuth({ user: null, token: null, isAuthenticated: false });
+        setCriticalError(null);
         setIsInitializing(false);
       }
     });
@@ -139,32 +141,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password: pass }) as any,
-        10000,
+        15000,
         { data: { user: null, session: null }, error: { message: 'Login connection timed out.' } }
       ) as any;
 
       if (error) return { success: false, error: error.message };
       
       if (data.session) {
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
-        if (!profile) {
-          await supabase.auth.signOut();
-          return { success: false, error: "Access denied. Your account profile record is missing." };
-        }
         await fetchProfile(data.user, data.session.access_token);
         return { success: true };
       }
-      return { success: false, error: "Authentication failed. Please check your credentials." };
+      return { success: false, error: "Authentication failed." };
     } catch (err: any) {
-      return { success: false, error: err.message || "An unexpected error occurred during login." };
+      return { success: false, error: err.message || "An unexpected error occurred." };
     }
   };
 
   const logout = async () => {
     try {
-      await withTimeout(supabase.auth.signOut(), 2000, null);
+      // Mark app as ready temporarily so the watchdog doesn't see the reload as a failure
+      localStorage.setItem('zarlytics_app_ready_signal', 'true');
+      await withTimeout(supabase.auth.signOut(), 3000, null);
     } finally {
-      performEmergencyReset("User initiated logout and session clear.");
+      setAuth({ user: null, token: null, isAuthenticated: false });
+      setCriticalError(null);
+      // Hard clear everything to be 100% sure
+      localStorage.clear();
+      sessionStorage.clear();
+      window.location.reload();
     }
   };
 
@@ -180,7 +184,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           <div className="w-12 h-12 border-4 border-slate-200 border-t-teal-600 rounded-full animate-spin"></div>
           <div className="absolute inset-0 flex items-center justify-center font-black text-[8px] text-teal-600 uppercase">ZAR</div>
         </div>
-        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] animate-pulse">Establishing Secure Connection</p>
+        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] animate-pulse">Syncing Business Core</p>
+      </div>
+    );
+  }
+
+  if (criticalError === "ACCESS_REVOKED") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-md w-full bg-white p-10 rounded-[2.5rem] shadow-2xl border border-rose-100 text-center space-y-6">
+          <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-3xl flex items-center justify-center mx-auto">
+            <ShieldAlert size={40} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Access Revoked</h2>
+            <p className="text-sm text-slate-500 font-medium leading-relaxed">
+              Authenticated session detected, but no matching business profile was found in our database. 
+              Contact your Administrator to verify your credentials.
+            </p>
+          </div>
+          <button 
+            onClick={logout}
+            className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-4 rounded-2xl font-black text-sm hover:bg-rose-600 transition-all group"
+          >
+            <LogOut size={18} className="group-hover:-translate-x-1 transition-transform" />
+            Clear Session & Sign Out
+          </button>
+        </div>
       </div>
     );
   }

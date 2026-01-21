@@ -24,18 +24,16 @@
             window.performNuclearReset = async function(reason) {
                 console.error("Watchdog: Recovery triggered. Reason: " + reason);
                 
-                // 1. Clear Storage
+                // Clear state
                 localStorage.clear();
                 sessionStorage.clear();
                 
-                // 2. Clear Cookies
                 try {
                     document.cookie.split(";").forEach(function(c) { 
                         document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
                     });
                 } catch(e) {}
 
-                // 3. Clear Caches (Nuclear option for stuck service workers/assets)
                 try {
                     if (window.caches) {
                         const keys = await caches.keys();
@@ -43,19 +41,22 @@
                     }
                 } catch(e) {}
 
-                // 4. Reload to Login
+                // Mark as ready so the next reload doesn't count as a failure
+                localStorage.setItem(READY_KEY, 'true');
                 window.location.href = window.location.origin + window.location.pathname + '#/login';
                 window.location.reload();
             };
 
             // Detect if we crashed during the previous load attempt
-            if (lastStart > 0 && !appWasReady) {
+            // Only trigger if the last attempt was within a reasonable window (e.g. 2 minutes)
+            // and didn't complete.
+            if (lastStart > 0 && !appWasReady && (now - lastStart < 120000)) {
                 let failCount = parseInt(localStorage.getItem(FAIL_KEY) || '0') + 1;
                 localStorage.setItem(FAIL_KEY, failCount);
                 console.warn("Watchdog: Detected previous load hang. Fail count: " + failCount);
                 
-                if (failCount >= 2) {
-                    window.performNuclearReset("Consecutive boot failures detected.");
+                if (failCount >= 3) { // Increased threshold to 3 attempts
+                    window.performNuclearReset("Multiple boot failures detected.");
                     return;
                 }
             }
@@ -64,13 +65,13 @@
             localStorage.setItem(LOAD_TS_KEY, now.toString());
             localStorage.setItem(READY_KEY, 'false');
 
-            // Failsafe UI: Show reset button if React takes too long to mount
+            // Failsafe UI: Show reset button if React takes too long to mount (12 seconds)
             setTimeout(() => {
                 if (localStorage.getItem(READY_KEY) !== 'true') {
                     const btn = document.getElementById('failsafe-reset');
                     if (btn) btn.style.display = 'block';
                 }
-            }, 7000);
+            }, 12000);
 
             // Listener for app-ready signal from index.tsx
             window.addEventListener('app-ready', function() {

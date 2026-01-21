@@ -120,7 +120,7 @@ export const FilterPanel: React.FC<FilterPanelProps> = ({
               >
                 <option value="all">Global (All Units)</option>
                 {businesses.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
+                  <option key={b.id} value={b.id}>{b.name} ({b.location})</option>
                 ))}
               </select>
             </div>
