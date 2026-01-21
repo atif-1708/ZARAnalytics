@@ -88,6 +88,7 @@ export const Dashboard: React.FC = () => {
 
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
+    // Standard Metrics Filter Logic (StatCards only)
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
@@ -160,29 +161,28 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // DYNAMIC GRAPH DATA GENERATION
+    // FIXED CURRENT MONTH GRAPH DATA GENERATION
+    // This part ignores the 'filters' and always calculates for the current month
     const comparisonData = [];
-    let loopStart = new Date(startDate);
-    let loopEnd = new Date(endDate);
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const daysInCurrentMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
-    // Safety: If range is more than 31 days, show the last 31 days for velocity focus
-    const diffTime = Math.abs(loopEnd.getTime() - loopStart.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    if (diffDays > 31) {
-      loopStart = new Date(loopEnd);
-      loopStart.setDate(loopStart.getDate() - 31);
-    }
-
-    for (let d = new Date(loopStart); d <= loopEnd; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
+    for (let day = 1; day <= daysInCurrentMonth; day++) {
+      // Create date string in YYYY-MM-DD format manually to avoid timezone shifting
+      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      
       const dayPoint: any = { 
-        dayLabel: `${d.getDate()}/${d.getMonth() + 1}`,
+        dayLabel: `${day}/${currentMonth + 1}`,
         fullDate: dateStr
       };
       
       businesses.forEach(biz => {
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
+        
+        // We still respect the "Shop Filter" dropdown so the user can isolate a specific shop 
+        // on the graph, but NOT the "Date Filter"
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
         
         const sale = sales.find(s => s.businessId === biz.id && s.date === dateStr);
@@ -249,17 +249,18 @@ export const Dashboard: React.FC = () => {
               <div className="p-2 bg-slate-900 text-white rounded-lg"><Layers size={20} /></div>
               <div className="text-left">
                 <h3 className="text-xl font-black text-slate-900 tracking-tight">
-                  {isScoped ? 'My Unit Velocity' : 'Global Daily Velocity'}
+                  {isScoped ? 'Current Month Progress' : 'Global Monthly Velocity'}
                 </h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Revenue Impact Stream</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fixed Month-to-Date Performance</p>
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-2">
                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Live Transaction Mapping</span>
+               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Date Filter Independent</span>
             </div>
           </div>
           
+          {/* HIGH IMPACT 850PX TALL CHART */}
           <div className="p-8 flex-1 h-[850px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
