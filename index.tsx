@@ -5,12 +5,12 @@ import App from './App';
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error("Could not find root element");
 
-// Remove the static loader once the JS is ready to mount
-document.body.classList.add('app-loaded');
-
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
+
+// Signal to the loading watchdog that the app has mounted successfully
+window.dispatchEvent(new Event('app-ready'));

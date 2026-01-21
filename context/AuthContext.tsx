@@ -28,6 +28,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isInitializing, setIsInitializing] = useState(true);
   const initHandled = useRef(false);
 
+  const performHardReset = () => {
+    console.error("AuthContext: Initialization hung. Clearing data and restarting.");
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.reload();
+  };
+
   const fetchProfile = async (sbUser: any, token: string) => {
     try {
       // Fetch user profile with a strict check
@@ -63,6 +70,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (err) {
       console.error("Profile fetch error:", err);
+      // If we can't fetch the profile but have a session, something is wrong.
+      // We'll set initializing to false to show login or a blank state.
       setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       setIsInitializing(false);
@@ -73,13 +82,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Faster safety timeout (6 seconds)
+    // Safety timeout: If auth hasn't initialized in 5 seconds, trigger an auto-reset
+    // to break any corrupted persistence loops.
     const safetyTimeout = setTimeout(() => {
       if (isInitializing) {
-        console.warn("Auth initialization safety timeout triggered.");
-        setIsInitializing(false);
+        performHardReset();
       }
-    }, 6000);
+    }, 5000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
@@ -90,7 +99,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession() as any,
-          3000,
+          2500,
           { data: { session: null }, error: null }
         ) as any;
 
@@ -128,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password: pass }) as any,
-        10000,
+        8000,
         { data: { user: null, session: null }, error: { message: 'Login connection timed out.' } }
       ) as any;
 
@@ -154,6 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await supabase.auth.signOut();
     } finally {
       localStorage.clear();
+      sessionStorage.clear();
       setAuth({ user: null, token: null, isAuthenticated: false });
       window.location.href = '#/login';
       window.location.reload();
