@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Edit3, AlertCircle, TrendingUp, Loader2, Lock } from 'lucide-react';
+import { Plus, Trash2, Edit3, TrendingUp, Loader2, Lock } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { DailySale, UserRole, Business, Filters } from '../types';
@@ -122,7 +122,7 @@ export const Sales: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isViewOnly || isAdmin) return; // Admin restricted from data entry
+    if (isAdmin || isViewOnly) return; 
     if (isSaving) return;
 
     setIsSaving(true);
@@ -151,8 +151,7 @@ export const Sales: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Sales Records</h2>
           <p className="text-slate-500">{isScoped ? 'Operational data for your assigned shops' : 'Global revenue streams'}</p>
         </div>
-        {/* Only Staff can add entries */}
-        {isStaff && (
+        {!isAdmin && isStaff && (
           <button 
             onClick={() => { setEditingSale(null); setFormData({ businessId: (businesses.find(b => user?.assignedBusinessIds?.includes(b.id))?.id || businesses[0]?.id || ''), date: new Date().toISOString().split('T')[0], salesAmount: 0, profitPercentage: 0 }); setIsModalOpen(true); }}
             className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg"
@@ -197,8 +196,7 @@ export const Sales: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1">
-                      {/* Action restriction: ONLY isStaff can edit or delete their assigned shops. ADMIN is restricted. */}
-                      {!isViewOnly && !isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
+                      {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
                         <>
                           <button 
                             onClick={() => { 

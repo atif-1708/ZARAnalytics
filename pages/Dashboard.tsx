@@ -83,12 +83,14 @@ export const Dashboard: React.FC = () => {
 
   const metrics = useMemo(() => {
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonthIndex = now.getMonth();
+    
+    // --- 1. FILTER LOGIC FOR TOP STAT CARDS (Reactive to Filters) ---
     let startDate: Date;
     let endDate: Date;
+    const endOfToday = new Date(currentYear, currentMonthIndex, now.getDate(), 23, 59, 59, 999);
 
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-    // Filter Logic for StatCards (reacts to user date filters)
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
@@ -104,7 +106,7 @@ export const Dashboard: React.FC = () => {
           endDate = new Date(); endDate.setDate(now.getDate() - 1); endDate.setHours(23,59,59,999);
           break;
         case 'this_month':
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          startDate = new Date(currentYear, currentMonthIndex, 1);
           endDate = endOfToday;
           break;
         case 'select_month':
@@ -113,7 +115,7 @@ export const Dashboard: React.FC = () => {
             startDate = new Date(y, m - 1, 1);
             endDate = new Date(y, m, 0, 23, 59, 59, 999);
           } else {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            startDate = new Date(currentYear, currentMonthIndex, 1);
             endDate = endOfToday;
           }
           break;
@@ -136,11 +138,11 @@ export const Dashboard: React.FC = () => {
       });
     };
 
-    const currentSales = filterData(sales);
-    const currentExpenses = filterData(expenses);
-    const rev = currentSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
-    const gp = currentSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
-    const ex = currentExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
+    const filteredSales = filterData(sales);
+    const filteredExpenses = filterData(expenses);
+    const totalRev = filteredSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+    const totalGP = filteredSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
+    const totalEx = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
 
     const businessRanking = businesses
       .filter(biz => {
@@ -149,8 +151,8 @@ export const Dashboard: React.FC = () => {
         return userHasAccess && matchesBizFilter;
       })
       .map(biz => {
-        const bizSales = currentSales.filter(s => s.businessId === biz.id);
-        const bizExpenses = currentExpenses.filter(e => e.businessId === biz.id);
+        const bizSales = filteredSales.filter(s => s.businessId === biz.id);
+        const bizExpenses = filteredExpenses.filter(e => e.businessId === biz.id);
         const bRev = bizSales.reduce((sum, s) => sum + Number(s.salesAmount), 0);
         const bGp = bizSales.reduce((sum, s) => sum + Number(s.profitAmount), 0);
         const bEx = bizExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
@@ -161,46 +163,60 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // FIXED GRAPH DATA: ALWAYS CURRENT MONTH, NO DATE FILTER IMPACT
-    const comparisonData = [];
-    const graphYear = now.getFullYear();
-    const graphMonth = now.getMonth();
-    const daysInMonth = new Date(graphYear, graphMonth + 1, 0).getDate();
+    // --- 2. DYNAMIC GRAPH LOGIC: LOCKED TO FULL CURRENT MONTH ---
+    const chartData = [];
+    const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
+
+    // Index current month sales into a lookup map for speed and accuracy
+    const currentMonthSalesMap = new Map();
+    sales.forEach(s => {
+      const sDate = new Date(s.date);
+      if (sDate.getFullYear() === currentYear && sDate.getMonth() === currentMonthIndex) {
+        const dateKey = s.date.split('T')[0];
+        currentMonthSalesMap.set(`${dateKey}_${s.businessId}`, s);
+      }
+    });
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${graphYear}-${String(graphMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const dayPoint: any = { 
-        dayLabel: `${day}/${graphMonth + 1}`,
+      const dateStr = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dayEntry: any = { 
+        dayLabel: day.toString(),
         fullDate: dateStr
       };
       
       businesses.forEach(biz => {
+        // Access control check
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
         
-        // Only respect business selector for graph visualization
+        // Respect Business selection on graph but NOT global date filters
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
         
-        const sale = sales.find(s => 
-          s.businessId === biz.id && 
-          (s.date && s.date.split('T')[0] === dateStr)
-        );
-        dayPoint[biz.id] = sale ? convert(Number(sale.salesAmount)) : 0;
+        const sale = currentMonthSalesMap.get(`${dateStr}_${biz.id}`);
+        // Use biz.id as stable key for Recharts lines/bars
+        dayEntry[`biz_${biz.id}`] = sale ? convert(Number(sale.salesAmount)) : 0;
       });
-      comparisonData.push(dayPoint);
+      chartData.push(dayEntry);
     }
 
     return { 
-      totalRevenue: convert(rev), totalGrossProfit: convert(gp), 
-      totalExpenses: convert(ex), netProfit: convert(gp - ex),
-      expenseRatio: rev > 0 ? (ex / rev) * 100 : 0,
+      totalRevenue: convert(totalRev), 
+      totalGrossProfit: convert(totalGP), 
+      totalExpenses: convert(totalEx), 
+      netProfit: convert(totalGP - totalEx),
+      expenseRatio: totalRev > 0 ? (totalEx / totalRev) * 100 : 0,
       bestUnit: businessRanking[0] || null,
       businessRanking,
-      comparisonData
+      chartData
     };
-  }, [filters.businessId, sales, expenses, businesses, currency, exchangeRate, user, isAdmin]);
+  }, [filters, sales, expenses, businesses, currency, exchangeRate, user, isAdmin]);
 
-  if (loading) return <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400"><Loader2 className="animate-spin mb-4" size={40} /><p className="font-bold uppercase tracking-widest text-[10px]">Syncing Portal</p></div>;
+  if (loading) return (
+    <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400">
+      <Loader2 className="animate-spin mb-4" size={40} />
+      <p className="font-bold uppercase tracking-widest text-[10px]">Syncing Performance Hub</p>
+    </div>
+  );
 
   return (
     <div className="space-y-6 pb-20">
@@ -216,54 +232,27 @@ export const Dashboard: React.FC = () => {
         <StatCard label="Operational Costs" value={formatCurrency(metrics.totalExpenses, currency)} icon={ArrowDownCircle} color="rose" />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0"><Target size={24} /></div>
-          <div className="text-left">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Expense Ratio</p>
-            <h4 className="text-xl font-bold text-slate-800">{metrics.expenseRatio.toFixed(1)}%</h4>
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0"><Trophy size={24} /></div>
-          <div className="overflow-hidden text-left">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Unit</p>
-            <h4 className="text-sm font-bold text-slate-800 truncate leading-tight">{metrics.bestUnit?.name || 'N/A'}</h4>
-            {metrics.bestUnit && <p className="text-[9px] font-black text-amber-600 uppercase tracking-tighter truncate">{metrics.bestUnit.location}</p>}
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0"><Activity size={24} /></div>
-          <div className="text-left">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Health Index</p>
-            <h4 className="text-xl font-bold text-emerald-600">Dynamic</h4>
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           <div className="p-8 pb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-slate-900 text-white rounded-lg"><Layers size={20} /></div>
               <div className="text-left">
-                <h3 className="text-xl font-black text-slate-900 tracking-tight">
-                  {isScoped ? 'Current Month Progress' : 'Global Monthly Velocity'}
-                </h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fixed Month-to-Date Performance</p>
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Daily Sales Volume</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fixed View: Current Calendar Month</p>
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-2">
                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Fixed View Mode</span>
+               <span className="text-[9px] font-black uppercase text-slate-400 tracking-tighter">Velocity Monitor</span>
             </div>
           </div>
           
-          <div className="p-8 flex-1 h-[850px]">
+          <div className="p-8 flex-1 min-h-[500px] lg:h-[800px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
-                data={metrics.comparisonData}
-                margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                data={metrics.chartData}
+                margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis 
@@ -289,7 +278,8 @@ export const Dashboard: React.FC = () => {
                     boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
                     padding: '12px'
                   }} 
-                  itemStyle={{ fontSize: '12px', fontWeight: 800 }}
+                  labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '8px' }}
+                  itemStyle={{ fontSize: '11px', fontWeight: 700 }}
                 />
                 <Legend 
                   verticalAlign="top" 
@@ -305,11 +295,11 @@ export const Dashboard: React.FC = () => {
                   return (
                     <Bar 
                       key={biz.id} 
-                      dataKey={biz.id} 
+                      dataKey={`biz_${biz.id}`} 
                       name={`${biz.name} (${biz.location})`}
                       stackId="a" 
                       fill={CHART_COLORS[idx % CHART_COLORS.length]} 
-                      radius={[idx === businesses.length - 1 ? 4 : 0, idx === businesses.length - 1 ? 4 : 0, 0, 0]}
+                      radius={[idx === (businesses.filter(b => filters.businessId === 'all' || b.id === filters.businessId).length - 1) ? 4 : 0, idx === (businesses.filter(b => filters.businessId === 'all' || b.id === filters.businessId).length - 1) ? 4 : 0, 0, 0]}
                     />
                   );
                 })}
@@ -318,21 +308,42 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-800 mb-6 uppercase text-xs tracking-widest text-left">Performance Standings</h3>
-          <div className="space-y-4">
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col">
+          <h3 className="font-bold text-slate-800 mb-6 uppercase text-xs tracking-widest text-left">Unit Standings</h3>
+          <div className="space-y-4 flex-1 overflow-y-auto pr-1">
             {metrics.businessRanking.map((biz, idx) => (
-              <div key={biz.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+              <div key={biz.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between hover:bg-white hover:shadow-md hover:border-teal-100 transition-all group">
                 <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg bg-white text-slate-500 flex items-center justify-center text-xs font-black shadow-sm">#{idx + 1}</span>
-                  <div className="text-left"><h4 className="text-xs font-bold text-slate-800">{biz.name}</h4><p className="text-[9px] text-slate-400 font-bold uppercase">{biz.location}</p></div>
+                  <span className="w-8 h-8 rounded-lg bg-white text-slate-500 group-hover:bg-teal-600 group-hover:text-white flex items-center justify-center text-xs font-black shadow-sm transition-colors">#{idx + 1}</span>
+                  <div className="text-left">
+                    <h4 className="text-xs font-bold text-slate-800">{biz.name}</h4>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase">{biz.location}</p>
+                  </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs font-black text-emerald-600 block">{formatCurrency(biz.profit, currency)}</span>
-                  <span className="text-[9px] font-black text-slate-400 uppercase">Profit</span>
+                  <span className={`text-xs font-black block ${biz.profit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {formatCurrency(biz.profit, currency)}
+                  </span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">Net Profit</span>
                 </div>
               </div>
             ))}
+            {metrics.businessRanking.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+                <Store size={40} className="mb-4 opacity-20" />
+                <p className="text-xs font-bold uppercase tracking-widest italic">No Data to Rank</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="mt-8 pt-6 border-t border-slate-100">
+             <div className="flex items-center gap-3 bg-indigo-50 p-4 rounded-2xl">
+                <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center shadow-lg"><Trophy size={18} /></div>
+                <div className="text-left overflow-hidden">
+                   <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest leading-none mb-1">Current Leader</p>
+                   <p className="text-sm font-bold text-slate-800 truncate">{metrics.bestUnit?.name || 'Computing Standings...'}</p>
+                </div>
+             </div>
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Edit3, AlertCircle, Receipt, Loader2, Lock } from 'lucide-react';
+import { Plus, Trash2, Edit3, Receipt, Loader2, Lock } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { MonthlyExpense, UserRole, Business, Filters } from '../types';
@@ -121,9 +121,7 @@ export const Expenses: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isViewOnly || isAdmin) return; // Admin restricted from data entry
-    const isNew = !editingExpense;
-    if (isNew && !isStaff) return;
+    if (isAdmin || isViewOnly) return; 
     
     await storage.saveExpense({ 
       ...(editingExpense || {}), 
@@ -142,8 +140,7 @@ export const Expenses: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Operational Costs</h2>
           <p className="text-slate-500">{isScoped ? 'Fixed costs for your assigned shops' : 'Global expense ledger'}</p>
         </div>
-        {/* Only Staff can record expenses */}
-        {isStaff && (
+        {!isAdmin && isStaff && (
           <button 
             onClick={() => { setEditingExpense(null); setFormData({ businessId: (businesses.find(b => user?.assignedBusinessIds?.includes(b.id))?.id || businesses[0]?.id || ''), month: new Date().toISOString().slice(0, 7), amount: 0, description: '' }); setIsModalOpen(true); }} 
             className="bg-rose-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg flex items-center gap-2 hover:bg-rose-700 transition-all"
@@ -186,8 +183,7 @@ export const Expenses: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-right font-bold text-rose-600">{formatCurrency(convert(ex.amount), currency)}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1">
-                      {/* Action restriction: ONLY isStaff can edit or delete their assigned shops. ADMIN is restricted. */}
-                      {!isViewOnly && !isAdmin && isStaff && user?.assignedBusinessIds?.includes(ex.businessId) ? (
+                      {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(ex.businessId) ? (
                         <>
                           <button 
                             onClick={() => { setEditingExpense(ex); setFormData({ ...ex }); setIsModalOpen(true); }} 
