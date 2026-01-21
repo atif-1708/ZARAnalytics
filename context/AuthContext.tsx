@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, AuthState, UserRole } from '../types';
 import { supabase, isConfigured } from '../services/supabase';
@@ -12,7 +13,6 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper to wrap promises with a timeout
 const withTimeout = <T,>(promise: Promise<T> | any, timeoutMs: number, fallback: T): Promise<T> => {
   return Promise.race([
     Promise.resolve(promise),
@@ -31,9 +31,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const initHandled = useRef(false);
 
   const performEmergencyReset = (reason: string) => {
-    // Only trigger nuclear reset if we are actually stuck and NOT showing a critical error UI
     if (criticalError) return;
-    
     console.error("Auth Recovery Check:", reason);
     if (typeof (window as any).performNuclearReset === 'function') {
       (window as any).performNuclearReset(reason);
@@ -46,37 +44,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (sbUser: any, token: string) => {
     try {
-      // Use a robust timeout for profile fetching
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
         10000,
         { data: null, error: { message: 'Profile Fetch Timeout' } }
       ) as any;
 
-      const { data: profile } = response;
+      const { data: profile, error } = response;
 
-      // Handle missing profile record without triggering a reload loop
-      if (!profile) {
+      // Handle missing profile record
+      if (!profile && !error?.message?.includes('avatar_url')) {
         setCriticalError("ACCESS_REVOKED");
         setAuth({ user: null, token: null, isAuthenticated: false });
         setIsInitializing(false);
         return;
       }
 
+      // If we have an error related to avatar_url, the column is likely missing.
+      // We fall back to standard data to prevent app crash.
       setAuth({
         user: { 
-          id: profile.id, 
-          name: profile.name, 
+          id: sbUser.id, 
+          name: profile?.name || sbUser.user_metadata?.full_name || 'Business User', 
           email: sbUser.email, 
-          role: profile.role as UserRole 
+          role: (profile?.role as UserRole) || UserRole.USER,
+          avatarUrl: profile?.avatar_url || null
         },
         token,
         isAuthenticated: true
       });
       setCriticalError(null);
     } catch (err) {
-      console.error("Profile fetch error:", err);
-      setAuth({ user: null, token: null, isAuthenticated: false });
+      console.error("Profile fetch sequence failed. Entering degraded mode.", err);
+      // Degraded mode: allow login even if profile table fetch fails, as long as auth is valid
+      setAuth({
+        user: { 
+          id: sbUser.id, 
+          name: sbUser.user_metadata?.full_name || 'Business User', 
+          email: sbUser.email, 
+          role: UserRole.USER 
+        },
+        token,
+        isAuthenticated: true
+      });
     } finally {
       setIsInitializing(false);
     }
@@ -86,10 +96,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Safety timeout increased to 20 seconds for ultra-resilience
     const safetyTimeout = setTimeout(() => {
       if (isInitializing && !criticalError) {
-        performEmergencyReset("Auth initialization hung for more than 20 seconds.");
+        performEmergencyReset("Auth initialization hung.");
       }
     }, 20000);
 
@@ -159,13 +168,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      // Mark app as ready temporarily so the watchdog doesn't see the reload as a failure
       localStorage.setItem('zarlytics_app_ready_signal', 'true');
       await withTimeout(supabase.auth.signOut(), 3000, null);
     } finally {
       setAuth({ user: null, token: null, isAuthenticated: false });
       setCriticalError(null);
-      // Hard clear everything to be 100% sure
       localStorage.clear();
       sessionStorage.clear();
       window.location.reload();

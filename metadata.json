@@ -1,5 +1,7 @@
 {
   "name": "ZARlytics - Business Performance Suite",
   "description": "A comprehensive profit tracking and reporting platform with role-based access, multi-business support, and advanced data visualization for ZAR-based businesses.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }
