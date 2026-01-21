@@ -298,9 +298,16 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0"><Trophy size={24} /></div>
-          <div>
+          <div className="overflow-hidden">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Unit</p>
-            <h4 className="text-xl font-bold text-slate-800 truncate">{metrics.bestUnit?.name || 'N/A'}</h4>
+            <h4 className="text-sm font-bold text-slate-800 truncate leading-tight">
+              {metrics.bestUnit?.name || 'N/A'}
+            </h4>
+            {metrics.bestUnit && (
+              <p className="text-[9px] font-black text-amber-600 uppercase tracking-tighter truncate">
+                {metrics.bestUnit.location}
+              </p>
+            )}
           </div>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
