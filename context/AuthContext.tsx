@@ -28,10 +28,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isInitializing, setIsInitializing] = useState(true);
   const initHandled = useRef(false);
 
-  const performEmergencyReset = () => {
+  const performEmergencyReset = (reason: string) => {
+    console.error("Auth Recovery Triggered:", reason);
     // Call the global recovery function defined in index.html
     if (typeof (window as any).performNuclearReset === 'function') {
-      (window as any).performNuclearReset("Auth initialization hung.");
+      (window as any).performNuclearReset(reason);
     } else {
       localStorage.clear();
       sessionStorage.clear();
@@ -41,22 +42,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchProfile = async (sbUser: any, token: string) => {
     try {
-      // Fetch user profile with a strict check
+      // Fetch user profile with a slightly longer timeout for resilience
       const response = await withTimeout(
         supabase.from('profiles').select('*').eq('id', sbUser.id).single() as any,
-        3500,
+        6000,
         { data: null, error: { message: 'Timeout' } }
       ) as any;
 
       const { data: profile } = response;
 
-      // SECURITY FIX: 
-      // If no profile is found, it means the user has been deleted from the app's allowed users list.
+      // SECURITY & INTEGRITY CHECK:
+      // If no profile is found, it means the user's DB entry is missing.
+      // In a normal window, this often indicates a stale/corrupted Supabase session.
       if (!profile) {
-        console.error("Access Revoked: Profile missing from database.");
-        // Attempt clean sign out with timeout
+        console.warn("Integrity Check Failed: Profile missing for authenticated user.");
+        // Try one more time with a refresh or give up
         await withTimeout(supabase.auth.signOut(), 2000, null);
-        performEmergencyReset();
+        performEmergencyReset("Authenticated session detected but no database profile found.");
         return;
       }
 
@@ -72,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (err) {
       console.error("Profile fetch error:", err);
-      // On connection error, fallback to unauthenticated
+      // Fallback: Clear initialization but don't reset unless it's a critical loop
       setAuth({ user: null, token: null, isAuthenticated: false });
     } finally {
       setIsInitializing(false);
@@ -83,12 +85,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (initHandled.current) return;
     initHandled.current = true;
 
-    // Safety timeout: If auth hasn't initialized in 4 seconds, trigger an auto-reset
+    // Increased safety timeout to 8 seconds to allow for slow initial connections
     const safetyTimeout = setTimeout(() => {
       if (isInitializing) {
-        performEmergencyReset();
+        performEmergencyReset("Auth initialization hung for more than 8 seconds.");
       }
-    }, 4000);
+    }, 8000);
 
     const checkAuth = async () => {
       if (!isConfigured()) {
@@ -99,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const { data: { session } } = await withTimeout(
           supabase.auth.getSession() as any,
-          2000,
+          4000,
           { data: { session: null }, error: null }
         ) as any;
 
@@ -137,7 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { data, error } = await withTimeout(
         supabase.auth.signInWithPassword({ email, password: pass }) as any,
-        8000,
+        10000,
         { data: { user: null, session: null }, error: { message: 'Login connection timed out.' } }
       ) as any;
 
@@ -147,7 +149,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single();
         if (!profile) {
           await supabase.auth.signOut();
-          return { success: false, error: "Access denied. Your account has been disabled or deleted." };
+          return { success: false, error: "Access denied. Your account profile record is missing." };
         }
         await fetchProfile(data.user, data.session.access_token);
         return { success: true };
@@ -162,7 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await withTimeout(supabase.auth.signOut(), 2000, null);
     } finally {
-      performEmergencyReset();
+      performEmergencyReset("User initiated logout and session clear.");
     }
   };
 

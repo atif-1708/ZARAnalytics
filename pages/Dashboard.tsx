@@ -3,27 +3,36 @@ import {
   TrendingUp, 
   DollarSign, 
   ArrowDownCircle, 
-  LineChart as LineChartIcon,
   Loader2,
   LayoutGrid,
-  Coins,
-  RefreshCw,
   Trophy,
-  Percent,
   Target,
   Zap,
   Activity,
-  Calendar
+  Calendar,
+  BarChart3,
+  Layers
 } from 'lucide-react';
 import { 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, Cell
+  BarChart, Bar, Legend
 } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FilterPanel } from '../components/FilterPanel';
 import { Filters, DailySale, MonthlyExpense, Business } from '../types';
 import { storage } from '../services/mockStorage';
 import { formatCurrency } from '../utils/formatters';
+
+const CHART_COLORS = [
+  '#0d9488', // teal-600
+  '#2563eb', // blue-600
+  '#7c3aed', // violet-600
+  '#db2777', // pink-600
+  '#ea580c', // orange-600
+  '#16a34a', // green-600
+  '#4f46e5', // indigo-600
+  '#e11d48', // rose-600
+];
 
 export const Dashboard: React.FC = () => {
   const [sales, setSales] = useState<DailySale[]>([]);
@@ -66,7 +75,7 @@ export const Dashboard: React.FC = () => {
       setExpenses(e);
       setBusinesses(b);
     } catch (err) {
-      console.error("Data load error", err);
+      console.error("Dashboard Data Load Error:", err);
     } finally {
       setLoading(false);
     }
@@ -84,7 +93,7 @@ export const Dashboard: React.FC = () => {
     let startDate: Date;
     let endDate: Date;
 
-    // 1. Calculate Date Ranges (Manual Date Range takes Priority)
+    // 1. KPI Calculation Logic for current period
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : now;
@@ -127,11 +136,6 @@ export const Dashboard: React.FC = () => {
       }
     }
 
-    // 2. Define Previous Period for Real-Time Trends
-    const durationMs = endDate.getTime() - startDate.getTime();
-    const prevPeriodEnd = new Date(startDate.getTime() - 1);
-    const prevPeriodStart = new Date(prevPeriodEnd.getTime() - durationMs);
-
     const filterDataByRange = (data: any[], start: Date, end: Date, bizId: string) => {
       return data.filter(item => {
         const itemDate = new Date(item.date || item.month + '-01');
@@ -143,18 +147,23 @@ export const Dashboard: React.FC = () => {
 
     const currentSales = filterDataByRange(sales, startDate, endDate, filters.businessId);
     const currentExpenses = filterDataByRange(expenses, startDate, endDate, filters.businessId);
+    
+    // Previous Period for Trends
+    const durationMs = endDate.getTime() - startDate.getTime();
+    const prevPeriodEnd = new Date(startDate.getTime() - 1);
+    const prevPeriodStart = new Date(prevPeriodEnd.getTime() - durationMs);
     const prevSales = filterDataByRange(sales, prevPeriodStart, prevPeriodEnd, filters.businessId);
     const prevExpenses = filterDataByRange(expenses, prevPeriodStart, prevPeriodEnd, filters.businessId);
 
-    const calculateTotals = (sItems: DailySale[], eItems: MonthlyExpense[]) => {
+    const calcTotals = (sItems: DailySale[], eItems: MonthlyExpense[]) => {
       const rev = sItems.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
       const gp = sItems.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
       const ex = eItems.reduce((acc, curr) => acc + Number(curr.amount), 0);
       return { rev, gp, ex, net: gp - ex };
     };
 
-    const current = calculateTotals(currentSales, currentExpenses);
-    const previous = calculateTotals(prevSales, prevExpenses);
+    const current = calcTotals(currentSales, currentExpenses);
+    const previous = calcTotals(prevSales, prevExpenses);
 
     const getTrend = (curr: number, prev: number) => {
       if (prev === 0) return { value: 0, isUp: true };
@@ -162,13 +171,33 @@ export const Dashboard: React.FC = () => {
       return { value: Math.abs(Number(change.toFixed(1))), isUp: change >= 0 };
     };
 
-    // Global Stats
-    const totalRevenue = current.rev;
-    const totalGrossProfit = current.gp;
-    const totalExpenses = current.ex;
-    const netProfit = current.net;
+    // --- CONSOLIDATED MONTHLY COMPARISON DATA ---
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const daysInMonth = monthEnd.getDate();
     
-    const expenseRatio = totalRevenue > 0 ? (totalExpenses / totalRevenue) * 100 : 0;
+    // Find all sales for current month
+    const monthSales = sales.filter(s => {
+      const d = new Date(s.date);
+      return d >= monthStart && d <= monthEnd;
+    });
+
+    // Create unique data points for each day
+    const comparisonData = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dayLabel = `${day}/${now.getMonth() + 1}`;
+      
+      const dayPoint: any = { dayLabel, dateStr };
+      
+      businesses.forEach(biz => {
+        const sale = monthSales.find(s => s.businessId === biz.id && s.date === dateStr);
+        // Use business name as key, also store location for the legend if needed
+        dayPoint[`${biz.name} (${biz.location})`] = sale ? convert(Number(sale.salesAmount)) : 0;
+      });
+      
+      comparisonData.push(dayPoint);
+    }
 
     const businessRanking = businesses.map(biz => {
       const bizSales = currentSales.filter(s => s.businessId === biz.id);
@@ -179,49 +208,40 @@ export const Dashboard: React.FC = () => {
       return {
         id: biz.id,
         name: biz.name,
+        location: biz.location,
         revenue: convert(rev),
         profit: convert(gp - ex),
-        margin: rev > 0 ? (gp / rev) * 100 : 0,
-        efficiency: rev > 0 ? (ex / rev) * 100 : 0
+        margin: rev > 0 ? (gp / rev) * 100 : 0
       };
     }).sort((a, b) => b.profit - a.profit);
 
-    // Daywise Sale Aggregation
-    const salesByDate: Record<string, number> = {};
-    currentSales.forEach(s => {
-      salesByDate[s.date] = (salesByDate[s.date] || 0) + Number(s.salesAmount);
-    });
-
-    const daywiseData = Object.entries(salesByDate)
-      .map(([date, amount]) => ({
-        dateLabel: date.split('-').slice(1).join('/'),
-        fullDate: date,
-        amount: convert(amount)
-      }))
-      .sort((a, b) => a.fullDate.localeCompare(b.fullDate));
-
     return { 
-      totalRevenue: convert(totalRevenue), 
-      totalGrossProfit: convert(totalGrossProfit), 
-      totalExpenses: convert(totalExpenses), 
-      netProfit: convert(netProfit),
+      totalRevenue: convert(current.rev), 
+      totalGrossProfit: convert(current.gp), 
+      totalExpenses: convert(current.ex), 
+      netProfit: convert(current.net),
       trends: {
         revenue: getTrend(current.rev, previous.rev),
         grossProfit: getTrend(current.gp, previous.gp),
         netProfit: getTrend(current.net, previous.net),
         expenses: getTrend(current.ex, previous.ex)
       },
-      expenseRatio,
+      expenseRatio: current.rev > 0 ? (current.ex / current.rev) * 100 : 0,
       bestUnit: businessRanking[0] || null,
       businessRanking,
-      daywiseData
+      comparisonData
     };
   }, [filters, sales, expenses, businesses, currency, exchangeRate]);
 
-  if (loading) return <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400"><Loader2 className="animate-spin mb-4" size={40} /><p className="font-bold uppercase tracking-widest text-[10px]">Synchronizing Performance Matrix</p></div>;
+  if (loading) return (
+    <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400">
+      <Loader2 className="animate-spin mb-4" size={40} />
+      <p className="font-bold uppercase tracking-widest text-[10px]">Synchronizing Performance Hub</p>
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="flex-1 w-full">
           <FilterPanel 
@@ -236,10 +256,10 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary KPI Grid */}
+      {/* KPI Section */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
-          label="Total Revenue" 
+          label="Gross Revenue" 
           value={formatCurrency(metrics.totalRevenue, currency)} 
           icon={DollarSign} 
           color="blue" 
@@ -253,7 +273,7 @@ export const Dashboard: React.FC = () => {
           trend={metrics.trends.grossProfit}
         />
         <StatCard 
-          label="Net Income" 
+          label="Net Position" 
           value={formatCurrency(metrics.netProfit, currency)} 
           icon={Zap} 
           color="teal" 
@@ -268,126 +288,142 @@ export const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Secondary Efficiency KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-teal-100 transition-colors">
-          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0">
-            <Target size={24} />
-          </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0"><Target size={24} /></div>
           <div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Expense Ratio</p>
-            <div className="flex items-baseline gap-2">
-              <h4 className="text-xl font-bold text-slate-800">{metrics.expenseRatio.toFixed(1)}%</h4>
-              <span className="text-[10px] text-slate-400 font-medium">of revenue</span>
-            </div>
+            <h4 className="text-xl font-bold text-slate-800">{metrics.expenseRatio.toFixed(1)}%</h4>
           </div>
         </div>
-        
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-teal-100 transition-colors">
-          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0">
-            <Trophy size={24} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Performer</p>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center shrink-0"><Trophy size={24} /></div>
+          <div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Unit</p>
             <h4 className="text-xl font-bold text-slate-800 truncate">{metrics.bestUnit?.name || 'N/A'}</h4>
           </div>
         </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-teal-100 transition-colors">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
-            <Activity size={24} />
-          </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0"><Activity size={24} /></div>
           <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Growth Index</p>
-            <div className="flex items-baseline gap-2">
-              <h4 className={`text-xl font-bold ${metrics.trends.netProfit.isUp ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {metrics.trends.netProfit.isUp ? '+' : '-'}{metrics.trends.netProfit.value}%
-              </h4>
-              <span className="text-[10px] text-slate-400 font-bold uppercase">Dynamic</span>
-            </div>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Health Index</p>
+            <h4 className={`text-xl font-bold ${metrics.trends.netProfit.isUp ? 'text-emerald-600' : 'text-rose-600'}`}>Dynamic</h4>
           </div>
         </div>
       </div>
 
-      {/* Analytics Visualization Section */}
+      {/* COMPARISON GRAPH SECTION */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between mb-8">
+        <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="p-8 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                <Calendar size={20} />
+              <div className="p-2 bg-teal-900 text-white rounded-lg">
+                <Layers size={20} />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 leading-none">Daywise Sales Tracking</h3>
-                <p className="text-[10px] font-black text-slate-400 uppercase mt-1">Aggregated Revenue Stream</p>
+                <h3 className="text-xl font-black text-slate-900 tracking-tight">Consolidated Monthly Performance</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Multi-Business Daywise Comparison</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-               <div className="flex items-center gap-1.5">
-                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm" />
-                 <span className="text-[10px] font-bold text-slate-500 uppercase">Revenue</span>
-               </div>
+            <div className="text-[10px] font-black text-slate-400 bg-slate-50 px-3 py-1.5 rounded-full uppercase">
+              Current Month: {new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date())}
             </div>
           </div>
-          <div className="h-[350px]">
-            {metrics.daywiseData.length > 0 ? (
+
+          <div className="p-8 flex-1">
+            <div className="h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={metrics.daywiseData}>
+                <BarChart data={metrics.comparisonData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="dateLabel" fontSize={10} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                  <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+                  <XAxis 
+                    dataKey="dayLabel" 
+                    fontSize={10} 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fill: '#94a3b8'}}
+                    interval={window.innerWidth < 640 ? 4 : 1}
+                  />
+                  <YAxis 
+                    fontSize={10} 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{fill: '#94a3b8'}}
+                    tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val}
+                  />
                   <Tooltip 
                     cursor={{fill: '#f8fafc'}}
-                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)' }}
-                    formatter={(value: number) => [formatCurrency(value, currency), 'Revenue']}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontSize: '11px', fontWeight: 'bold' }}
                   />
-                  <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={Math.max(10, 40 - metrics.daywiseData.length)} />
+                  <Legend 
+                    verticalAlign="bottom" 
+                    height={36} 
+                    wrapperStyle={{ paddingTop: '20px', fontSize: '10px', textTransform: 'uppercase', fontWeight: '900' }}
+                    iconType="circle"
+                  />
+                  {businesses.map((biz, index) => (
+                    <Bar 
+                      key={biz.id}
+                      dataKey={`${biz.name} (${biz.location})`}
+                      stackId="a"
+                      fill={CHART_COLORS[index % CHART_COLORS.length]}
+                      radius={[0, 0, 0, 0]}
+                    />
+                  ))}
                 </BarChart>
               </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-                <Calendar size={40} className="opacity-10 mb-2" />
-                <p className="text-xs font-bold uppercase tracking-widest">No Sales Found</p>
-                <p className="text-[10px] mt-1">Refine your date range filters</p>
-              </div>
-            )}
+            </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+        {/* STANDINGS SECTION (PRESERVED) */}
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-8">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
               <LayoutGrid size={20} />
             </div>
             <div>
-              <h3 className="font-bold text-slate-800 leading-none">Unit Standings</h3>
-              <p className="text-[10px] font-black text-slate-400 uppercase mt-1">Profitability Leaderboard</p>
+              <h3 className="font-bold text-slate-800 leading-none">Business Standings</h3>
+              <p className="text-[10px] font-black text-slate-400 uppercase mt-1 tracking-widest">Efficiency Ranking</p>
             </div>
           </div>
           <div className="space-y-4">
-            {metrics.businessRanking.slice(0, 5).map((biz, idx) => (
-              <div key={biz.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-indigo-200 transition-all group">
-                <div className="flex items-center justify-between mb-3">
+            {metrics.businessRanking.map((biz, idx) => (
+              <div key={biz.id} className="p-5 rounded-2xl bg-slate-50 border border-slate-100 hover:border-indigo-200 transition-all group relative overflow-hidden">
+                {idx === 0 && (
+                  <div className="absolute top-0 right-0 bg-amber-100 text-amber-600 px-3 py-1 rounded-bl-xl text-[8px] font-black uppercase tracking-widest">
+                    Champion
+                  </div>
+                )}
+                <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-[10px] font-black shadow-sm ${
+                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shadow-sm ${
                       idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-white text-slate-500'
                     }`}>
                       #{idx + 1}
                     </span>
-                    <h4 className="text-sm font-bold text-slate-800 truncate max-w-[110px]">{biz.name}</h4>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 truncate max-w-[120px]">{biz.name}</h4>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">{biz.location}</p>
+                    </div>
                   </div>
-                  <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
-                    {formatCurrency(biz.profit, currency)}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-sm font-black text-emerald-600 block">
+                      {formatCurrency(biz.profit, currency)}
+                    </span>
+                    <span className="text-[9px] font-black text-slate-400 uppercase">Profit</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 bg-slate-200 h-1.5 rounded-full overflow-hidden mr-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <span>Target Reached</span>
+                    <span>{biz.margin.toFixed(0)}% Margin</span>
+                  </div>
+                  <div className="bg-slate-200 h-2 rounded-full overflow-hidden">
                     <div 
-                      className="bg-indigo-500 h-full rounded-full transition-all duration-700" 
+                      className="bg-indigo-500 h-full rounded-full transition-all duration-1000" 
                       style={{ width: `${Math.min(100, (biz.profit / (metrics.bestUnit?.profit || 1)) * 100)}%` }} 
                     />
                   </div>
-                  <span className="text-[10px] font-black text-slate-400 shrink-0">{biz.margin.toFixed(0)}% Margin</span>
                 </div>
               </div>
             ))}
