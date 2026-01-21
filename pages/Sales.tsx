@@ -72,7 +72,6 @@ export const Sales: React.FC = () => {
     const now = new Date();
     let startDate: Date;
     let endDate: Date;
-
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     if (filters.dateRange.start || filters.dateRange.end) {
@@ -114,10 +113,8 @@ export const Sales: React.FC = () => {
     return sales.filter(item => {
       const itemDate = new Date(item.date);
       const inRange = itemDate >= startDate && itemDate <= endDate;
-      
       const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
       if (!userHasAccess) return false;
-
       const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
       return inRange && matchesBiz;
     });
@@ -125,9 +122,7 @@ export const Sales: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isViewOnly) return;
-    const isNew = !editingSale;
-    if (isNew && !isStaff) return;
+    if (isViewOnly || isAdmin) return; // Admin restricted from data entry
     if (isSaving) return;
 
     setIsSaving(true);
@@ -156,6 +151,7 @@ export const Sales: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Sales Records</h2>
           <p className="text-slate-500">{isScoped ? 'Operational data for your assigned shops' : 'Global revenue streams'}</p>
         </div>
+        {/* Only Staff can add entries */}
         {isStaff && (
           <button 
             onClick={() => { setEditingSale(null); setFormData({ businessId: (businesses.find(b => user?.assignedBusinessIds?.includes(b.id))?.id || businesses[0]?.id || ''), date: new Date().toISOString().split('T')[0], salesAmount: 0, profitPercentage: 0 }); setIsModalOpen(true); }}
@@ -201,32 +197,32 @@ export const Sales: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1">
-                      {!isViewOnly && (isAdmin || (isStaff && user?.assignedBusinessIds?.includes(s.businessId))) && (
-                        <button 
-                          onClick={() => { 
-                            setEditingSale(s); 
-                            setFormData({ businessId: s.businessId, date: s.date, salesAmount: s.salesAmount, profitPercentage: s.profitPercentage }); 
-                            setIsModalOpen(true); 
-                          }} 
-                          className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                          title="Edit Entry"
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                      )}
-                      
-                      {!isViewOnly && isAdmin && (
-                        <button 
-                          onClick={async () => { if(window.confirm('Delete this record?')) { await storage.deleteSale(s.id); loadData(); } }} 
-                          className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                          title="Delete Entry"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-
-                      {(isViewOnly || (!isAdmin && !user?.assignedBusinessIds?.includes(s.businessId))) && (
-                        <div className="flex justify-end pr-3"><Lock size={14} className="text-slate-300" /></div>
+                      {/* Action restriction: ONLY isStaff (on assigned shops) can edit or delete */}
+                      {!isViewOnly && !isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
+                        <>
+                          <button 
+                            onClick={() => { 
+                              setEditingSale(s); 
+                              setFormData({ businessId: s.businessId, date: s.date, salesAmount: s.salesAmount, profitPercentage: s.profitPercentage }); 
+                              setIsModalOpen(true); 
+                            }} 
+                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                            title="Edit Entry"
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                          <button 
+                            onClick={async () => { if(window.confirm('Delete this record?')) { await storage.deleteSale(s.id); loadData(); } }} 
+                            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                            title="Delete Entry"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex justify-end pr-3" title="Tier restricted access">
+                          <Lock size={14} className="text-slate-300" />
+                        </div>
                       )}
                     </div>
                   </td>
@@ -241,7 +237,7 @@ export const Sales: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSaving && setIsModalOpen(false)} />
           <div className="bg-white rounded-2xl w-full max-w-md p-8 relative shadow-2xl">
-            <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+            <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
               <TrendingUp className="text-teal-600" size={24} />
               {editingSale ? 'Edit' : 'Record'} Daily Sale
             </h3>
@@ -254,7 +250,7 @@ export const Sales: React.FC = () => {
                   onChange={e=>setFormData({...formData, businessId:e.target.value})} 
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold"
                 >
-                  {businesses.filter(b => isAdmin || user?.assignedBusinessIds?.includes(b.id)).map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
+                  {businesses.filter(b => user?.assignedBusinessIds?.includes(b.id)).map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">

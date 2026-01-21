@@ -71,7 +71,6 @@ export const Expenses: React.FC = () => {
     const now = new Date();
     let startDate: Date;
     let endDate: Date;
-
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     if (filters.dateRange.start || filters.dateRange.end) {
@@ -113,10 +112,8 @@ export const Expenses: React.FC = () => {
     return expenses.filter(item => {
       const itemDate = new Date(item.month + '-01');
       const inRange = itemDate >= startDate && itemDate <= endDate;
-      
       const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
       if (!userHasAccess) return false;
-
       const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
       return inRange && matchesBiz;
     });
@@ -124,7 +121,7 @@ export const Expenses: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isViewOnly) return;
+    if (isViewOnly || isAdmin) return; // Admin restricted from data entry
     const isNew = !editingExpense;
     if (isNew && !isStaff) return;
     
@@ -145,6 +142,7 @@ export const Expenses: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Operational Costs</h2>
           <p className="text-slate-500">{isScoped ? 'Fixed costs for your assigned shops' : 'Global expense ledger'}</p>
         </div>
+        {/* Only Staff can record expenses */}
         {isStaff && (
           <button 
             onClick={() => { setEditingExpense(null); setFormData({ businessId: (businesses.find(b => user?.assignedBusinessIds?.includes(b.id))?.id || businesses[0]?.id || ''), month: new Date().toISOString().slice(0, 7), amount: 0, description: '' }); setIsModalOpen(true); }} 
@@ -188,28 +186,28 @@ export const Expenses: React.FC = () => {
                   <td className="px-6 py-4 text-sm text-right font-bold text-rose-600">{formatCurrency(convert(ex.amount), currency)}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1">
-                      {!isViewOnly && (isAdmin || (isStaff && user?.assignedBusinessIds?.includes(ex.businessId))) && (
-                        <button 
-                          onClick={() => { setEditingExpense(ex); setFormData({ ...ex }); setIsModalOpen(true); }} 
-                          className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                          title="Edit Expense"
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                      )}
-                      
-                      {!isViewOnly && isAdmin && (
-                        <button 
-                          onClick={async () => { if(window.confirm('Delete this expense?')) { await storage.deleteExpense(ex.id); loadData(); } }} 
-                          className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                          title="Delete Expense"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-
-                      {(isViewOnly || (!isAdmin && !user?.assignedBusinessIds?.includes(ex.businessId))) && (
-                        <div className="flex justify-end pr-3"><Lock size={14} className="text-slate-300" /></div>
+                      {/* Action restriction: ONLY isStaff (on assigned shops) can edit or delete */}
+                      {!isViewOnly && !isAdmin && isStaff && user?.assignedBusinessIds?.includes(ex.businessId) ? (
+                        <>
+                          <button 
+                            onClick={() => { setEditingExpense(ex); setFormData({ ...ex }); setIsModalOpen(true); }} 
+                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                            title="Edit Expense"
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                          <button 
+                            onClick={async () => { if(window.confirm('Delete this expense?')) { await storage.deleteExpense(ex.id); loadData(); } }} 
+                            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                            title="Delete Expense"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex justify-end pr-3" title="Tier restricted access">
+                          <Lock size={14} className="text-slate-300" />
+                        </div>
                       )}
                     </div>
                   </td>
@@ -236,7 +234,7 @@ export const Expenses: React.FC = () => {
                   onChange={e=>setFormData({...formData, businessId:e.target.value})} 
                   className="w-full p-3 border bg-slate-50 border-slate-200 rounded-xl outline-none text-sm font-bold"
                 >
-                  {businesses.filter(b => isAdmin || user?.assignedBusinessIds?.includes(b.id)).map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
+                  {businesses.filter(b => user?.assignedBusinessIds?.includes(b.id)).map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">

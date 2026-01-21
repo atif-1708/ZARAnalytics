@@ -128,10 +128,8 @@ export const Dashboard: React.FC = () => {
       return data.filter(item => {
         const itemDate = new Date(item.date || item.month + '-01');
         const inRange = itemDate >= startDate && itemDate <= endDate;
-        
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
         if (!userHasAccess) return false;
-
         const matchesBizFilter = filters.businessId === 'all' || item.businessId === filters.businessId;
         return inRange && matchesBizFilter;
       });
@@ -139,7 +137,6 @@ export const Dashboard: React.FC = () => {
 
     const currentSales = filterData(sales);
     const currentExpenses = filterData(expenses);
-    
     const rev = currentSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
     const gp = currentSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
     const ex = currentExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
@@ -163,35 +160,29 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // DAILY VELOCITY CHART RECREATION
+    // DYNAMIC GRAPH DATA GENERATION
     const comparisonData = [];
-    
-    // Generate dates based on the active timeframe for the X-Axis
-    let chartDays = 30; // default
-    let year = now.getFullYear();
-    let month = now.getMonth();
+    let loopStart = new Date(startDate);
+    let loopEnd = new Date(endDate);
 
-    if (filters.timeframe === 'select_month' && filters.selectedMonth) {
-       const [y, m] = filters.selectedMonth.split('-').map(Number);
-       year = y;
-       month = m - 1;
-       chartDays = new Date(year, m, 0).getDate();
-    } else {
-       chartDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    // Safety: If range is more than 31 days, show the last 31 days for velocity focus
+    const diffTime = Math.abs(loopEnd.getTime() - loopStart.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays > 31) {
+      loopStart = new Date(loopEnd);
+      loopStart.setDate(loopStart.getDate() - 31);
     }
 
-    for (let day = 1; day <= chartDays; day++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    for (let d = new Date(loopStart); d <= loopEnd; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
       const dayPoint: any = { 
-        dayLabel: `${day}/${month + 1}`,
+        dayLabel: `${d.getDate()}/${d.getMonth() + 1}`,
         fullDate: dateStr
       };
       
       businesses.forEach(biz => {
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
-        
-        // Respect the specific business filter if not "all"
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
         
         const sale = sales.find(s => s.businessId === biz.id && s.date === dateStr);
@@ -211,16 +202,6 @@ export const Dashboard: React.FC = () => {
   }, [filters, sales, expenses, businesses, currency, exchangeRate, user, isAdmin]);
 
   if (loading) return <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400"><Loader2 className="animate-spin mb-4" size={40} /><p className="font-bold uppercase tracking-widest text-[10px]">Syncing Portal</p></div>;
-
-  if (!isAdmin && (user?.assignedBusinessIds?.length || 0) === 0) {
-    return (
-      <div className="h-[60vh] flex flex-col items-center justify-center text-center p-10 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
-        <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-3xl flex items-center justify-center mb-6"><Store size={32} /></div>
-        <h3 className="text-xl font-bold text-slate-900 mb-2">Shop Assignment Required</h3>
-        <p className="text-slate-500 max-w-sm">Contact your Admin to link your profile to one or more shop locations.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 pb-20">
@@ -262,7 +243,6 @@ export const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* RECREATED DAILY VELOCITY GRAPH */}
         <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
           <div className="p-8 pb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -280,7 +260,7 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
           
-          <div className="p-8 flex-1 h-[850px] transition-all duration-500">
+          <div className="p-8 flex-1 h-[850px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart 
                 data={metrics.comparisonData}
@@ -307,7 +287,7 @@ export const Dashboard: React.FC = () => {
                   contentStyle={{ 
                     borderRadius: '16px', 
                     border: 'none', 
-                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
                     padding: '12px'
                   }} 
                   itemStyle={{ fontSize: '12px', fontWeight: 800 }}
@@ -321,8 +301,6 @@ export const Dashboard: React.FC = () => {
                 {businesses.map((biz, idx) => {
                   const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
                   if (!userHasAccess) return null;
-                  
-                  // Filter bar visibility based on local UI filter
                   if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
                   
                   return (
@@ -355,9 +333,6 @@ export const Dashboard: React.FC = () => {
                 </div>
               </div>
             ))}
-            {metrics.businessRanking.length === 0 && (
-               <div className="py-10 text-center text-slate-400 italic text-xs">No business units match criteria.</div>
-            )}
           </div>
         </div>
       </div>
