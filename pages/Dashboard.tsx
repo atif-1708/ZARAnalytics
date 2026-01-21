@@ -83,63 +83,101 @@ export const Dashboard: React.FC = () => {
     const currentYear = now.getFullYear();
     const currentMonthIndex = now.getMonth();
     
-    // 1. STAT CARD FILTERING (Reactive to filters)
+    // Range Calculation
     let startDate: Date;
     let endDate: Date;
+    let prevStartDate: Date;
+    let prevEndDate: Date;
     const endOfToday = new Date(currentYear, currentMonthIndex, now.getDate(), 23, 59, 59, 999);
 
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
       endDate.setHours(23, 59, 59, 999);
+      
+      // For custom ranges, we compare to the same duration before the start
+      const duration = endDate.getTime() - startDate.getTime();
+      prevStartDate = new Date(startDate.getTime() - duration);
+      prevEndDate = new Date(startDate.getTime() - 1);
     } else {
       switch (filters.timeframe) {
         case 'today':
           startDate = new Date(); startDate.setHours(0,0,0,0);
           endDate = endOfToday;
+          prevStartDate = new Date(startDate); prevStartDate.setDate(startDate.getDate() - 1);
+          prevEndDate = new Date(endDate); prevEndDate.setDate(endDate.getDate() - 1);
           break;
         case 'yesterday':
           startDate = new Date(); startDate.setDate(now.getDate() - 1); startDate.setHours(0,0,0,0);
           endDate = new Date(); endDate.setDate(now.getDate() - 1); endDate.setHours(23,59,59,999);
+          prevStartDate = new Date(startDate); prevStartDate.setDate(startDate.getDate() - 1);
+          prevEndDate = new Date(endDate); prevEndDate.setDate(endDate.getDate() - 1);
           break;
         case 'this_month':
           startDate = new Date(currentYear, currentMonthIndex, 1);
           endDate = endOfToday;
+          prevStartDate = new Date(currentYear, currentMonthIndex - 1, 1);
+          prevEndDate = new Date(currentYear, currentMonthIndex, 0, 23, 59, 59, 999);
           break;
         case 'select_month':
           if (filters.selectedMonth) {
             const [y, m] = filters.selectedMonth.split('-').map(Number);
             startDate = new Date(y, m - 1, 1);
             endDate = new Date(y, m, 0, 23, 59, 59, 999);
+            prevStartDate = new Date(y, m - 2, 1);
+            prevEndDate = new Date(y, m - 1, 0, 23, 59, 59, 999);
           } else {
             startDate = new Date(currentYear, currentMonthIndex, 1);
             endDate = endOfToday;
+            prevStartDate = new Date(currentYear, currentMonthIndex - 1, 1);
+            prevEndDate = new Date(currentYear, currentMonthIndex, 0, 23, 59, 59, 999);
           }
           break;
         case 'lifetime':
         default:
           endDate = endOfToday;
           startDate = new Date(2000, 0, 1);
+          prevStartDate = new Date(0);
+          prevEndDate = new Date(0);
           break;
       }
     }
 
-    const filterData = (data: any[]) => {
-      return data.filter(item => {
-        const itemDate = new Date(item.date || item.month + '-01');
-        const inRange = itemDate >= startDate && itemDate <= endDate;
+    const calculateData = (dataSales: DailySale[], dataExpenses: MonthlyExpense[], start: Date, end: Date) => {
+      const filteredSales = dataSales.filter(item => {
+        const itemDate = new Date(item.date);
+        const inRange = itemDate >= start && itemDate <= end;
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
-        if (!userHasAccess) return false;
-        const matchesBizFilter = filters.businessId === 'all' || item.businessId === filters.businessId;
-        return inRange && matchesBizFilter;
+        const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
+        return inRange && userHasAccess && matchesBiz;
       });
+
+      const filteredExpenses = dataExpenses.filter(item => {
+        const itemDate = new Date(item.month + '-01');
+        const inRange = itemDate >= start && itemDate <= end;
+        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
+        return inRange && userHasAccess && matchesBiz;
+      });
+
+      const rev = filteredSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+      const gp = filteredSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
+      const ex = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
+      
+      return { rev, gp, ex, net: gp - ex };
     };
 
-    const filteredSales = filterData(sales);
-    const filteredExpenses = filterData(expenses);
-    const totalRev = filteredSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
-    const totalGP = filteredSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
-    const totalEx = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
+    const current = calculateData(sales, expenses, startDate, endDate);
+    const previous = calculateData(sales, expenses, prevStartDate, prevEndDate);
+
+    const calcTrend = (curr: number, prev: number) => {
+      if (prev <= 0) return undefined;
+      const diff = ((curr - prev) / prev) * 100;
+      return {
+        value: Math.abs(Math.round(diff)),
+        isUp: diff >= 0
+      };
+    };
 
     const businessRanking = businesses
       .filter(biz => {
@@ -148,8 +186,14 @@ export const Dashboard: React.FC = () => {
         return userHasAccess && matchesBizFilter;
       })
       .map(biz => {
-        const bizSales = filteredSales.filter(s => s.businessId === biz.id);
-        const bizExpenses = filteredExpenses.filter(e => e.businessId === biz.id);
+        const bizSales = sales.filter(s => {
+           const sDate = new Date(s.date);
+           return sDate >= startDate && sDate <= endDate && s.businessId === biz.id;
+        });
+        const bizExpenses = expenses.filter(e => {
+           const eDate = new Date(e.month + '-01');
+           return eDate >= startDate && eDate <= endDate && e.businessId === biz.id;
+        });
         const bRev = bizSales.reduce((sum, s) => sum + Number(s.salesAmount), 0);
         const bGp = bizSales.reduce((sum, s) => sum + Number(s.profitAmount), 0);
         const bEx = bizExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
@@ -160,7 +204,7 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // 2. GRAPH DATA (Locked to current month)
+    // GRAPH DATA (Current Month)
     const chartData = [];
     const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
     const currentMonthSalesMap = new Map();
@@ -189,10 +233,16 @@ export const Dashboard: React.FC = () => {
     }
 
     return { 
-      totalRevenue: convert(totalRev), 
-      totalGrossProfit: convert(totalGP), 
-      totalExpenses: convert(totalEx), 
-      netProfit: convert(totalGP - totalEx),
+      totalRevenue: convert(current.rev), 
+      totalGrossProfit: convert(current.gp), 
+      totalExpenses: convert(current.ex), 
+      netProfit: convert(current.net),
+      trends: {
+        revenue: calcTrend(current.rev, previous.rev),
+        gp: calcTrend(current.gp, previous.gp),
+        expenses: calcTrend(current.ex, previous.ex),
+        net: calcTrend(current.net, previous.net)
+      },
       bestUnit: businessRanking[0] || null,
       businessRanking,
       chartData
@@ -214,10 +264,34 @@ export const Dashboard: React.FC = () => {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Gross Revenue" value={formatCurrency(metrics.totalRevenue, currency)} icon={DollarSign} color="blue" />
-        <StatCard label="Gross Profit" value={formatCurrency(metrics.totalGrossProfit, currency)} icon={TrendingUp} color="emerald" />
-        <StatCard label="Net Position" value={formatCurrency(metrics.netProfit, currency)} icon={Zap} color="teal" />
-        <StatCard label="Operational Costs" value={formatCurrency(metrics.totalExpenses, currency)} icon={ArrowDownCircle} color="rose" />
+        <StatCard 
+          label="Gross Revenue" 
+          value={formatCurrency(metrics.totalRevenue, currency)} 
+          icon={DollarSign} 
+          color="blue" 
+          trend={metrics.trends.revenue}
+        />
+        <StatCard 
+          label="Gross Profit" 
+          value={formatCurrency(metrics.totalGrossProfit, currency)} 
+          icon={TrendingUp} 
+          color="emerald" 
+          trend={metrics.trends.gp}
+        />
+        <StatCard 
+          label="Net Position" 
+          value={formatCurrency(metrics.netProfit, currency)} 
+          icon={Zap} 
+          color="teal" 
+          trend={metrics.trends.net}
+        />
+        <StatCard 
+          label="Operational Costs" 
+          value={formatCurrency(metrics.totalExpenses, currency)} 
+          icon={ArrowDownCircle} 
+          color="rose" 
+          trend={metrics.trends.expenses}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -232,7 +306,7 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="p-8 flex-1 min-h-[500px] lg:h-[800px]">
+          <div className="p-8 flex-1 min-h-[500px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={metrics.chartData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -263,7 +337,6 @@ export const Dashboard: React.FC = () => {
         <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 flex flex-col">
           <h3 className="font-bold text-slate-800 mb-6 uppercase text-xs tracking-widest text-left">Unit Standings</h3>
           
-          {/* Current Leader Badge - MOVED TO TOP */}
           <div className="mb-8">
              <div className="flex items-center gap-3 bg-indigo-50 p-5 rounded-3xl border border-indigo-100/50 shadow-sm">
                 <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200"><Trophy size={20} /></div>
