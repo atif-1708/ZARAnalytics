@@ -2,13 +2,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, TrendingUp, Briefcase, Loader2, 
-  ArrowDownCircle, DollarSign, Download, Store
+  ArrowDownCircle, DollarSign, Download, Store,
+  ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { FilterPanel } from '../components/FilterPanel';
 import { Filters, Business, DailySale, MonthlyExpense, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
+
+const TrendBadge: React.FC<{ trend?: { value: number; isUp: boolean } }> = ({ trend }) => {
+  if (!trend) return null;
+  const colorClass = trend.isUp ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100';
+  return (
+    <div className={`flex items-center gap-1 px-2 py-1 rounded-full border text-[9px] font-black uppercase tracking-tight ${colorClass}`}>
+      {trend.isUp ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+      {trend.value}%
+    </div>
+  );
+};
 
 export const Reports: React.FC = () => {
   const { user } = useAuth();
@@ -70,83 +82,120 @@ export const Reports: React.FC = () => {
 
   const reportData = useMemo(() => {
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonthIndex = now.getMonth();
+    
     let startDate: Date;
     let endDate: Date;
+    let prevStartDate: Date;
+    let prevEndDate: Date;
 
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const endOfToday = new Date(currentYear, currentMonthIndex, now.getDate(), 23, 59, 59, 999);
 
     if (filters.dateRange.start || filters.dateRange.end) {
       startDate = filters.dateRange.start ? new Date(filters.dateRange.start) : new Date(2000, 0, 1);
       endDate = filters.dateRange.end ? new Date(filters.dateRange.end) : endOfToday;
       endDate.setHours(23, 59, 59, 999);
+      const duration = endDate.getTime() - startDate.getTime();
+      prevStartDate = new Date(startDate.getTime() - duration);
+      prevEndDate = new Date(startDate.getTime() - 1);
     } else {
       switch (filters.timeframe) {
         case 'today':
-          startDate = new Date();
-          startDate.setHours(0, 0, 0, 0);
+          startDate = new Date(); startDate.setHours(0, 0, 0, 0);
           endDate = endOfToday;
+          prevStartDate = new Date(startDate); prevStartDate.setDate(startDate.getDate() - 1);
+          prevEndDate = new Date(endDate); prevEndDate.setDate(endDate.getDate() - 1);
           break;
         case 'yesterday':
-          startDate = new Date();
-          startDate.setDate(now.getDate() - 1);
-          startDate.setHours(0, 0, 0, 0);
-          endDate = new Date();
-          endDate.setDate(now.getDate() - 1);
-          endDate.setHours(23, 59, 59, 999);
+          startDate = new Date(); startDate.setDate(now.getDate() - 1); startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(); endDate.setDate(now.getDate() - 1); endDate.setHours(23, 59, 59, 999);
+          prevStartDate = new Date(startDate); prevStartDate.setDate(startDate.getDate() - 1);
+          prevEndDate = new Date(endDate); prevEndDate.setDate(endDate.getDate() - 1);
           break;
         case 'this_month':
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          startDate = new Date(currentYear, currentMonthIndex, 1);
           endDate = endOfToday;
+          prevStartDate = new Date(currentYear, currentMonthIndex - 1, 1);
+          prevEndDate = new Date(currentYear, currentMonthIndex, 0, 23, 59, 59, 999);
           break;
         case 'select_month':
           if (filters.selectedMonth) {
             const [year, month] = filters.selectedMonth.split('-').map(Number);
             startDate = new Date(year, month - 1, 1);
             endDate = new Date(year, month, 0, 23, 59, 59, 999);
+            prevStartDate = new Date(year, month - 2, 1);
+            prevEndDate = new Date(year, month - 1, 0, 23, 59, 59, 999);
           } else {
-            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            startDate = new Date(currentYear, currentMonthIndex, 1);
             endDate = endOfToday;
+            prevStartDate = new Date(currentYear, currentMonthIndex - 1, 1);
+            prevEndDate = new Date(currentYear, currentMonthIndex, 0, 23, 59, 59, 999);
           }
           break;
         case 'lifetime':
         default:
           endDate = endOfToday;
           startDate = new Date(2000, 0, 1);
+          prevStartDate = new Date(0);
+          prevEndDate = new Date(0);
           break;
       }
     }
 
-    const filterDataByRange = (data: any[], start: Date, end: Date, bizFilter: string) => {
-      return data.filter(item => {
-        const itemDate = new Date(item.date || item.month + '-01');
+    const calculateStats = (start: Date, end: Date) => {
+      const fSales = sales.filter(item => {
+        const itemDate = new Date(item.date);
         const inRange = itemDate >= start && itemDate <= end;
-        
         const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
-        if (!userHasAccess) return false;
-
-        const matchesBiz = bizFilter === 'all' || item.businessId === bizFilter;
-        return inRange && matchesBiz;
+        const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
+        return inRange && userHasAccess && matchesBiz;
       });
+
+      const fExpenses = expenses.filter(item => {
+        const itemDate = new Date(item.month + '-01');
+        const inRange = itemDate >= start && itemDate <= end;
+        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
+        return inRange && userHasAccess && matchesBiz;
+      });
+
+      const rawSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+      const rawProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
+      const rawExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
+      const rawNet = rawProfit - rawExpenses;
+
+      return { fSales, fExpenses, rawSales, rawProfit, rawExpenses, rawNet };
     };
 
-    const fSales = filterDataByRange(sales, startDate, endDate, filters.businessId);
-    const fExpenses = filterDataByRange(expenses, startDate, endDate, filters.businessId);
+    const current = calculateStats(startDate, endDate);
+    const previous = calculateStats(prevStartDate, prevEndDate);
 
-    const rawTotalSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
-    const rawTotalProfit = fSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
-    const rawTotalExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
-    const rawNetProfit = rawTotalProfit - rawTotalExpenses;
+    const calcTrend = (curr: number, prev: number) => {
+      if (prev <= 0) return undefined;
+      const diff = ((curr - prev) / prev) * 100;
+      return {
+        value: Math.abs(Math.round(diff)),
+        isUp: diff >= 0
+      };
+    };
 
-    const avgMargin = rawTotalSales > 0 ? (rawTotalProfit / rawTotalSales) * 100 : 0;
+    const avgMargin = current.rawSales > 0 ? (current.rawProfit / current.rawSales) * 100 : 0;
 
     return { 
-      fSales, 
-      fExpenses, 
-      totalSales: convert(rawTotalSales), 
-      totalProfit: convert(rawTotalProfit), 
-      totalExpenses: convert(rawTotalExpenses), 
-      netProfit: convert(rawNetProfit),
-      avgMargin
+      fSales: current.fSales, 
+      fExpenses: current.fExpenses, 
+      totalSales: convert(current.rawSales), 
+      totalProfit: convert(current.rawProfit), 
+      totalExpenses: convert(current.rawExpenses), 
+      netProfit: convert(current.rawNet),
+      avgMargin,
+      trends: {
+        sales: calcTrend(current.rawSales, previous.rawSales),
+        profit: calcTrend(current.rawProfit, previous.rawProfit),
+        expenses: calcTrend(current.rawExpenses, previous.rawExpenses),
+        net: calcTrend(current.rawNet, previous.rawNet)
+      }
     };
   }, [filters, sales, expenses, currency, exchangeRate, user, isAdmin]);
 
@@ -201,22 +250,34 @@ export const Reports: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl w-fit mb-4"><DollarSign size={20} /></div>
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl w-fit"><DollarSign size={20} /></div>
+            <TrendBadge trend={reportData.trends.sales} />
+          </div>
           <p className="text-sm font-medium text-slate-500">Gross Revenue</p>
           <h3 className="text-xl font-bold text-slate-900">{formatCurrency(reportData.totalSales, currency)}</h3>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
-          <div className="p-3 bg-teal-50 text-teal-600 rounded-xl w-fit mb-4"><TrendingUp size={20} /></div>
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-3 bg-teal-50 text-teal-600 rounded-xl w-fit"><TrendingUp size={20} /></div>
+            <TrendBadge trend={reportData.trends.profit} />
+          </div>
           <p className="text-sm font-medium text-slate-500">Gross Profit</p>
           <h3 className="text-xl font-bold text-teal-600">{formatCurrency(reportData.totalProfit, currency)}</h3>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl w-fit mb-4"><ArrowDownCircle size={20} /></div>
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-3 bg-rose-50 text-rose-600 rounded-xl w-fit"><ArrowDownCircle size={20} /></div>
+            <TrendBadge trend={reportData.trends.expenses} />
+          </div>
           <p className="text-sm font-medium text-slate-500">Total Expenses</p>
           <h3 className="text-xl font-bold text-rose-600">{formatCurrency(reportData.totalExpenses, currency)}</h3>
         </div>
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4"><Briefcase size={20} /></div>
+          <div className="flex justify-between items-start mb-4">
+            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl w-fit"><Briefcase size={20} /></div>
+            <TrendBadge trend={reportData.trends.net} />
+          </div>
           <p className="text-sm font-medium text-slate-500">Net Position</p>
           <h3 className={`text-xl font-bold ${reportData.netProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
             {formatCurrency(reportData.netProfit, currency)}
