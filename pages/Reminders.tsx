@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -10,7 +11,8 @@ import {
   CheckCircle,
   Zap,
   Trash2,
-  Check
+  Check,
+  ChevronRight
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { Reminder, UserRole, Business, DailySale } from '../types';
@@ -59,7 +61,6 @@ export const Reminders: React.FC = () => {
     );
 
     // 2. Activity Alerts (For Admin/View-Only - Based on reminder table status)
-    // Only show alerts that are currently 'pending'
     const activeAlerts = allReminders.filter(r => 
       r.type === 'system_alert' && r.status === 'pending'
     );
@@ -67,13 +68,15 @@ export const Reminders: React.FC = () => {
     return { missingForStaff, activeAlerts };
   }, [businesses, sales, allReminders, user, todayStr]);
 
-  const handleDismiss = async (id: string) => {
+  const handleDismiss = async (id: string, navigateToSales = false) => {
     if (isProcessing) return;
     setIsProcessing(true);
     try {
       await storage.saveReminder({ id, status: 'read' });
-      // Update local state to immediately reflect the change
-      setAllReminders(prev => prev.map(r => r.id === id ? { ...r, status: 'read' } : r));
+      setAllReminders(prev => prev.map(r => r.id === id ? { ...r, status: 'read' as const } : r));
+      if (navigateToSales) {
+        navigate('/sales');
+      }
     } catch (err) {
       console.error("Failed to dismiss alert", err);
     } finally {
@@ -87,7 +90,6 @@ export const Reminders: React.FC = () => {
     try {
       const pending = derivedData.activeAlerts;
       await Promise.all(pending.map(r => storage.saveReminder({ id: r.id, status: 'read' })));
-      // Reload all data to refresh the view
       await loadData();
     } catch (err) {
       console.error("Failed to dismiss all alerts", err);
@@ -117,7 +119,7 @@ export const Reminders: React.FC = () => {
         </div>
       </div>
 
-      {/* STAFF VIEW: TASK REMINDERS (Persistent until sale added) */}
+      {/* STAFF VIEW: TASK REMINDERS */}
       {isStaff && (
         <section className="space-y-6">
           <div className="flex items-center gap-2">
@@ -196,35 +198,44 @@ export const Reminders: React.FC = () => {
               </div>
             ) : (
               derivedData.activeAlerts.map(alert => (
-                <div key={alert.id} className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md transition-all group">
-                  <div className="flex items-center gap-5">
-                    <div className="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center shadow-inner group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                <div 
+                  key={alert.id} 
+                  onClick={() => handleDismiss(alert.id)}
+                  className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md hover:border-teal-200 transition-all group cursor-pointer relative overflow-hidden"
+                >
+                  <div className="flex items-center gap-5 z-10">
+                    <div className="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center shadow-inner group-hover:bg-teal-600 group-hover:text-white transition-all duration-300">
                       <CheckCircle size={28} />
                     </div>
                     <div className="text-left">
                       <h4 className="font-black text-slate-900 text-base uppercase tracking-tight">{alert.businessName}</h4>
-                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        Staff Entry Logged by {alert.sentByUserName}
+                      <p className="text-[10px] font-black text-emerald-600 group-hover:text-teal-700 uppercase tracking-widest flex items-center gap-1.5 transition-colors">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-teal-600 transition-colors"></span>
+                        New Entry by {alert.sentByUserName}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-6">
-                    <div className="text-right">
+                  
+                  <div className="flex items-center gap-6 z-10">
+                    <div className="text-right hidden sm:block">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Time Logged</p>
                       <p className="text-sm font-bold text-slate-700">
                         {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
                       </p>
                     </div>
-                    <button 
-                      onClick={() => handleDismiss(alert.id)}
-                      disabled={isProcessing}
-                      className="p-3 bg-slate-50 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-2xl transition-all disabled:opacity-50"
-                      title="Dismiss Alert"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    
+                    <div className="flex items-center gap-2">
+                       <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 duration-300">
+                         Click to Hide
+                       </span>
+                       <div className="p-3 bg-slate-50 text-slate-300 group-hover:bg-teal-50 group-hover:text-teal-600 rounded-2xl transition-all">
+                        <ChevronRight size={18} />
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Visual hint for dismissal */}
+                  <div className="absolute inset-y-0 right-0 w-1 bg-teal-500 translate-x-full group-hover:translate-x-0 transition-transform duration-300" />
                 </div>
               ))
             )}
