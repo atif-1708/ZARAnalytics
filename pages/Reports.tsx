@@ -310,19 +310,24 @@ export const Reports: React.FC = () => {
                 </tr>
               ) : (
                 <>
-                  {reportData.fSales.map(s => (
-                    <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-slate-800">{businesses.find(b => b.id === s.businessId)?.name || 'Unknown'}</td>
-                      <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
-                      <td className="px-6 py-4 text-center">
-                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
-                          {s.profitPercentage}%
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
-                      <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
-                    </tr>
-                  ))}
+                  {reportData.fSales.map(s => {
+                    const b = businesses.find(bx => bx.id === s.businessId);
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-slate-800">
+                          {b ? `${b.name} (${b.location})` : 'Unknown'}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
+                            {s.profitPercentage}%
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
+                        <td className="px-6 py-4 text-right text-sm font-bold text-teal-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
+                      </tr>
+                    );
+                  })}
                   {/* Totals Row */}
                   <tr className="bg-slate-900 text-white font-bold">
                     <td className="px-6 py-4 text-xs uppercase tracking-widest font-black" colSpan={2}>Report Totals</td>

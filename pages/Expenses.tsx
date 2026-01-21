@@ -167,7 +167,7 @@ export const Expenses: React.FC = () => {
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Month</th>
-              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business</th>
+              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business Unit</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Amount ({currency})</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Actions</th>
             </tr>
@@ -176,39 +176,44 @@ export const Expenses: React.FC = () => {
             {filteredExpenses.length === 0 ? (
                <tr><td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic text-sm">No expenses found for the current period and filters.</td></tr>
             ) : (
-              filteredExpenses.map(ex => (
-                <tr key={ex.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-bold">{formatMonth(ex.month)}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{businesses.find(b => b.id === ex.businessId)?.name}</td>
-                  <td className="px-6 py-4 text-sm text-right font-bold text-rose-600">{formatCurrency(convert(ex.amount), currency)}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-1">
-                      {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(ex.businessId) ? (
-                        <>
-                          <button 
-                            onClick={() => { setEditingExpense(ex); setFormData({ ...ex }); setIsModalOpen(true); }} 
-                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                            title="Edit Expense"
-                          >
-                            <Edit3 size={16} />
-                          </button>
-                          <button 
-                            onClick={async () => { if(window.confirm('Delete this expense?')) { await storage.deleteExpense(ex.id); loadData(); } }} 
-                            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                            title="Delete Expense"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </>
-                      ) : (
-                        <div className="flex justify-end pr-3" title="Tier restricted access">
-                          <Lock size={14} className="text-slate-300" />
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+              filteredExpenses.map(ex => {
+                const b = businesses.find(bx => bx.id === ex.businessId);
+                return (
+                  <tr key={ex.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-bold">{formatMonth(ex.month)}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {b ? `${b.name} (${b.location})` : 'Unknown'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-right font-bold text-rose-600">{formatCurrency(convert(ex.amount), currency)}</td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-1">
+                        {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(ex.businessId) ? (
+                          <>
+                            <button 
+                              onClick={() => { setEditingExpense(ex); setFormData({ ...ex }); setIsModalOpen(true); }} 
+                              className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                              title="Edit Expense"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                            <button 
+                              onClick={async () => { if(window.confirm('Delete this expense?')) { await storage.deleteExpense(ex.id); loadData(); } }} 
+                              className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                              title="Delete Expense"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex justify-end pr-3" title="Tier restricted access">
+                            <Lock size={14} className="text-slate-300" />
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

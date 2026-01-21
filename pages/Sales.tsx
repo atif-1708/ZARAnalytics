@@ -136,10 +136,12 @@ export const Sales: React.FC = () => {
 
       // Trigger Alert for Admins
       if (!editingSale) {
-        const bizName = businesses.find(b => b.id === formData.businessId)?.name || 'Unit';
+        const b = businesses.find(bx => bx.id === formData.businessId);
+        const bizNameWithLoc = b ? `${b.name} (${b.location})` : 'Unknown Unit';
+        
         await storage.saveReminder({
           businessId: formData.businessId,
-          businessName: bizName,
+          businessName: bizNameWithLoc,
           date: formData.date,
           sentBy: user?.id,
           sentByUserName: user?.name,
@@ -193,7 +195,7 @@ export const Sales: React.FC = () => {
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Date</th>
-              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business</th>
+              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business Unit</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Revenue ({currency})</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Profit ({currency})</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Actions</th>
@@ -203,44 +205,49 @@ export const Sales: React.FC = () => {
             {filteredSales.length === 0 ? (
               <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No sales records found for this criteria.</td></tr>
             ) : (
-              filteredSales.map(s => (
-                <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-6 py-4 text-sm font-bold">{formatDate(s.date)}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{businesses.find(b => b.id === s.businessId)?.name}</td>
-                  <td className="px-6 py-4 text-sm text-right font-medium text-blue-600">{formatCurrency(convert(s.salesAmount), currency)}</td>
-                  <td className="px-6 py-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-1">
-                      {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
-                        <>
-                          <button 
-                            onClick={() => { 
-                              setEditingSale(s); 
-                              setFormData({ businessId: s.businessId, date: s.date, salesAmount: s.salesAmount, profitPercentage: s.profitPercentage }); 
-                              setIsModalOpen(true); 
-                            }} 
-                            className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                            title="Edit Entry"
-                          >
-                            <Edit3 size={16} />
-                          </button>
-                          <button 
-                            onClick={async () => { if(window.confirm('Delete this record?')) { await storage.deleteSale(s.id); loadData(); } }} 
-                            className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                            title="Delete Entry"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </>
-                      ) : (
-                        <div className="flex justify-end pr-3" title="Tier restricted access">
-                          <Lock size={14} className="text-slate-300" />
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+              filteredSales.map(s => {
+                const b = businesses.find(bx => bx.id === s.businessId);
+                return (
+                  <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 text-sm font-bold">{formatDate(s.date)}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {b ? `${b.name} (${b.location})` : 'Unknown'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-right font-medium text-blue-600">{formatCurrency(convert(s.salesAmount), currency)}</td>
+                    <td className="px-6 py-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-1">
+                        {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
+                          <>
+                            <button 
+                              onClick={() => { 
+                                setEditingSale(s); 
+                                setFormData({ businessId: s.businessId, date: s.date, salesAmount: s.salesAmount, profitPercentage: s.profitPercentage }); 
+                                setIsModalOpen(true); 
+                              }} 
+                              className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
+                              title="Edit Entry"
+                            >
+                              <Edit3 size={16} />
+                            </button>
+                            <button 
+                              onClick={async () => { if(window.confirm('Delete this record?')) { await storage.deleteSale(s.id); loadData(); } }} 
+                              className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                              title="Delete Entry"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex justify-end pr-3" title="Tier restricted access">
+                            <Lock size={14} className="text-slate-300" />
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

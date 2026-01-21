@@ -98,6 +98,8 @@ export const UsersPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {users.map((u) => {
           const assignedCount = u.assignedBusinessIds?.length || 0;
+          const firstAssigned = assignedCount === 1 ? businesses.find(b => b.id === u.assignedBusinessIds?.[0]) : null;
+          
           return (
             <div key={u.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 group hover:border-teal-400 transition-all text-left">
               <div className="flex items-start justify-between mb-4">
@@ -112,7 +114,7 @@ export const UsersPage: React.FC = () => {
                 <span className="truncate">
                     {u.role === UserRole.ADMIN ? 'Full Global Access' : 
                      assignedCount === 0 ? 'No shops assigned' :
-                     assignedCount === 1 ? businesses.find(b => b.id === u.assignedBusinessIds?.[0])?.name :
+                     firstAssigned ? `${firstAssigned.name} (${firstAssigned.location})` :
                      `${assignedCount} assigned shops`}
                 </span>
               </div>
@@ -162,7 +164,7 @@ export const UsersPage: React.FC = () => {
                                 onClick={() => toggleBusinessSelection(b.id)}
                                 className="flex items-center justify-between p-2 hover:bg-white rounded-lg cursor-pointer transition-colors"
                             >
-                                <span className="text-xs font-medium text-slate-700">{b.name}</span>
+                                <span className="text-xs font-medium text-slate-700">{b.name} ({b.location})</span>
                                 {formData.assignedBusinessIds.includes(b.id) ? (
                                     <CheckSquare size={16} className="text-teal-600" />
                                 ) : (

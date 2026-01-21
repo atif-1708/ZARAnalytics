@@ -342,7 +342,9 @@ export const Dashboard: React.FC = () => {
                 <div className="w-12 h-12 bg-indigo-600 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200"><Trophy size={20} /></div>
                 <div className="text-left overflow-hidden">
                    <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest leading-none mb-1.5">Current Leader</p>
-                   <p className="text-base font-black text-slate-900 truncate leading-tight">{metrics.bestUnit?.name || '...'}</p>
+                   <p className="text-base font-black text-slate-900 truncate leading-tight">
+                     {metrics.bestUnit ? `${metrics.bestUnit.name} (${metrics.bestUnit.location})` : '...'}
+                   </p>
                 </div>
              </div>
           </div>
