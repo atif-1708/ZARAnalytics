@@ -66,6 +66,28 @@ export const Reminders: React.FC = () => {
 
   useEffect(() => { loadData(); }, [user]);
 
+  // Logic to clear compliance alerts (mark as seen) when the user views this page
+  useEffect(() => {
+    if (user && !isSuperAdmin && !isStaff && allReminders.length > 0) {
+      // Find all pending system alerts relevant to this view
+      const pendingAlertIds = allReminders
+        .filter(r => r.type === 'system_alert' && r.status === 'pending')
+        .map(r => r.id);
+      
+      if (pendingAlertIds.length > 0) {
+        const seenKey = `zarlytics_seen_alerts_${user.id}`;
+        const existingSeen = JSON.parse(localStorage.getItem(seenKey) || '[]');
+        
+        // Merge with existing seen IDs to avoid duplicates
+        const newSeen = Array.from(new Set([...existingSeen, ...pendingAlertIds]));
+        localStorage.setItem(seenKey, JSON.stringify(newSeen));
+        
+        // Note: The Layout component periodically checks this localStorage key 
+        // to update the sidebar badge count.
+      }
+    }
+  }, [allReminders, user, isSuperAdmin, isStaff]);
+
   const todayStr = new Date().toISOString().split('T')[0];
   const today = new Date();
   const thirtyDaysFromNow = new Date();
@@ -117,7 +139,7 @@ export const Reminders: React.FC = () => {
   );
 
   return (
-    <div className="space-y-10 pb-20 max-w-5xl mx-auto">
+    <div className="space-y-10 pb-20 max-w-5xl mx-auto text-left">
       <div className="text-left flex items-end justify-between">
         <div>
           <h2 className={`text-3xl font-black tracking-tight ${isSuperAdmin ? 'text-white' : 'text-slate-900'}`}>
@@ -163,7 +185,34 @@ export const Reminders: React.FC = () => {
             </div>
             <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Daily Sales Compliance Checklist</h3>
           </div>
-          {/* ... existing staff view code can go here ... */}
+          {derivedData.missingForStaff.length === 0 ? (
+            <div className="p-10 border-2 border-dashed border-slate-200 rounded-[2.5rem] text-center bg-white">
+               <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                 <CheckCheck size={32} />
+               </div>
+               <h4 className="font-bold text-slate-800">100% Compliance Achieved</h4>
+               <p className="text-slate-400 text-sm">All assigned units have submitted sales for today.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               {derivedData.missingForStaff.map(b => (
+                 <div key={b.id} className="p-6 bg-white border border-rose-100 rounded-3xl shadow-sm flex items-center justify-between group hover:border-rose-300 transition-all">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center">
+                        <Store size={24} />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-black text-slate-900">{b.name}</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{b.location}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => navigate('/sales')} className="bg-rose-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-700 transition-all shadow-md">
+                      Record Entry
+                    </button>
+                 </div>
+               ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -263,22 +312,31 @@ export const Reminders: React.FC = () => {
              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Activity Alerts</h3>
           </div>
           <div className="grid grid-cols-1 gap-4">
-             {derivedData.activeAlerts.map(alert => (
-               <div key={alert.id} className="p-6 bg-white border border-slate-200 rounded-3xl shadow-sm flex items-center justify-between">
-                 <div className="flex items-center gap-4">
-                   <div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center">
-                     <CheckCircle size={24} />
-                   </div>
-                   <div>
-                     <p className="text-sm font-black text-slate-900">{alert.businessName}</p>
-                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Entry Confirmed • {formatDate(alert.date)}</p>
-                   </div>
-                 </div>
-                 <button onClick={() => navigate('/sales')} className="p-2 text-slate-300 hover:text-teal-600 transition-colors">
-                   <ChevronRight size={20} />
-                 </button>
+             {derivedData.activeAlerts.length === 0 ? (
+               <div className="p-12 bg-white border border-slate-100 rounded-[2.5rem] text-center">
+                  <div className="w-12 h-12 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                    <History size={20} />
+                  </div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">No unread activity alerts</p>
                </div>
-             ))}
+             ) : (
+               derivedData.activeAlerts.map(alert => (
+                 <div key={alert.id} className="p-6 bg-white border border-slate-200 rounded-3xl shadow-sm flex items-center justify-between">
+                   <div className="flex items-center gap-4">
+                     <div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center">
+                       <CheckCircle size={24} />
+                     </div>
+                     <div className="text-left">
+                       <p className="text-sm font-black text-slate-900">{alert.businessName}</p>
+                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Entry Confirmed • {formatDate(alert.date)}</p>
+                     </div>
+                   </div>
+                   <button onClick={() => navigate('/sales')} className="p-2 text-slate-300 hover:text-teal-600 transition-colors">
+                     <ChevronRight size={20} />
+                   </button>
+                 </div>
+               ))
+             )}
           </div>
         </section>
       )}
