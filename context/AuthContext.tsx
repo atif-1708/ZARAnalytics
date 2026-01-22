@@ -39,8 +39,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       localStorage.removeItem('zarlytics_ghost_org_id');
     }
-    setSelectedOrgIdState(id);
-    // Reload to refresh all data fetchers with new context
+    
+    /**
+     * CRITICAL FIX: We do NOT call setSelectedOrgIdState(id) here.
+     * If we update state, React tries to re-render the Dashboard components immediately.
+     * Since the storage filter relies on localStorage and the page is about to reload,
+     * immediate re-rendering often causes "Cannot read properties of undefined" errors 
+     * in the business-level dashboards during that 50ms window before the reload hits.
+     */
     window.location.reload();
   };
 
