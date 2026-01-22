@@ -1,10 +1,16 @@
 
-import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2, Zap, ArrowUpCircle } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
-import { Business, UserRole, Organization } from '../types';
+import { Business, UserRole, Organization, SubscriptionTier } from '../types';
 import { formatDate } from '../utils/formatters';
+
+const TIER_LIMITS: Record<SubscriptionTier, number> = {
+  starter: 1,
+  growth: 2,
+  enterprise: Infinity
+};
 
 export const Businesses: React.FC = () => {
   const { user, selectedOrgId } = useAuth();
@@ -30,7 +36,7 @@ export const Businesses: React.FC = () => {
     try {
       const [bData, oData] = await Promise.all([
         storage.getBusinesses(),
-        isSuperAdmin ? storage.getOrganizations() : Promise.resolve([])
+        storage.getOrganizations()
       ]);
       setBusinesses(bData);
       setOrganizations(oData);
@@ -41,6 +47,25 @@ export const Businesses: React.FC = () => {
 
   useEffect(() => { loadData(); }, []);
 
+  // Check if current user is at their tier limit
+  const tierInfo = useMemo(() => {
+    const orgId = isSuperAdmin ? selectedOrgId : user?.orgId;
+    if (!orgId) return null;
+    
+    const org = organizations.find(o => o.id === orgId);
+    if (!org) return null;
+
+    const limit = TIER_LIMITS[org.tier] || 0;
+    const currentCount = businesses.filter(b => b.orgId === orgId).length;
+    
+    return {
+      tier: org.tier,
+      limit,
+      currentCount,
+      isAtLimit: currentCount >= limit
+    };
+  }, [businesses, organizations, user, selectedOrgId, isSuperAdmin]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManage || isSaving) return;
@@ -49,16 +74,24 @@ export const Businesses: React.FC = () => {
     setIsSaving(true);
 
     try {
-      // Determine final Org ID
-      // 1. If Super Admin and in Global Mode, use form selection
-      // 2. If Super Admin and in Ghost Mode, use selectedOrgId
-      // 3. If Org Admin, use user.orgId
       const finalOrgId = isSuperAdmin 
         ? (selectedOrgId || formData.orgId) 
         : (user?.orgId || formData.orgId);
 
       if (!finalOrgId) {
         throw new Error("An organization must be assigned to this business.");
+      }
+
+      // Enforce limit only when adding new business
+      if (!editingBusiness) {
+        const org = organizations.find(o => o.id === finalOrgId);
+        if (org) {
+          const limit = TIER_LIMITS[org.tier] || 0;
+          const currentCount = businesses.filter(b => b.orgId === finalOrgId).length;
+          if (currentCount >= limit) {
+            throw new Error(`Limit reached: Your ${org.tier.toUpperCase()} plan only supports ${limit} shop(s). Please contact support to upgrade.`);
+          }
+        }
       }
 
       const payload = { 
@@ -80,7 +113,11 @@ export const Businesses: React.FC = () => {
   };
 
   const openAdd = () => {
-    setError(null);
+    if (tierInfo?.isAtLimit && !isSuperAdmin) {
+      setError(`You have reached the limit of ${tierInfo.limit} shop(s) for your plan.`);
+    } else {
+      setError(null);
+    }
     setEditingBusiness(null);
     setFormData({ 
       name: '', 
@@ -112,15 +149,41 @@ export const Businesses: React.FC = () => {
           <p className="text-slate-500">Manage shop locations and service points</p>
         </div>
         {canManage && (
-          <button 
-            onClick={openAdd} 
-            className={`flex items-center gap-2 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all ${isSuperAdmin && !selectedOrgId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-teal-600 hover:bg-teal-700'}`}
-          >
-            <Plus size={20} />
-            <span>Register New Shop</span>
-          </button>
+          <div className="flex items-center gap-4">
+            {tierInfo && !isSuperAdmin && (
+              <div className={`hidden md:flex flex-col items-end px-4 py-1.5 border rounded-2xl ${tierInfo.isAtLimit ? 'bg-rose-50 border-rose-100' : 'bg-indigo-50 border-indigo-100'}`}>
+                <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest">Plan Capacity</p>
+                <p className={`text-xs font-black ${tierInfo.isAtLimit ? 'text-rose-600' : 'text-indigo-600'}`}>
+                  {tierInfo.currentCount} / {tierInfo.limit === Infinity ? '∞' : tierInfo.limit}
+                </p>
+              </div>
+            )}
+            <button 
+              onClick={openAdd} 
+              disabled={tierInfo?.isAtLimit && !isSuperAdmin}
+              className={`flex items-center gap-2 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isSuperAdmin && !selectedOrgId ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-teal-600 hover:bg-teal-700'}`}
+            >
+              <Plus size={20} />
+              <span>Register New Shop</span>
+            </button>
+          </div>
         )}
       </div>
+
+      {tierInfo?.isAtLimit && !isSuperAdmin && (
+        <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3 text-amber-800">
+            <Zap size={20} className="text-amber-500" />
+            <div>
+              <p className="text-sm font-black uppercase tracking-tight">Tier Limit Reached</p>
+              <p className="text-xs font-medium">You've hit the maximum shops for the {tierInfo.tier} plan. Upgrade to unlock more capacity.</p>
+            </div>
+          </div>
+          <button className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors flex items-center gap-2">
+            <ArrowUpCircle size={14} /> Upgrade Plan
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {businesses.map((business) => {
@@ -184,65 +247,80 @@ export const Businesses: React.FC = () => {
               </div>
             )}
 
-            <div className="text-left">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Trading Name</label>
-              <input 
-                required 
-                disabled={isSaving}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold" 
-                value={formData.name} 
-                onChange={e=>setFormData({...formData, name: e.target.value})} 
-                placeholder="e.g. Waterfront Branch"
-              />
-            </div>
-
-            <div className="text-left">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Physical Location</label>
-              <input 
-                required 
-                disabled={isSaving}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold" 
-                value={formData.location} 
-                onChange={e=>setFormData({...formData, location: e.target.value})} 
-                placeholder="e.g. Cape Town, WC"
-              />
-            </div>
-
-            {isSuperAdmin && !selectedOrgId && (
-              <div className="text-left">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Assigned Organization</label>
-                <select 
-                  required
-                  disabled={isSaving}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold"
-                  value={formData.orgId}
-                  onChange={e=>setFormData({...formData, orgId: e.target.value})}
+            {!editingBusiness && tierInfo?.isAtLimit && !isSuperAdmin ? (
+              <div className="text-center py-6">
+                <p className="text-sm font-bold text-slate-600 mb-4">You have reached your shop limit. Upgrade your subscription to add more locations.</p>
+                <button 
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl"
                 >
-                  <option value="">Select Tenant Organization</option>
-                  {organizations.map(o => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </select>
+                  Close
+                </button>
               </div>
-            )}
+            ) : (
+              <>
+                <div className="text-left">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Trading Name</label>
+                  <input 
+                    required 
+                    disabled={isSaving}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold" 
+                    value={formData.name} 
+                    onChange={e=>setFormData({...formData, name: e.target.value})} 
+                    placeholder="e.g. Waterfront Branch"
+                  />
+                </div>
 
-            <div className="flex gap-3 pt-6">
-              <button 
-                type="button" 
-                disabled={isSaving}
-                onClick={()=>setIsModalOpen(false)} 
-                className="flex-1 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-all"
-              >
-                Discard
-              </button>
-              <button 
-                type="submit" 
-                disabled={isSaving}
-                className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all ${isSuperAdmin ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-teal-600 hover:bg-teal-700 shadow-teal-200'}`}
-              >
-                {isSaving ? 'Processing...' : 'Confirm Details'}
-              </button>
-            </div>
+                <div className="text-left">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Physical Location</label>
+                  <input 
+                    required 
+                    disabled={isSaving}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold" 
+                    value={formData.location} 
+                    onChange={e=>setFormData({...formData, location: e.target.value})} 
+                    placeholder="e.g. Cape Town, WC"
+                  />
+                </div>
+
+                {isSuperAdmin && !selectedOrgId && (
+                  <div className="text-left">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Assigned Organization</label>
+                    <select 
+                      required
+                      disabled={isSaving}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold"
+                      value={formData.orgId}
+                      onChange={e=>setFormData({...formData, orgId: e.target.value})}
+                    >
+                      <option value="">Select Tenant Organization</option>
+                      {organizations.map(o => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-6">
+                  <button 
+                    type="button" 
+                    disabled={isSaving}
+                    onClick={()=>setIsModalOpen(false)} 
+                    className="flex-1 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-100 transition-all"
+                  >
+                    Discard
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className={`flex-1 py-4 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl transition-all ${isSuperAdmin ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200' : 'bg-teal-600 hover:bg-teal-700 shadow-teal-200'}`}
+                  >
+                    {isSaving ? 'Processing...' : 'Confirm Details'}
+                  </button>
+                </div>
+              </>
+            )}
           </form>
         </div>
       )}

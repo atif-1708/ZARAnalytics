@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization } from '../types';
@@ -46,8 +47,24 @@ export const storage = {
   getOrganizations: async (): Promise<Organization[]> => {
     try {
       const { data, error } = await supabase.from('organizations').select('*').order('name');
-      if (error) throw error;
-      return (data || []).map(mapFromDb).filter(Boolean);
+      if (error) {
+        // If it's a column missing error, it's still possible to retrieve other data by selecting specific columns
+        if (error.code === '42703' || error.message?.includes('tier')) {
+          const { data: fallbackData, error: fallbackError } = await supabase.from('organizations').select('id, name, subscription_end_date, is_active, created_at').order('name');
+          if (fallbackError) throw fallbackError;
+          return (fallbackData || []).map(item => {
+            const mapped = mapFromDb(item);
+            mapped.tier = 'starter'; // Default since DB column is missing
+            return mapped;
+          }).filter(Boolean);
+        }
+        throw error;
+      }
+      return (data || []).map(item => {
+        const mapped = mapFromDb(item);
+        if (!mapped.tier) mapped.tier = 'starter';
+        return mapped;
+      }).filter(Boolean);
     } catch (err) {
       console.error("Storage Error (Organizations):", err);
       return [];
@@ -56,10 +73,19 @@ export const storage = {
   
   saveOrganization: async (org: Partial<Organization>) => {
     const payload = mapToDb(org);
-    const operation = payload.id ? supabase.from('organizations').upsert(payload) : supabase.from('organizations').insert(payload);
-    const { data, error } = await operation.select().single();
-    if (error) throw new Error(error.message);
-    return mapFromDb(data);
+    try {
+      const operation = payload.id ? supabase.from('organizations').upsert(payload) : supabase.from('organizations').insert(payload);
+      const { data, error } = await operation.select().single();
+      if (error) throw error;
+      return mapFromDb(data);
+    } catch (err: any) {
+      console.error("Save Organization Error:", err);
+      // Specific check for missing tier column error from Supabase/PostgREST
+      if (err.message?.includes('tier') || err.code === 'PGRST204' || err.code === '42703' || err.code === '23502') {
+        throw new Error("SCHEMA_MIGRATION_REQUIRED: The 'tier' column is missing from your 'organizations' table. Please run this SQL in your Supabase Editor: ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tier text DEFAULT 'starter';");
+      }
+      throw new Error(err.message || "Failed to save organization.");
+    }
   },
 
   getBusinesses: async (): Promise<Business[]> => {

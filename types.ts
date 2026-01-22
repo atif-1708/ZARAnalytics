@@ -7,6 +7,8 @@ export enum UserRole {
   ORG_ADMIN = 'ORG_ADMIN'
 }
 
+export type SubscriptionTier = 'starter' | 'growth' | 'enterprise';
+
 export interface User {
   id: string;
   name: string;
@@ -23,6 +25,7 @@ export interface Organization {
   name: string;
   subscriptionEndDate: string;
   isActive: boolean;
+  tier: SubscriptionTier;
   createdAt: string;
 }
 

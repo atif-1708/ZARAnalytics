@@ -26,12 +26,18 @@ import {
   AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar
 } from 'recharts';
 import { storage } from '../services/mockStorage';
-import { Organization, Business, DailySale, User, UserRole } from '../types';
+import { Organization, Business, DailySale, User, UserRole, SubscriptionTier } from '../types';
 import { StatCard } from '../components/StatCard';
 import { formatZAR, formatDate } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 
 const PIE_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444'];
+
+const TIER_REVENUE: Record<SubscriptionTier, number> = {
+  starter: 300,
+  growth: 550,
+  enterprise: 1500
+};
 
 export const SuperAdminDashboard: React.FC = () => {
   const { setSelectedOrgId } = useAuth();
@@ -64,10 +70,10 @@ export const SuperAdminDashboard: React.FC = () => {
   const stats = useMemo(() => {
     const activeOrgs = data.organizations.filter(o => o.isActive);
     
-    // 1. ECONOMIC HEALTH (Platform Revenue)
+    // 1. ECONOMIC HEALTH (Platform Revenue using Tier-based logic)
     const estimatedMRR = activeOrgs.reduce((acc, org) => {
-      const bizCount = data.businesses.filter(b => b.orgId === org.id).length;
-      return acc + 1500 + (bizCount * 250);
+      const tierPrice = TIER_REVENUE[org.tier] || 0;
+      return acc + tierPrice;
     }, 0);
 
     // 2. INFRASTRUCTURE PULSE (Throughput)
@@ -93,12 +99,11 @@ export const SuperAdminDashboard: React.FC = () => {
       unitCount: data.businesses.filter(b => b.orgId === org.id).length
     })).sort((a,b) => b.unitCount - a.unitCount);
 
-    // 5. REVENUE BY TENANT (Top 5)
+    // 5. REVENUE BY TENANT (Top 5 based on Tier)
     const revenueByTenant = activeOrgs.map(org => {
-      const bizCount = data.businesses.filter(b => b.orgId === org.id).length;
       return {
         name: org.name,
-        mrr: 1500 + (bizCount * 250),
+        mrr: TIER_REVENUE[org.tier] || 0,
         id: org.id
       };
     }).sort((a,b) => b.mrr - a.mrr).slice(0, 5);
@@ -210,7 +215,7 @@ export const SuperAdminDashboard: React.FC = () => {
              </div>
            </div>
            
-           <div className="flex-1 space-y-4 overflow-y-auto max-h-[350px] pr-2 custom-scrollbar">
+           <div className="flex-1 space-y-4 overflow-y-auto max-h-[350px] pr-2 custom-scrollbar text-left">
              {stats.staleTenants.length === 0 ? (
                <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-white/5 rounded-3xl">
                  <ShieldCheck size={40} className="text-emerald-500 mb-3 opacity-30" />
@@ -285,7 +290,7 @@ export const SuperAdminDashboard: React.FC = () => {
              <ShieldCheck size={200} />
            </div>
            
-           <div className="relative z-10 flex flex-col h-full">
+           <div className="relative z-10 flex flex-col h-full text-left">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-3 bg-white/20 rounded-2xl"><Users size={24} /></div>
                 <div>
