@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Briefcase, Calendar, CheckCircle2, XCircle, UserPlus, Loader2, ShieldCheck, Mail, Key, Zap, Layers, AlertCircle, Copy, Check, Database } from 'lucide-react';
+import { Plus, Briefcase, Calendar, CheckCircle2, XCircle, UserPlus, Loader2, ShieldCheck, Mail, Key, Zap, Layers, AlertCircle, Copy, Check, Database, LayoutDashboard } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { Organization, UserRole, SubscriptionTier } from '../types';
 import { formatDate } from '../utils/formatters';
+import { useAuth } from '../context/AuthContext';
 
 const TIER_CONFIG = {
   starter: { label: 'Starter', price: 300, limit: 1, color: 'text-blue-600 bg-blue-50 border-blue-100' },
@@ -12,6 +13,7 @@ const TIER_CONFIG = {
 };
 
 export const Organizations: React.FC = () => {
+  const { setSelectedOrgId } = useAuth();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -166,6 +168,12 @@ export const Organizations: React.FC = () => {
               </div>
             </div>
             <div className="space-y-2">
+              <button 
+                onClick={() => setSelectedOrgId(org.id)} 
+                className="w-full py-3 bg-emerald-50 text-emerald-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+              >
+                <LayoutDashboard size={16} /> Go To Dashboard
+              </button>
               <button 
                 onClick={() => { setError(null); setSelectedOrg(org); setIsOwnerModalOpen(true); }} 
                 className="w-full py-3 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-indigo-600 hover:text-white transition-all"
