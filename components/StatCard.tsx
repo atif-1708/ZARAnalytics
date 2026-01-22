@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { LucideIcon, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
@@ -9,7 +10,7 @@ interface StatCardProps {
     value: number;
     isUp: boolean;
   };
-  color: 'blue' | 'teal' | 'rose' | 'amber' | 'emerald';
+  color: 'blue' | 'teal' | 'rose' | 'amber' | 'emerald' | 'indigo';
 }
 
 export const StatCard: React.FC<StatCardProps> = ({ label, value, icon: Icon, trend, color }) => {
@@ -18,13 +19,14 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon: Icon, tr
     teal: 'bg-teal-50 text-teal-600 border-teal-100',
     rose: 'bg-rose-50 text-rose-600 border-rose-100',
     amber: 'bg-amber-50 text-amber-600 border-amber-100',
-    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100'
+    emerald: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    indigo: 'bg-indigo-50 text-indigo-600 border-indigo-100'
   };
 
   const trendColor = trend?.isUp ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100';
 
   return (
-    <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-200 flex flex-col justify-between group hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300">
+    <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-200 flex flex-col justify-between group hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 h-full min-h-[160px]">
       <div className="flex items-start justify-between mb-6">
         <div className={`p-4 rounded-2xl border ${colorMap[color]} transition-transform group-hover:scale-110 duration-300`}>
           <Icon size={24} />

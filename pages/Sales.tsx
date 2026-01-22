@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Edit3, TrendingUp, Loader2, Lock } from 'lucide-react';
+import { Plus, Trash2, Edit3, TrendingUp, Loader2, Lock, AlertCircle } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { DailySale, UserRole, Business, Filters } from '../types';
@@ -9,10 +9,16 @@ import { FilterPanel } from '../components/FilterPanel';
 
 export const Sales: React.FC = () => {
   const { user } = useAuth();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  
+  // ORG_ADMIN has visibility but NOT entry/edit access
+  const isAdminVisibility = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.ORG_ADMIN;
+  
+  // These roles can actually MODIFY data
+  const canModify = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.STAFF;
+  
   const isStaff = user?.role === UserRole.STAFF;
-  const isViewOnly = user?.role === UserRole.VIEW_ONLY;
-  const isScoped = !isAdmin && (user?.assignedBusinessIds?.length || 0) > 0;
+  const isViewOnly = user?.role === UserRole.VIEW_ONLY || user?.role === UserRole.ORG_ADMIN;
+  const isScoped = !isAdminVisibility && (user?.assignedBusinessIds?.length || 0) > 0;
   
   const [sales, setSales] = useState<DailySale[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -20,6 +26,7 @@ export const Sales: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<DailySale | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [currency, setCurrency] = useState<'ZAR' | 'PKR'>('ZAR');
   const [exchangeRate, setExchangeRate] = useState<number>(1);
@@ -46,8 +53,10 @@ export const Sales: React.FC = () => {
   };
   
   const [formData, setFormData] = useState({
-    businessId: '', date: new Date().toISOString().split('T')[0],
-    salesAmount: 0, profitPercentage: 0
+    businessId: '', 
+    date: new Date().toISOString().split('T')[0],
+    salesAmount: 0, 
+    profitPercentage: 0
   });
 
   const loadData = async () => {
@@ -65,6 +74,19 @@ export const Sales: React.FC = () => {
     loadData(); 
     fetchExchangeRate();
   }, [user]);
+
+  // Ensure formData.businessId is set to a valid assigned business when businesses are loaded
+  useEffect(() => {
+    if (businesses.length > 0 && !formData.businessId) {
+      const initialBiz = isScoped 
+        ? businesses.find(b => user?.assignedBusinessIds?.includes(b.id)) 
+        : businesses[0];
+      
+      if (initialBiz) {
+        setFormData(prev => ({ ...prev, businessId: initialBiz.id }));
+      }
+    }
+  }, [businesses, isScoped, user]);
 
   const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
@@ -113,53 +135,107 @@ export const Sales: React.FC = () => {
     return sales.filter(item => {
       const itemDate = new Date(item.date);
       const inRange = itemDate >= startDate && itemDate <= endDate;
-      const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+      const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
       if (!userHasAccess) return false;
       const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
       return inRange && matchesBiz;
     });
-  }, [sales, filters, user, isAdmin]);
+  }, [sales, filters, user, isAdminVisibility]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isAdmin || isViewOnly) return; 
+    if (!canModify) return; 
     if (isSaving) return;
 
+    setSaveError(null);
     setIsSaving(true);
-    try {
-      const profitAmount = formData.salesAmount * (formData.profitPercentage / 100);
-      const savedSale = await storage.saveSale({
-        ...(editingSale || {}),
-        ...formData,
-        profitAmount
-      });
 
-      // Trigger Alert for Admins
+    try {
+      if (!formData.businessId) throw new Error("Please select a business unit first.");
+      
+      const selectedBiz = businesses.find(b => b.id === formData.businessId);
+      if (!selectedBiz) throw new Error("The selected business unit could not be found.");
+
+      const salesVal = Number(formData.salesAmount);
+      const profitPct = Number(formData.profitPercentage);
+      
+      if (isNaN(salesVal) || salesVal <= 0) throw new Error("Please enter a valid sales amount.");
+      if (isNaN(profitPct) || profitPct < 0 || profitPct > 100) throw new Error("Profit percentage must be between 0 and 100.");
+
+      const profitAmount = salesVal * (profitPct / 100);
+      
+      const payload = {
+        ...(editingSale || {}),
+        businessId: formData.businessId,
+        date: formData.date,
+        salesAmount: salesVal,
+        profitPercentage: profitPct,
+        profitAmount: profitAmount,
+        orgId: selectedBiz.orgId
+      };
+
+      await storage.saveSale(payload);
+
+      // System notification
       if (!editingSale) {
-        const b = businesses.find(bx => bx.id === formData.businessId);
-        const bizNameWithLoc = b ? `${b.name} (${b.location})` : 'Unknown Unit';
-        
-        await storage.saveReminder({
-          businessId: formData.businessId,
-          businessName: bizNameWithLoc,
-          date: formData.date,
-          sentBy: user?.id,
-          sentByUserName: user?.name,
-          status: 'pending',
-          type: 'system_alert'
-        });
+        try {
+          await storage.saveReminder({
+            businessId: formData.businessId,
+            businessName: selectedBiz.name,
+            date: formData.date,
+            sentBy: user?.id || '',
+            sentByUserName: user?.name || 'Staff Member',
+            status: 'pending',
+            type: 'system_alert',
+            orgId: selectedBiz.orgId
+          });
+        } catch (alertErr) {
+          console.warn("Minor: Sale saved but system notification failed.", alertErr);
+        }
       }
 
       await loadData();
       setIsModalOpen(false);
     } catch (err: any) {
-      alert("Error: " + err.message);
+      console.error("Sale transaction failed:", err);
+      setSaveError(err.message || "Operation failed. Check organizational permissions.");
     } finally {
       setIsSaving(false);
     }
   };
 
+  const openAddModal = () => {
+    setEditingSale(null);
+    setSaveError(null);
+    
+    const initialBiz = isScoped 
+      ? businesses.find(b => user?.assignedBusinessIds?.includes(b.id)) 
+      : businesses[0];
+
+    setFormData({
+      businessId: initialBiz?.id || '',
+      date: new Date().toISOString().split('T')[0],
+      salesAmount: 0,
+      profitPercentage: 0
+    });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (sale: DailySale) => {
+    setEditingSale(sale);
+    setSaveError(null);
+    setFormData({
+      businessId: sale.businessId,
+      date: sale.date,
+      salesAmount: sale.salesAmount,
+      profitPercentage: sale.profitPercentage
+    });
+    setIsModalOpen(true);
+  };
+
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
+
+  const entryBusinesses = businesses.filter(b => isAdminVisibility || user?.assignedBusinessIds?.includes(b.id));
 
   return (
     <div className="space-y-6">
@@ -168,10 +244,10 @@ export const Sales: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Sales Records</h2>
           <p className="text-slate-500">{isScoped ? 'Operational data for your assigned shops' : 'Global revenue streams'}</p>
         </div>
-        {!isAdmin && isStaff && (
+        {canModify && (
           <button 
-            onClick={() => { setEditingSale(null); setFormData({ businessId: (businesses.find(b => user?.assignedBusinessIds?.includes(b.id))?.id || businesses[0]?.id || ''), date: new Date().toISOString().split('T')[0], salesAmount: 0, profitPercentage: 0 }); setIsModalOpen(true); }}
-            className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg"
+            onClick={openAddModal}
+            className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg hover:bg-teal-700 transition-all"
           >
             <Plus size={20} /> Add Sale Entry
           </button>
@@ -203,16 +279,18 @@ export const Sales: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredSales.length === 0 ? (
-              <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No sales records found for this criteria.</td></tr>
+              <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No sales records found for this period.</td></tr>
             ) : (
               filteredSales.map(s => {
                 const b = businesses.find(bx => bx.id === s.businessId);
+                const canEditThis = canModify && (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || (isStaff && user?.assignedBusinessIds?.includes(s.businessId)));
+                
                 return (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4 text-sm font-bold">{formatDate(s.date)}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 text-left">
                       <div className="text-sm font-black text-slate-800 leading-tight">
-                        {b ? b.name : 'Unknown'}
+                        {b ? b.name : 'Unknown Unit'}
                       </div>
                       {b && (
                         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
@@ -224,29 +302,23 @@ export const Sales: React.FC = () => {
                     <td className="px-6 py-4 text-sm text-right font-bold text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-1">
-                        {!isAdmin && isStaff && user?.assignedBusinessIds?.includes(s.businessId) ? (
+                        {canEditThis ? (
                           <>
                             <button 
-                              onClick={() => { 
-                                setEditingSale(s); 
-                                setFormData({ businessId: s.businessId, date: s.date, salesAmount: s.salesAmount, profitPercentage: s.profitPercentage }); 
-                                setIsModalOpen(true); 
-                              }} 
+                              onClick={() => openEditModal(s)} 
                               className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
-                              title="Edit Entry"
                             >
                               <Edit3 size={16} />
                             </button>
                             <button 
                               onClick={async () => { if(window.confirm('Delete this record?')) { await storage.deleteSale(s.id); loadData(); } }} 
                               className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                              title="Delete Entry"
                             >
                               <Trash2 size={16} />
                             </button>
                           </>
                         ) : (
-                          <div className="flex justify-end pr-3" title="Tier restricted access">
+                          <div className="flex justify-end pr-3">
                             <Lock size={14} className="text-slate-300" />
                           </div>
                         )}
@@ -266,51 +338,66 @@ export const Sales: React.FC = () => {
           <div className="bg-white rounded-2xl w-full max-w-md p-8 relative shadow-2xl">
             <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800">
               <TrendingUp className="text-teal-600" size={24} />
-              {editingSale ? 'Edit' : 'Record'} Daily Sale
+              {editingSale ? 'Update Sales Entry' : 'Record New Daily Sale'}
             </h3>
+            
+            {saveError && (
+              <div className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-xl text-rose-600 text-xs font-bold flex items-center gap-2">
+                <AlertCircle size={16} /> {saveError}
+              </div>
+            )}
+
             <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Business Unit</label>
+              <div className="text-left">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Business Unit</label>
                 <select 
+                  required
                   disabled={isSaving} 
                   value={formData.businessId} 
-                  onChange={e=>setFormData({...formData, businessId:e.target.value})} 
+                  onChange={e=>setFormData({...formData, businessId: e.target.value})} 
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-bold"
                 >
-                  {businesses.filter(b => user?.assignedBusinessIds?.includes(b.id)).map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
+                  <option value="">Select Unit</option>
+                  {entryBusinesses.map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 text-left">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Sale Date</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Entry Date</label>
                   <input 
                     type="date" 
+                    required
                     disabled={isSaving}
                     value={formData.date} 
-                    onChange={e=>setFormData({...formData, date:e.target.value})} 
+                    onChange={e=>setFormData({...formData, date: e.target.value})} 
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Revenue (ZAR)</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Gross Revenue (ZAR)</label>
                   <input 
                     type="number" 
+                    required
+                    min="0"
                     step="0.01" 
                     disabled={isSaving}
                     value={formData.salesAmount} 
-                    onChange={e=>setFormData({...formData, salesAmount:parseFloat(e.target.value)})} 
+                    onChange={e=>setFormData({...formData, salesAmount: parseFloat(e.target.value) || 0})} 
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" 
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Estimated Profit Margin (%)</label>
+              <div className="text-left">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Profit Percentage (%)</label>
                 <input 
                   type="number" 
+                  required
+                  min="0"
+                  max="100"
                   step="0.1" 
                   disabled={isSaving}
                   value={formData.profitPercentage} 
-                  onChange={e=>setFormData({...formData, profitPercentage:parseFloat(e.target.value)})} 
+                  onChange={e=>setFormData({...formData, profitPercentage: parseFloat(e.target.value) || 0})} 
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" 
                 />
               </div>
@@ -319,7 +406,7 @@ export const Sales: React.FC = () => {
                 type="submit" 
                 className="w-full py-4 bg-teal-600 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-teal-700 transition-all shadow-lg shadow-teal-600/20 disabled:opacity-50 mt-4"
               >
-                {isSaving ? 'Processing...' : editingSale ? 'Update Entry' : 'Confirm & Save Entry'}
+                {isSaving ? 'Processing Transaction...' : editingSale ? 'Confirm Update' : 'Authorize & Save Entry'}
               </button>
             </form>
           </div>

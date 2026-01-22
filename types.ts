@@ -1,8 +1,10 @@
 
 export enum UserRole {
+  SUPER_ADMIN = 'SUPER_ADMIN',
   ADMIN = 'ADMIN',
   STAFF = 'STAFF',
-  VIEW_ONLY = 'VIEW_ONLY'
+  VIEW_ONLY = 'VIEW_ONLY',
+  ORG_ADMIN = 'ORG_ADMIN'
 }
 
 export interface User {
@@ -13,6 +15,15 @@ export interface User {
   assignedBusinessIds?: string[];
   avatarUrl?: string;
   password?: string;
+  orgId?: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  subscriptionEndDate: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export interface Business {
@@ -20,6 +31,7 @@ export interface Business {
   name: string;
   location: string;
   createdAt: string;
+  orgId?: string;
 }
 
 export interface DailySale {
@@ -30,6 +42,7 @@ export interface DailySale {
   profitPercentage: number;
   profitAmount: number;
   createdAt: string;
+  orgId?: string;
 }
 
 export interface MonthlyExpense {
@@ -39,6 +52,7 @@ export interface MonthlyExpense {
   amount: number;
   description: string;
   createdAt: string;
+  orgId?: string;
 }
 
 export interface Reminder {
@@ -51,6 +65,7 @@ export interface Reminder {
   status: 'pending' | 'read';
   type: 'user_sent' | 'system_alert';
   createdAt: string;
+  orgId?: string;
 }
 
 export interface Filters {

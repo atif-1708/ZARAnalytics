@@ -10,7 +10,10 @@ import {
   BellRing,
   CheckCircle,
   Zap,
-  ChevronRight
+  ChevronRight,
+  CheckCheck,
+  History,
+  Sparkles
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { Reminder, UserRole, Business, DailySale } from '../types';
@@ -19,17 +22,18 @@ import { useAuth } from '../context/AuthContext';
 export const Reminders: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.role === UserRole.ADMIN;
-  const isViewOnly = user?.role === UserRole.VIEW_ONLY;
+  
+  const isObserver = user?.role === UserRole.ADMIN || user?.role === UserRole.ORG_ADMIN || user?.role === UserRole.VIEW_ONLY || user?.role === UserRole.SUPER_ADMIN;
   const isStaff = user?.role === UserRole.STAFF;
   
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [sales, setSales] = useState<DailySale[]>([]);
   const [allReminders, setAllReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [seenIds, setSeenIds] = useState<string[]>([]);
+  const [newlySeenThisSession, setNewlySeenThisSession] = useState<string[]>([]);
 
-  const HIDDEN_STORAGE_KEY = user ? `hidden_alerts_${user.id}` : '';
+  const SEEN_STORAGE_KEY = user ? `zarlytics_seen_alerts_${user.id}` : '';
 
   const loadData = async () => {
     setLoading(true);
@@ -43,10 +47,9 @@ export const Reminders: React.FC = () => {
       setSales(sData);
       setAllReminders(rData);
 
-      // Load hidden IDs from local storage for this user
-      if (HIDDEN_STORAGE_KEY) {
-        const localHidden = JSON.parse(localStorage.getItem(HIDDEN_STORAGE_KEY) || '[]');
-        setHiddenIds(localHidden);
+      if (SEEN_STORAGE_KEY) {
+        const localSeen = JSON.parse(localStorage.getItem(SEEN_STORAGE_KEY) || '[]');
+        setSeenIds(localSeen);
       }
     } catch (err) {
       console.error("Failed to load reminders", err);
@@ -66,31 +69,34 @@ export const Reminders: React.FC = () => {
       !sales.some(s => s.businessId === b.id && s.date === todayStr)
     );
 
-    // 2. Activity Alerts (For Admin/View-Only)
-    // Filter out alerts that are:
-    // - Not system_alerts
-    // - Globally marked as read (optional, keeping it for data hygiene)
-    // - Locally hidden by THIS user
-    const activeAlerts = allReminders.filter(r => 
-      r.type === 'system_alert' && 
-      r.status === 'pending' &&
-      !hiddenIds.includes(r.id)
-    );
+    // 2. Activity Alerts (Recent system events)
+    const activeAlerts = allReminders
+      .filter(r => r.type === 'system_alert' && r.status === 'pending')
+      .slice(0, 30);
 
     return { missingForStaff, activeAlerts };
-  }, [businesses, sales, allReminders, user, todayStr, hiddenIds]);
+  }, [businesses, sales, allReminders, user, todayStr]);
 
-  const handleHideAlertLocally = (id: string) => {
-    if (!HIDDEN_STORAGE_KEY) return;
-    
-    // Add to local hidden list
-    const updatedHidden = Array.from(new Set([...hiddenIds, id]));
-    localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(updatedHidden));
-    setHiddenIds(updatedHidden);
-    
-    // We do NOT mark it read in the database here, 
-    // satisfying "dont make it mark as read for all admin/view users".
-  };
+  // Automatic "seen" logic for Observers
+  useEffect(() => {
+    if (!loading && isObserver && derivedData.activeAlerts.length > 0 && SEEN_STORAGE_KEY) {
+      const unseenIds = derivedData.activeAlerts
+        .map(a => a.id)
+        .filter(id => !seenIds.includes(id));
+
+      if (unseenIds.length > 0) {
+        setNewlySeenThisSession(unseenIds);
+        const timer = setTimeout(() => {
+          const updatedSeen = Array.from(new Set([...seenIds, ...unseenIds]));
+          localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(updatedSeen));
+          setSeenIds(updatedSeen);
+          setNewlySeenThisSession([]);
+          window.dispatchEvent(new Event('storage'));
+        }, 2500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, isObserver, derivedData.activeAlerts, SEEN_STORAGE_KEY, seenIds]);
 
   if (loading) return (
     <div className="h-[60vh] flex items-center justify-center">
@@ -102,25 +108,27 @@ export const Reminders: React.FC = () => {
     <div className="space-y-10 pb-20 max-w-5xl mx-auto">
       <div className="text-left flex items-end justify-between">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Compliance & Alerts</h2>
-          <p className="text-slate-500 font-medium tracking-tight">Monitoring real-time business unit operations</p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Compliance & Operations</h2>
+          <p className="text-slate-500 font-medium tracking-tight">
+            {isStaff ? 'Daily task list and submission status' : 'Monitoring real-time business unit operations'}
+          </p>
         </div>
         <div className="hidden sm:block">
           <div className="px-4 py-2 bg-white border border-slate-200 rounded-2xl shadow-sm flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
-            <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Live Monitoring</span>
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">System Monitor Active</span>
           </div>
         </div>
       </div>
 
-      {/* STAFF VIEW: TASK REMINDERS */}
+      {/* STAFF VIEW: COMPLIANCE TASKS */}
       {isStaff && (
         <section className="space-y-6">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-amber-100 text-amber-600 rounded-lg">
-              <Clock size={18} />
+            <div className="p-1.5 bg-rose-100 text-rose-600 rounded-lg">
+              <AlertTriangle size={18} />
             </div>
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Your Action Required</h3>
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Daily Sales Compliance Checklist</h3>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -129,28 +137,28 @@ export const Reminders: React.FC = () => {
                 <div className="w-16 h-16 bg-white text-emerald-500 rounded-3xl flex items-center justify-center mx-auto mb-4 shadow-sm">
                   <CheckCircle2 size={32} />
                 </div>
-                <h4 className="text-lg font-bold text-slate-900 mb-1">Status: Operational</h4>
-                <p className="text-slate-500 text-sm font-medium leading-relaxed">All assigned business units have submitted their daily reports.</p>
+                <h4 className="text-lg font-bold text-slate-900 mb-1">Status: Fully Compliant</h4>
+                <p className="text-slate-500 text-sm font-medium leading-relaxed">Great work! All your assigned business units have submitted their reports for today.</p>
               </div>
             ) : (
               derivedData.missingForStaff.map(biz => (
-                <div key={biz.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-amber-400 transition-all">
+                <div key={biz.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-rose-400 transition-all">
                   <div className="text-left">
-                    <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                    <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                       <Store size={24} />
                     </div>
                     <h4 className="text-lg font-black text-slate-900">{biz.name}</h4>
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1 mb-4">{biz.location}</p>
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-amber-700 text-xs font-bold flex items-center gap-2">
+                    <div className="p-3 bg-rose-50 rounded-xl border border-rose-100 text-rose-700 text-xs font-bold flex items-center gap-2 animate-pulse">
                       <AlertTriangle size={14} />
-                      Entry Overdue for Today
+                      Sales Entry Required Today
                     </div>
                   </div>
                   <button 
                     onClick={() => navigate('/sales')}
-                    className="mt-8 w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-teal-600 transition-all shadow-lg shadow-slate-200"
+                    className="mt-8 w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-rose-600 transition-all shadow-lg shadow-slate-200"
                   >
-                    Resolve Entry
+                    Resolve Now
                   </button>
                 </div>
               ))
@@ -159,14 +167,16 @@ export const Reminders: React.FC = () => {
         </section>
       )}
 
-      {/* ADMIN & VIEW ONLY: DISMISSIBLE ACTIVITY ALERTS (USER-SPECIFIC) */}
-      {(isAdmin || isViewOnly) && (
+      {/* OBSERVER ROLES: ACTIVITY LOG */}
+      {isObserver && (
         <section className="space-y-6">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-teal-100 text-teal-600 rounded-lg">
-              <BellRing size={18} />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 bg-slate-100 text-slate-600 rounded-lg">
+                <History size={18} />
+              </div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Recent Activity Feed</h3>
             </div>
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Activity Alerts (Recent Activity)</h3>
           </div>
           
           <div className="grid grid-cols-1 gap-4">
@@ -175,50 +185,62 @@ export const Reminders: React.FC = () => {
                 <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
                   <Zap size={32} />
                 </div>
-                <h4 className="text-lg font-bold text-slate-900 mb-1">No New Activity</h4>
-                <p className="text-slate-500 text-sm font-medium italic">All caught up. New entries will appear here.</p>
+                <h4 className="text-lg font-bold text-slate-900 mb-1">Quiet Day</h4>
+                <p className="text-slate-500 text-sm font-medium italic">No recent system alerts to display.</p>
               </div>
             ) : (
-              derivedData.activeAlerts.map(alert => (
-                <div 
-                  key={alert.id} 
-                  onClick={() => handleHideAlertLocally(alert.id)}
-                  className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center justify-between hover:shadow-md hover:border-teal-200 transition-all group cursor-pointer relative overflow-hidden"
-                >
-                  <div className="flex items-center gap-5 z-10">
-                    <div className="w-14 h-14 bg-emerald-50 text-emerald-500 rounded-2xl flex items-center justify-center shadow-inner group-hover:bg-teal-600 group-hover:text-white transition-all duration-300">
-                      <CheckCircle size={28} />
-                    </div>
-                    <div className="text-left">
-                      <h4 className="font-black text-slate-900 text-base uppercase tracking-tight">{alert.businessName}</h4>
-                      <p className="text-[10px] font-black text-emerald-600 group-hover:text-teal-700 uppercase tracking-widest flex items-center gap-1.5 transition-colors">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-teal-600 transition-colors"></span>
-                        Logged by {alert.sentByUserName}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-6 z-10">
-                    <div className="text-right hidden sm:block">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Time Logged</p>
-                      <p className="text-sm font-bold text-slate-700">
-                        {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                      </p>
+              derivedData.activeAlerts.map(alert => {
+                const isNew = newlySeenThisSession.includes(alert.id);
+                const hasBeenSeen = seenIds.includes(alert.id);
+
+                return (
+                  <div 
+                    key={alert.id} 
+                    className={`bg-white p-6 rounded-3xl border shadow-sm flex items-center justify-between transition-all group relative overflow-hidden ${
+                      isNew ? 'border-teal-400 ring-4 ring-teal-500/10' : hasBeenSeen ? 'border-slate-100 opacity-80' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-5 z-10">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner transition-all duration-500 ${
+                        isNew ? 'bg-teal-600 text-white animate-pulse' : 'bg-slate-50 text-slate-400'
+                      }`}>
+                        <CheckCircle size={28} />
+                      </div>
+                      <div className="text-left">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-black text-slate-900 text-base uppercase tracking-tight">{alert.businessName}</h4>
+                          {isNew && (
+                            <span className="flex items-center gap-1 bg-teal-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md animate-bounce">
+                              <Sparkles size={8} /> NEW
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-colors ${
+                          isNew ? 'text-teal-600' : 'text-slate-400'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isNew ? 'bg-teal-500' : 'bg-slate-300'}`}></span>
+                          Logged by {alert.sentByUserName}
+                        </p>
+                      </div>
                     </div>
                     
-                    <div className="flex items-center gap-2">
-                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity translate-x-4 group-hover:translate-x-0 duration-300">
-                         Click to Hide
-                       </span>
-                       <div className="p-3 bg-slate-50 text-slate-300 group-hover:bg-teal-50 group-hover:text-teal-600 rounded-2xl transition-all">
-                        <ChevronRight size={18} />
+                    <div className="flex items-center gap-6 z-10">
+                      <div className="text-right hidden sm:block">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Time Logged</p>
+                        <p className={`text-sm font-bold ${isNew ? 'text-teal-700' : 'text-slate-500'}`}>
+                          {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                         <div className="p-3 bg-slate-50 text-slate-300 rounded-2xl">
+                          <ChevronRight size={18} />
+                        </div>
                       </div>
                     </div>
                   </div>
-
-                  <div className="absolute inset-y-0 right-0 w-1 bg-teal-500 translate-x-full group-hover:translate-x-0 transition-transform duration-300" />
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>

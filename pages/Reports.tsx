@@ -28,8 +28,8 @@ export const Reports: React.FC = () => {
   const [exchangeRate, setExchangeRate] = useState<number>(1);
   const [isFetchingRate, setIsFetchingRate] = useState(false);
   
-  const isAdmin = user?.role === UserRole.ADMIN;
-  const isNoAssignment = !isAdmin && (user?.assignedBusinessIds?.length || 0) === 0;
+  const isAdminVisibility = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.ORG_ADMIN;
+  const isNoAssignment = !isAdminVisibility && (user?.assignedBusinessIds?.length || 0) === 0;
 
   const [filters, setFilters] = useState<Filters>({
     businessId: 'all',
@@ -76,7 +76,7 @@ export const Reports: React.FC = () => {
     };
     fetchData();
     fetchExchangeRate();
-  }, []);
+  }, [user]);
 
   const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
@@ -147,7 +147,7 @@ export const Reports: React.FC = () => {
       const fSales = sales.filter(item => {
         const itemDate = new Date(item.date);
         const inRange = itemDate >= start && itemDate <= end;
-        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
         return inRange && userHasAccess && matchesBiz;
       });
@@ -155,7 +155,7 @@ export const Reports: React.FC = () => {
       const fExpenses = expenses.filter(item => {
         const itemDate = new Date(item.month + '-01');
         const inRange = itemDate >= start && itemDate <= end;
-        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
         return inRange && userHasAccess && matchesBiz;
       });
@@ -197,7 +197,7 @@ export const Reports: React.FC = () => {
         net: calcTrend(current.rawNet, previous.rawNet)
       }
     };
-  }, [filters, sales, expenses, currency, exchangeRate, user, isAdmin]);
+  }, [filters, sales, expenses, currency, exchangeRate, user, isAdminVisibility]);
 
   if (loading) {
     return (

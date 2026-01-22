@@ -9,11 +9,12 @@ interface AuthContextType extends AuthState {
   logout: () => void;
   refreshProfile: () => Promise<void>;
   isInitializing: boolean;
+  selectedOrgId: string | null;
+  setSelectedOrgId: (id: string | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Using more explicit generic constraint to avoid JSX ambiguity
 const withTimeout = <T extends unknown>(promise: Promise<T> | any, timeoutMs: number, fallback: T): Promise<T> => {
   return Promise.race([
     Promise.resolve(promise),
@@ -29,7 +30,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
   const [isInitializing, setIsInitializing] = useState(true);
   const [criticalError, setCriticalError] = useState<string | null>(null);
+  const [selectedOrgId, setSelectedOrgIdState] = useState<string | null>(localStorage.getItem('zarlytics_ghost_org_id'));
   const initHandled = useRef(false);
+
+  const setSelectedOrgId = (id: string | null) => {
+    if (id) {
+      localStorage.setItem('zarlytics_ghost_org_id', id);
+    } else {
+      localStorage.removeItem('zarlytics_ghost_org_id');
+    }
+    setSelectedOrgIdState(id);
+    // Reload to refresh all data fetchers with new context
+    window.location.reload();
+  };
 
   const performEmergencyReset = (reason: string) => {
     if (criticalError) return;
@@ -67,7 +80,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: sbUser.email, 
           role: (profile?.role as UserRole) || UserRole.VIEW_ONLY,
           assignedBusinessIds: profile?.assigned_business_ids || [], 
-          avatarUrl: profile?.avatar_url || null
+          avatarUrl: profile?.avatar_url || null,
+          orgId: profile?.org_id || null
         },
         token,
         isAuthenticated: true
@@ -167,11 +181,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       localStorage.setItem('zarlytics_app_ready_signal', 'true');
+      localStorage.removeItem('zarlytics_ghost_org_id');
       await withTimeout(supabase.auth.signOut(), 3000, null);
     } finally {
       setAuth({ user: null, token: null, isAuthenticated: false });
       setCriticalError(null);
-      localStorage.clear();
       sessionStorage.clear();
       window.location.reload();
     }
@@ -221,7 +235,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <AuthContext.Provider value={{ ...auth, login, logout, refreshProfile, isInitializing }}>
+    <AuthContext.Provider value={{ ...auth, login, logout, refreshProfile, isInitializing, selectedOrgId, setSelectedOrgId }}>
       {children}
     </AuthContext.Provider>
   );

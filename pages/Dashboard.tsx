@@ -33,7 +33,8 @@ export const Dashboard: React.FC = () => {
   const [exchangeRate, setExchangeRate] = useState<number>(1);
   const [isFetchingRate, setIsFetchingRate] = useState(false);
   
-  const isAdmin = user?.role === UserRole.ADMIN;
+  // ORG_ADMIN should have high-level visibility like an ADMIN
+  const isAdminVisibility = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.ORG_ADMIN;
 
   const [filters, setFilters] = useState<Filters>({
     businessId: 'all',
@@ -74,7 +75,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     loadData();
     fetchExchangeRate();
-  }, []);
+  }, [user]);
 
   const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
@@ -146,7 +147,7 @@ export const Dashboard: React.FC = () => {
       const filteredSales = dataSales.filter(item => {
         const itemDate = new Date(item.date);
         const inRange = itemDate >= start && itemDate <= end;
-        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
         return inRange && userHasAccess && matchesBiz;
       });
@@ -154,7 +155,7 @@ export const Dashboard: React.FC = () => {
       const filteredExpenses = dataExpenses.filter(item => {
         const itemDate = new Date(item.month + '-01');
         const inRange = itemDate >= start && itemDate <= end;
-        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(item.businessId);
+        const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
         return inRange && userHasAccess && matchesBiz;
       });
@@ -180,7 +181,7 @@ export const Dashboard: React.FC = () => {
 
     const businessRanking = businesses
       .filter(biz => {
-        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
+        const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(biz.id);
         const matchesBizFilter = filters.businessId === 'all' || biz.id === filters.businessId;
         return userHasAccess && matchesBizFilter;
       })
@@ -221,7 +222,7 @@ export const Dashboard: React.FC = () => {
       const dayEntry: any = { dayLabel: day.toString(), fullDate: dateStr };
       
       businesses.forEach(biz => {
-        const userHasAccess = isAdmin || user?.assignedBusinessIds?.includes(biz.id);
+        const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
         
@@ -246,7 +247,7 @@ export const Dashboard: React.FC = () => {
       businessRanking,
       chartData
     };
-  }, [filters, sales, expenses, businesses, currency, exchangeRate, user, isAdmin]);
+  }, [filters, sales, expenses, businesses, currency, exchangeRate, user, isAdminVisibility]);
 
   if (loading) return (
     <div className="h-[60vh] flex flex-col items-center justify-center text-slate-400">
@@ -314,7 +315,7 @@ export const Dashboard: React.FC = () => {
                 <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '12px' }} labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '8px' }} itemStyle={{ fontSize: '11px', fontWeight: 700 }} />
                 <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '30px', fontSize: '10px', textTransform: 'uppercase', fontWeight: '900' }} iconType="circle" />
                 {businesses.map((biz, idx) => {
-                  if (!(isAdmin || user?.assignedBusinessIds?.includes(biz.id))) return null;
+                  if (!(isAdminVisibility || user?.assignedBusinessIds?.includes(biz.id))) return null;
                   if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
                   return (
                     <Bar 
