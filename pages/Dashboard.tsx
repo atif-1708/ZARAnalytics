@@ -212,7 +212,9 @@ export const Dashboard: React.FC = () => {
     sales.forEach(s => {
       const sDate = new Date(s.date);
       if (sDate.getFullYear() === currentYear && sDate.getMonth() === currentMonthIndex) {
-        const dateKey = s.date.split('T')[0];
+        // FIX: Convert to Local Date String before grouping
+        const d = new Date(s.date);
+        const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         currentMonthSalesMap.set(`${dateKey}_${s.businessId}`, s);
       }
     });

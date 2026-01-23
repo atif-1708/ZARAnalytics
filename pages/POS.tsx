@@ -61,16 +61,24 @@ export const POS: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  const getLocalDayKey = (date: Date) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+
   const fetchTodayTotals = async (bizId: string) => {
     if (!bizId) return;
     try {
       const allSales = await storage.getSales();
-      const todayStr = getLocalISOString().split('T')[0];
       
-      const bizSalesToday = allSales.filter(s => 
-        s.businessId === bizId && 
-        s.date.startsWith(todayStr)
-      );
+      // FIX: Use local date comparison instead of UTC string comparison
+      const todayKey = getLocalDayKey(new Date());
+      
+      const bizSalesToday = allSales.filter(s => {
+        // Convert the stored UTC/ISO string to a Date object, then extract LOCAL date components
+        const saleDate = new Date(s.date);
+        const saleKey = getLocalDayKey(saleDate);
+        return s.businessId === bizId && saleKey === todayKey;
+      });
 
       const totals = bizSalesToday.reduce((acc, sale) => {
         if (sale.paymentMethod === PaymentMethod.CASH) acc.cash += sale.salesAmount;

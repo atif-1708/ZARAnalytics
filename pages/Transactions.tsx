@@ -190,7 +190,11 @@ export const Transactions: React.FC = () => {
     return sales.filter(s => {
       const bizMatch = selectedBusinessId === 'all' || s.businessId === selectedBusinessId;
       const methodMatch = methodFilter === 'all' || s.paymentMethod === methodFilter;
-      const transDate = s.date.split('T')[0];
+      
+      // FIX: Convert UTC timestamp to LOCAL Date String before comparing with filter
+      const d = new Date(s.date);
+      const transDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      
       const dateMatch = !dateFilter || transDate === dateFilter;
       const bizName = businesses.find(b => b.id === s.businessId)?.name.toLowerCase() || '';
       const searchTerm = search.toLowerCase();

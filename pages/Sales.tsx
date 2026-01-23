@@ -135,7 +135,10 @@ export const Sales: React.FC = () => {
 
     sales.forEach(s => {
       const itemDate = new Date(s.date);
-      const dayKey = s.date.split('T')[0];
+      // FIX: Convert UTC timestamp to LOCAL Date String before grouping
+      const d = new Date(s.date);
+      const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      
       const inRange = itemDate >= startDate && itemDate <= endDate;
       const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(s.businessId);
       const matchesBiz = filters.businessId === 'all' || s.businessId === filters.businessId;
@@ -262,9 +265,14 @@ export const Sales: React.FC = () => {
     if (!canModify || sale.isComputed) return;
     setEditingSale(sale);
     setSaveError(null);
+    
+    // When editing, convert ISO date back to local date YYYY-MM-DD for the input
+    const d = new Date(sale.date);
+    const localYMD = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    
     setFormData({
       businessId: sale.businessId,
-      date: sale.date.split('T')[0],
+      date: localYMD,
       salesAmount: sale.salesAmount,
       profitPercentage: sale.profitPercentage
     });
