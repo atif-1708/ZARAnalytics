@@ -85,6 +85,7 @@ export interface DailySale {
   profitAmount: number;
   paymentMethod?: PaymentMethod;
   items?: SaleItem[];
+  isRefunded?: boolean;
   createdAt: string;
   orgId?: string;
 }

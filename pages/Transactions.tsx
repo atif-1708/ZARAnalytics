@@ -14,7 +14,9 @@ import {
   Hash,
   Filter,
   ShoppingCart,
-  Calendar
+  Calendar,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +28,7 @@ export const Transactions: React.FC = () => {
   const [sales, setSales] = useState<DailySale[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefunding, setIsRefunding] = useState(false);
   
   // Filters
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('all');
@@ -58,6 +61,28 @@ export const Transactions: React.FC = () => {
   };
 
   useEffect(() => { loadData(); }, [user]);
+
+  const handleRefund = async () => {
+    if (!viewingSale || isRefunding) return;
+    
+    const confirmMsg = `Process FULL REFUND for Transaction #${viewingSale.id.substring(0,8)}?\n\n- Stock will be restored.\n- A negative sales entry will be created for today.\n- This cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsRefunding(true);
+    try {
+      await storage.processRefund(viewingSale.id);
+      await loadData(); // Refresh list to get updated status
+      
+      // Update local view state to show refunded status immediately
+      setViewingSale(prev => prev ? { ...prev, isRefunded: true } : null);
+      
+      alert("Refund processed successfully.");
+    } catch (e: any) {
+      alert("Refund Failed: " + e.message);
+    } finally {
+      setIsRefunding(false);
+    }
+  };
 
   const filteredTransactions = useMemo(() => {
     return sales.filter(s => {
@@ -167,7 +192,10 @@ export const Transactions: React.FC = () => {
                 return (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
-                       <span className="font-mono text-[10px] font-black text-slate-400">#{s.id.substring(0, 8)}</span>
+                       <div className="flex flex-col gap-1">
+                         <span className={`font-mono text-[10px] font-black ${s.isRefunded ? 'text-rose-500 line-through' : 'text-slate-400'}`}>#{s.id.substring(0, 8)}</span>
+                         {s.isRefunded && <span className="text-[8px] font-black text-rose-600 uppercase bg-rose-50 px-1.5 py-0.5 rounded w-fit">Refunded</span>}
+                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
@@ -190,7 +218,9 @@ export const Transactions: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <span className="text-sm font-black text-teal-600">{formatZAR(s.salesAmount)}</span>
+                      <span className={`text-sm font-black ${s.isRefunded ? 'text-slate-400 line-through decoration-rose-500' : 'text-teal-600'}`}>
+                        {formatZAR(s.salesAmount)}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button 
@@ -219,7 +249,7 @@ export const Transactions: React.FC = () => {
       {/* Transaction Detail Modal */}
       {viewingSale && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setViewingSale(null)} />
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isRefunding && setViewingSale(null)} />
           <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 relative shadow-2xl space-y-6 text-left border border-slate-100">
              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -229,10 +259,20 @@ export const Transactions: React.FC = () => {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Trans: {viewingSale.id.substring(0, 12)}</p>
                   </div>
                 </div>
-                <button onClick={() => setViewingSale(null)} className="p-2 text-slate-300 hover:text-slate-900 transition-colors"><X size={24}/></button>
+                <button disabled={isRefunding} onClick={() => setViewingSale(null)} className="p-2 text-slate-300 hover:text-slate-900 transition-colors"><X size={24}/></button>
              </div>
 
-             <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4">
+             {viewingSale.isRefunded && (
+                <div className="bg-rose-50 border border-rose-100 rounded-2xl p-4 flex items-center gap-3 text-rose-600 animate-in zoom-in">
+                   <AlertTriangle size={20} />
+                   <div>
+                      <p className="text-xs font-black uppercase tracking-tight">Transaction Refunded</p>
+                      <p className="text-[10px] font-bold opacity-80">Stock has been restored and revenue reversed.</p>
+                   </div>
+                </div>
+             )}
+
+             <div className={`bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4 ${viewingSale.isRefunded ? 'opacity-50 grayscale' : ''}`}>
                 <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200 pb-3">
                    <span>Item Description</span>
                    <div className="flex gap-10">
@@ -273,6 +313,23 @@ export const Transactions: React.FC = () => {
                    <span className="text-xs font-black text-slate-800 uppercase tracking-widest">{formatDate(viewingSale.date)} {new Date(viewingSale.date).toLocaleTimeString()}</span>
                 </div>
              </div>
+
+             {/* Refund Action */}
+             {!viewingSale.isRefunded && (
+                <button 
+                  onClick={handleRefund}
+                  disabled={isRefunding}
+                  className="w-full py-4 bg-slate-900 text-rose-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-rose-950 transition-all border border-rose-900/30 flex items-center justify-center gap-2"
+                >
+                  {isRefunding ? (
+                    <Loader2 className="animate-spin" size={16} />
+                  ) : (
+                    <>
+                      <RotateCcw size={16} /> Process Refund
+                    </>
+                  )}
+                </button>
+             )}
           </div>
         </div>
       )}

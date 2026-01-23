@@ -266,6 +266,69 @@ export const storage = {
     return mapFromDb(data);
   },
 
+  processRefund: async (saleId: string) => {
+    const { userName } = await getFilter();
+    
+    // 1. Fetch original sale
+    const { data: originalDb, error: fetchError } = await supabase.from('sales').select('*').eq('id', saleId).single();
+    if (fetchError || !originalDb) throw new Error("Original transaction not found.");
+    
+    const original = mapFromDb(originalDb);
+    if (original.isRefunded) throw new Error("Transaction has already been refunded.");
+
+    // 2. Mark original as refunded
+    const { error: updateError } = await supabase.from('sales').update({ is_refunded: true }).eq('id', saleId);
+    if (updateError) throw new Error("Failed to update transaction status.");
+
+    // 3. Inventory Restoration
+    if (original.items && original.items.length > 0) {
+      for (const item of original.items) {
+        try {
+          // Log return movement
+          const movementPayload = mapToDb({
+            productId: item.productId,
+            quantity: item.quantity, // Positive quantity for return
+            type: 'return',
+            reason: `Refund for Trans #${saleId.substring(0,8)}`,
+            businessId: original.businessId,
+            orgId: original.orgId,
+            userName: userName || 'System Refund'
+          });
+          await supabase.from('stock_movements').insert(movementPayload);
+
+          // Update product stock
+          const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
+          if (prod) {
+            const newStock = (prod.current_stock || 0) + item.quantity;
+            await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
+          }
+        } catch(e) {
+          console.error("Refund stock sync failed for item:", item.sku, e);
+        }
+      }
+    }
+
+    // 4. Financial Adjustment (Negative Transaction)
+    // We create a new "Sale" entry but with negative values to balance the books for the current day.
+    const refundEntry = {
+      businessId: original.businessId,
+      date: new Date().toISOString(), // Refund happens NOW
+      salesAmount: -Math.abs(original.salesAmount),
+      profitAmount: -Math.abs(original.profitAmount),
+      profitPercentage: 0, // Not relevant for refund entry
+      paymentMethod: original.paymentMethod,
+      items: [], // We don't list items to avoid double-counting sold items in some analytics, just value adjustment
+      orgId: original.orgId,
+      isRefunded: false // This entry itself is not refunded, it IS the refund
+    };
+
+    const payload = mapToDb(refundEntry);
+    const { error: insertError } = await supabase.from('sales').insert(payload);
+    if (insertError) throw new Error("Failed to record financial adjustment.");
+
+    return true;
+  },
+
   getSales: async (): Promise<DailySale[]> => {
     try {
       const { orgId, role } = await getFilter();
