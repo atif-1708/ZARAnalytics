@@ -74,6 +74,7 @@ export interface SaleItem {
   priceAtSale: number;
   costAtSale: number;
   discount?: number;
+  refundedQuantity?: number;
 }
 
 export interface DailySale {

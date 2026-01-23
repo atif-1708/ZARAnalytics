@@ -78,10 +78,12 @@ export const Transactions: React.FC = () => {
   }, [viewingSale]);
 
   const toggleItemSelection = (index: number, maxQty: number) => {
+    if (maxQty <= 0) return; // Prevent selecting fully refunded items
+    
     setSelectedItems(prev => {
       const newState = { ...prev, [index]: !prev[index] };
       if (newState[index]) {
-        // If selecting, set default quantity to max
+        // If selecting, set default quantity to max remaining
         setRefundQuantities(q => ({ ...q, [index]: maxQty }));
       } else {
         // If deselecting, remove quantity
@@ -107,7 +109,7 @@ export const Transactions: React.FC = () => {
     if (!viewingSale || !viewingSale.items) return 0;
     return viewingSale.items.reduce((total, item, idx) => {
       if (selectedItems[idx]) {
-        const qty = refundQuantities[idx] || item.quantity;
+        const qty = refundQuantities[idx] || (item.quantity - (item.refundedQuantity || 0));
         return total + (item.priceAtSale * qty);
       }
       return total;
@@ -120,9 +122,12 @@ export const Transactions: React.FC = () => {
     // Construct refund payload
     const itemsToRefund = viewingSale.items?.map((item, idx) => {
       if (selectedItems[idx]) {
+        const remainingQty = item.quantity - (item.refundedQuantity || 0);
+        const requestQty = refundQuantities[idx] || remainingQty;
+        
         return {
           sku: item.sku,
-          quantity: refundQuantities[idx] || item.quantity,
+          quantity: requestQty,
           price: item.priceAtSale,
           productId: item.productId
         };
@@ -136,20 +141,31 @@ export const Transactions: React.FC = () => {
     }
 
     const totalRefund = calculateTotalRefund();
-    const isFullRefund = Math.abs(totalRefund - viewingSale.salesAmount) < 0.01;
-    const confirmMsg = `Confirm Refund of ${formatZAR(totalRefund)}?\n\n- ${itemsToRefund.length} item(s) will be returned to stock.\n- Financials will be adjusted.\n${isFullRefund ? '- Original transaction will be marked as fully refunded.' : '- Original transaction will remain partially valid.'}`;
+    const confirmMsg = `Confirm Refund of ${formatZAR(totalRefund)}?\n\n- ${itemsToRefund.length} item(s) will be returned to stock.\n- Financials will be adjusted.`;
     
     if (!window.confirm(confirmMsg)) return;
 
     setIsRefunding(true);
     try {
       await storage.processRefund(viewingSale.id, itemsToRefund);
-      await loadData();
       
-      if (isFullRefund) {
-        setViewingSale(prev => prev ? { ...prev, isRefunded: true } : null);
+      // Reload strictly from DB to get the new state (refundedQuantity updates)
+      const freshSales = await storage.getSales();
+      setSales(freshSales.filter(s => s.items && s.items.length > 0));
+      
+      const updatedSale = freshSales.find(s => s.id === viewingSale.id);
+      
+      if (updatedSale) {
+        if (updatedSale.isRefunded) {
+           setViewingSale(prev => prev ? { ...prev, isRefunded: true } : null);
+        } else {
+           // Update the currently viewed sale with new item data (so badges update)
+           setViewingSale(updatedSale);
+           // Clear selection state for next action
+           setSelectedItems({});
+           setRefundQuantities({});
+        }
       } else {
-        // Close modal for partial to refresh state cleanly
         setViewingSale(null);
       }
       
@@ -353,52 +369,64 @@ export const Transactions: React.FC = () => {
                       <span className="w-16 text-right">Price</span>
                    </div>
                 </div>
-                {viewingSale.items?.map((item, idx) => (
-                  <div key={idx} className="flex items-center py-2 group">
-                    {/* Checkbox for partial refund selection */}
-                    {!viewingSale.isRefunded && (
-                      <button 
-                        onClick={() => toggleItemSelection(idx, item.quantity)}
-                        className={`mr-3 transition-colors ${selectedItems[idx] ? 'text-rose-500' : 'text-slate-300 hover:text-rose-300'}`}
-                      >
-                        {selectedItems[idx] ? <CheckSquare size={18} /> : <Square size={18} />}
-                      </button>
-                    )}
+                {viewingSale.items?.map((item, idx) => {
+                  const refundedCount = item.refundedQuantity || 0;
+                  const remainingQty = item.quantity - refundedCount;
+                  const isFullyRefunded = remainingQty <= 0;
 
-                    <div className="flex flex-col min-w-0 pr-4 flex-1">
-                      <div className="flex items-center gap-2">
-                        <Hash size={12} className="text-slate-300" />
-                        <span className="text-sm font-black text-slate-800">{item.sku}</span>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-400 truncate">{item.description}</span>
-                    </div>
-                    
-                    <div className="flex items-center gap-6 shrink-0">
-                      {/* Quantity Logic: If selected, show adjuster, else static */}
-                      {selectedItems[idx] && !viewingSale.isRefunded ? (
-                        <div className="flex items-center bg-white border border-rose-200 rounded-lg">
-                           <button 
-                             onClick={() => updateRefundQty(idx, -1, item.quantity)}
-                             className="p-1 text-slate-400 hover:text-rose-600"
-                           >
-                             <Minus size={10} />
-                           </button>
-                           <span className="w-6 text-center text-xs font-bold text-rose-600">{refundQuantities[idx] || item.quantity}</span>
-                           <button 
-                             onClick={() => updateRefundQty(idx, 1, item.quantity)}
-                             className="p-1 text-slate-400 hover:text-rose-600"
-                           >
-                             <Plus size={10} />
-                           </button>
-                        </div>
-                      ) : (
-                        <span className="text-sm font-bold text-slate-500 w-8 text-center">{item.quantity}</span>
+                  return (
+                    <div key={idx} className={`flex items-center py-2 group ${isFullyRefunded ? 'opacity-50' : ''}`}>
+                      {/* Checkbox for partial refund selection */}
+                      {!viewingSale.isRefunded && (
+                        <button 
+                          disabled={isFullyRefunded}
+                          onClick={() => toggleItemSelection(idx, remainingQty)}
+                          className={`mr-3 transition-colors ${selectedItems[idx] ? 'text-rose-500' : 'text-slate-300 hover:text-rose-300'} ${isFullyRefunded ? 'cursor-not-allowed' : ''}`}
+                        >
+                          {isFullyRefunded ? <Minus size={18} className="text-slate-200"/> : (selectedItems[idx] ? <CheckSquare size={18} /> : <Square size={18} />)}
+                        </button>
                       )}
+
+                      <div className="flex flex-col min-w-0 pr-4 flex-1">
+                        <div className="flex items-center gap-2">
+                          <Hash size={12} className="text-slate-300" />
+                          <span className={`text-sm font-black ${isFullyRefunded ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{item.sku}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-400 truncate">{item.description}</span>
+                        {refundedCount > 0 && (
+                          <span className="text-[9px] font-black text-rose-500 uppercase tracking-tight mt-0.5">
+                            Returned: {refundedCount}/{item.quantity}
+                          </span>
+                        )}
+                      </div>
                       
-                      <span className="text-sm font-black text-teal-600 w-16 text-right">{formatZAR(item.priceAtSale * item.quantity)}</span>
+                      <div className="flex items-center gap-6 shrink-0">
+                        {/* Quantity Logic: If selected, show adjuster, else static */}
+                        {selectedItems[idx] && !viewingSale.isRefunded ? (
+                          <div className="flex items-center bg-white border border-rose-200 rounded-lg">
+                             <button 
+                               onClick={() => updateRefundQty(idx, -1, remainingQty)}
+                               className="p-1 text-slate-400 hover:text-rose-600"
+                             >
+                               <Minus size={10} />
+                             </button>
+                             <span className="w-6 text-center text-xs font-bold text-rose-600">{refundQuantities[idx] || remainingQty}</span>
+                             <button 
+                               onClick={() => updateRefundQty(idx, 1, remainingQty)}
+                               className="p-1 text-slate-400 hover:text-rose-600"
+                             >
+                               <Plus size={10} />
+                             </button>
+                          </div>
+                        ) : (
+                          <span className="text-sm font-bold text-slate-500 w-8 text-center">{item.quantity}</span>
+                        )}
+                        
+                        <span className="text-sm font-black text-teal-600 w-16 text-right">{formatZAR(item.priceAtSale * item.quantity)}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 
                 <div className="pt-4 mt-2 border-t border-slate-200 flex justify-between items-center">
                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Transaction Value</span>

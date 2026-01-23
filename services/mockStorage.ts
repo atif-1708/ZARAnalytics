@@ -1,7 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
-import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement } from '../types';
+import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement, SaleItem } from '../types';
 
 const mapToDb = (obj: any) => {
   if (!obj) return null;
@@ -159,7 +159,6 @@ export const storage = {
     const { orgId: contextOrgId } = await getFilter();
     const finalOrgId = product.orgId || contextOrgId;
     
-    // BACKWARD COMPATIBILITY: If the table still has 'name' as NOT NULL, we use SKU as a fallback.
     const productWithGracefulName = {
       ...product,
       name: product.sku || 'Unnamed Item'
@@ -180,7 +179,6 @@ export const storage = {
   bulkUpsertProducts: async (products: Partial<Product>[]) => {
     const { orgId: contextOrgId } = await getFilter();
     const payloads = products.map(p => {
-      // Use SKU as Name for backward compatibility with older DB constraints
       const data = { ...p, name: p.sku || 'Unnamed Item', org_id: p.orgId || contextOrgId };
       return mapToDb(data);
     });
@@ -277,18 +275,38 @@ export const storage = {
     if (original.isRefunded) throw new Error("Transaction has already been fully refunded.");
 
     // Determine items to process
-    const itemsToProcess = refundItems && refundItems.length > 0 ? refundItems : (original.items || []);
+    const itemsToProcess = refundItems && refundItems.length > 0 ? refundItems : [];
     if (itemsToProcess.length === 0) throw new Error("No items found to refund.");
 
+    // Create a map for quick lookup of requested refunds
+    const refundRequestMap = new Map(itemsToProcess.map(i => [i.productId, i.quantity]));
+
+    // 2. Validate Limits and Update Local Item State
     let totalRefundAmount = 0;
     let totalRefundProfit = 0; 
+    const updatedItems = (original.items || []).map((item: SaleItem) => {
+        const requestedRefundQty = refundRequestMap.get(item.productId);
+        
+        if (requestedRefundQty) {
+            const previouslyRefunded = item.refundedQuantity || 0;
+            const remainingQty = item.quantity - previouslyRefunded;
 
-    // 2. Inventory Restoration
+            if (requestedRefundQty > remainingQty) {
+                throw new Error(`Cannot refund ${requestedRefundQty} units of ${item.sku}. Only ${remainingQty} remain refundable.`);
+            }
+
+            // Calculate financials for THIS refund action
+            totalRefundAmount += item.priceAtSale * requestedRefundQty;
+            
+            // Return updated item with incremented refundedQuantity
+            return { ...item, refundedQuantity: previouslyRefunded + requestedRefundQty };
+        }
+        return item;
+    });
+
+    // 3. Inventory Restoration (Loop through requested items)
     for (const item of itemsToProcess) {
       try {
-        const refundValue = item.price * item.quantity;
-        totalRefundAmount += refundValue;
-        
         // Log return movement
         const movementPayload = mapToDb({
           productId: item.productId,
@@ -296,7 +314,7 @@ export const storage = {
           type: 'return',
           reason: `Refund for Trans #${saleId.substring(0,8)} (SKU: ${item.sku})`,
           businessId: original.businessId,
-          orgId: original.orgId || contextOrgId, // Fallback to current context if original missing
+          orgId: original.orgId || contextOrgId,
           userName: userName || 'System Refund'
         });
         await supabase.from('stock_movements').insert(movementPayload);
@@ -316,20 +334,21 @@ export const storage = {
     const margin = original.salesAmount > 0 ? (original.profitAmount / original.salesAmount) : 0;
     totalRefundProfit = totalRefundAmount * margin;
 
-    // 3. Mark original as refunded IF it's a full refund
-    const isFullRefund = Math.abs(totalRefundAmount - original.salesAmount) < 0.01;
+    // 4. Update Original Sale Record
+    // Check if ALL items are now fully refunded
+    const isFullyRefundedNow = updatedItems.every((item: SaleItem) => (item.refundedQuantity || 0) >= item.quantity);
     
-    if (isFullRefund) {
-      try {
-        await supabase.from('sales').update({ is_refunded: true }).eq('id', saleId);
-      } catch (e) {
-        // Warning only: if update fails (e.g. column missing), we still proceed with financial adjustment
-        console.warn("Could not mark original as refunded (column might be missing), but continuing with financial adjustment.", e);
-      }
+    try {
+        await supabase.from('sales').update({ 
+            items: updatedItems, // Persist the new refunded counts
+            is_refunded: isFullyRefundedNow 
+        }).eq('id', saleId);
+    } catch (e) {
+        console.warn("Failed to update original transaction state.", e);
+        throw new Error("Failed to update transaction record. Stock was restored but log update failed.");
     }
 
-    // 4. Financial Adjustment (Negative Transaction)
-    // IMPORTANT: Ensure orgId is present. Use original or fallback to current user's org.
+    // 5. Financial Adjustment (Negative Transaction)
     const finalOrgId = original.orgId || contextOrgId;
     if (!finalOrgId) throw new Error("Organization ID missing. Cannot process refund adjustment.");
 
@@ -342,9 +361,6 @@ export const storage = {
       paymentMethod: original.paymentMethod,
       items: [], // Empty items to avoid double counting in stats
       orgId: finalOrgId
-      // NOTE: We intentionally OMIT `isRefunded: false` here.
-      // The database column defaults to false. By omitting it, we prevent a crash if the schema cache
-      // on the client hasn't refreshed to see the `is_refunded` column yet.
     };
 
     const payload = mapToDb(refundEntry);
