@@ -202,7 +202,7 @@ export const Transactions: React.FC = () => {
 
              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4">
                 <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200 pb-3">
-                   <span>Item SKU</span>
+                   <span>Item Description</span>
                    <div className="flex gap-10">
                       <span>Qty</span>
                       <span className="w-20 text-right">Price</span>
@@ -210,11 +210,14 @@ export const Transactions: React.FC = () => {
                 </div>
                 {viewingSale.items?.map((item, idx) => (
                   <div key={idx} className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <Hash size={12} className="text-slate-300" />
-                      <span className="text-sm font-black text-slate-800">{item.sku}</span>
+                    <div className="flex flex-col min-w-0 pr-4">
+                      <div className="flex items-center gap-2">
+                        <Hash size={12} className="text-slate-300" />
+                        <span className="text-sm font-black text-slate-800">{item.sku}</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 truncate">{item.description}</span>
                     </div>
-                    <div className="flex gap-10">
+                    <div className="flex gap-10 shrink-0">
                       <span className="text-sm font-bold text-slate-500">{item.quantity}</span>
                       <span className="text-sm font-black text-teal-600 w-20 text-right">{formatZAR(item.priceAtSale * item.quantity)}</span>
                     </div>

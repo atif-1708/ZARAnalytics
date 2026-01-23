@@ -26,7 +26,6 @@ import {
   Coins,
   Receipt,
   Percent,
-  // Fix: Import missing X icon component
   X
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
@@ -133,6 +132,7 @@ export const POS: React.FC = () => {
       return [...prev, {
         productId: product.id,
         sku: product.sku,
+        description: product.description,
         quantity: 1,
         priceAtSale: product.salePrice,
         costAtSale: product.costPrice,
@@ -369,11 +369,14 @@ export const POS: React.FC = () => {
               const itemFinal = Math.max(0, itemSubtotal - itemDiscount);
 
               return (
-                <div key={item.productId} className="p-3 bg-white group hover:bg-teal-50/30 transition-all flex flex-col gap-2">
+                <div key={item.productId} className="p-3 bg-white group hover:bg-teal-50/30 transition-all flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 pr-2">
                       <Hash size={12} className="text-slate-300" />
-                      <h4 className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate">{item.sku}</h4>
+                      <div className="flex flex-col min-w-0">
+                        <h4 className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate leading-none mb-0.5">{item.sku}</h4>
+                        <p className="text-[10px] text-slate-400 font-medium truncate leading-none">{item.description || 'No description'}</p>
+                      </div>
                     </div>
                     <button onClick={() => removeFromCart(item.productId)} className="p-1 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
                       <X size={14} />
@@ -389,13 +392,13 @@ export const POS: React.FC = () => {
                     </div>
 
                     {/* Per-Item Discount Input */}
-                    <div className="flex-1 max-w-[120px]">
+                    <div className="flex-1 max-w-[110px]">
                       <div className="relative group/input">
                         <Tag className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within/input:text-indigo-500 transition-colors" size={10} />
                         <input 
                           type="number"
                           placeholder="Disc. ZAR"
-                          className="w-full pl-6 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black text-slate-700 outline-none focus:border-indigo-400 focus:bg-white transition-all placeholder:text-slate-300"
+                          className="w-full pl-6 pr-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black text-slate-700 outline-none focus:border-indigo-400 focus:bg-white transition-all placeholder:text-slate-300"
                           value={item.discount || ''}
                           onChange={(e) => updateItemDiscount(item.productId, parseFloat(e.target.value) || 0)}
                         />
@@ -403,13 +406,13 @@ export const POS: React.FC = () => {
                     </div>
 
                     {/* Pricing */}
-                    <div className="text-right flex flex-col items-end min-w-[80px]">
+                    <div className="text-right flex flex-col items-end min-w-[70px]">
                       {itemDiscount > 0 && (
-                        <span className="text-[9px] font-bold text-slate-400 line-through decoration-slate-300 leading-tight">
+                        <span className="text-[8px] font-bold text-slate-400 line-through decoration-slate-300 leading-tight">
                           {formatZAR(itemSubtotal)}
                         </span>
                       )}
-                      <span className={`text-xs font-black leading-none ${itemDiscount > 0 ? 'text-indigo-600' : 'text-teal-600'}`}>
+                      <span className={`text-[11px] font-black leading-none ${itemDiscount > 0 ? 'text-indigo-600' : 'text-teal-600'}`}>
                         {formatZAR(itemFinal)}
                       </span>
                     </div>

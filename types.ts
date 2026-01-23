@@ -69,6 +69,7 @@ export interface StockMovement {
 export interface SaleItem {
   productId: string;
   sku: string;
+  description?: string;
   quantity: number;
   priceAtSale: number;
   costAtSale: number;
