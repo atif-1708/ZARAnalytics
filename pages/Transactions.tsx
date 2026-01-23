@@ -13,7 +13,8 @@ import {
   X,
   Hash,
   Filter,
-  ShoppingCart
+  ShoppingCart,
+  Calendar
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -26,8 +27,10 @@ export const Transactions: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
+  // Filters
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingSale, setViewingSale] = useState<DailySale | null>(null);
 
@@ -58,17 +61,33 @@ export const Transactions: React.FC = () => {
 
   const filteredTransactions = useMemo(() => {
     return sales.filter(s => {
+      // 1. Business Match
       const bizMatch = selectedBusinessId === 'all' || s.businessId === selectedBusinessId;
+      
+      // 2. Method Match
       const methodMatch = methodFilter === 'all' || s.paymentMethod === methodFilter;
       
+      // 3. Date Match
+      const transDate = s.date.split('T')[0];
+      const dateMatch = !dateFilter || transDate === dateFilter;
+      
+      // 4. Advanced Search (Shop, Trans ID, or Product Details)
       const bizName = businesses.find(b => b.id === s.businessId)?.name.toLowerCase() || '';
-      const searchMatch = !search || 
-        bizName.includes(search.toLowerCase()) || 
-        s.id.toLowerCase().includes(search.toLowerCase());
+      const searchTerm = search.toLowerCase();
+      
+      const basicSearchMatch = !search || 
+        bizName.includes(searchTerm) || 
+        s.id.toLowerCase().includes(searchTerm);
 
-      return bizMatch && methodMatch && searchMatch;
+      // Search inside items (SKU or Description)
+      const itemSearchMatch = !search || (s.items?.some(item => 
+        item.sku.toLowerCase().includes(searchTerm) || 
+        (item.description && item.description.toLowerCase().includes(searchTerm))
+      ) ?? false);
+
+      return bizMatch && methodMatch && dateMatch && (basicSearchMatch || itemSearchMatch);
     });
-  }, [sales, businesses, selectedBusinessId, search, methodFilter]);
+  }, [sales, businesses, selectedBusinessId, search, dateFilter, methodFilter]);
 
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
 
@@ -79,7 +98,7 @@ export const Transactions: React.FC = () => {
         <p className="text-slate-500">Itemized audit of every digital checkout processed via POS</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
           <Store size={14} className="text-slate-400" />
           <select 
@@ -105,11 +124,21 @@ export const Transactions: React.FC = () => {
           </select>
         </div>
 
+        <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
+          <Calendar size={14} className="text-slate-400" />
+          <input 
+            type="date"
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="bg-transparent text-[11px] font-black text-slate-700 outline-none cursor-pointer w-full uppercase tracking-widest"
+          />
+        </div>
+
         <div className="relative md:col-span-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input 
             type="text" 
-            placeholder="Search Trans ID or Shop Name..." 
+            placeholder="Search Trans ID, SKU, or Product Name..." 
             className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl outline-none text-sm font-medium" 
             value={search} 
             onChange={e => setSearch(e.target.value)} 
@@ -123,7 +152,7 @@ export const Transactions: React.FC = () => {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Trans ID</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Time</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Date & Time</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Business Unit</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Method</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Revenue</th>
@@ -141,9 +170,12 @@ export const Transactions: React.FC = () => {
                        <span className="font-mono text-[10px] font-black text-slate-400">#{s.id.substring(0, 8)}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2 text-slate-500">
-                        <Clock size={12} />
-                        <span className="text-xs font-bold">{new Date(s.date).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <div className="flex flex-col">
+                        <span className="text-xs font-black text-slate-700">{formatDate(s.date)}</span>
+                        <div className="flex items-center gap-1 text-slate-400">
+                          <Clock size={10} />
+                          <span className="text-[10px] font-bold">{new Date(s.date).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -163,7 +195,7 @@ export const Transactions: React.FC = () => {
                     <td className="px-6 py-4 text-right">
                       <button 
                         onClick={() => setViewingSale(s)}
-                        className="p-2 text-slate-400 hover:text-teal-600 transition-colors"
+                        className="p-2 text-slate-300 hover:text-teal-600 transition-colors"
                       >
                         <Eye size={18} />
                       </button>
@@ -175,7 +207,7 @@ export const Transactions: React.FC = () => {
                 <tr>
                   <td colSpan={6} className="py-24 text-center text-slate-300 italic">
                     <ShoppingCart size={48} className="mx-auto mb-4 opacity-5" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">No detailed transactions found</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest">No matching transactions found</p>
                   </td>
                 </tr>
               )}
