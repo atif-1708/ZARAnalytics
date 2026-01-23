@@ -22,7 +22,8 @@ import {
   Minus,
   Plus,
   ArrowLeftRight,
-  Database
+  Database,
+  Percent
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -70,7 +71,6 @@ export const Transactions: React.FC = () => {
       setSales(relevantSales);
 
       // Detect if recent transactions are missing full timestamp info
-      // Check last 5 sales: if they have date ending in T00:00:00... and NO createdAt, assume DB is truncating
       const recent = relevantSales.slice(0, 5);
       const isMissingTime = recent.some(s => {
          const dateIsMidnight = s.date.endsWith('T00:00:00.000Z') || s.date.endsWith('T00:00:00') || s.date.length === 10;
@@ -86,7 +86,6 @@ export const Transactions: React.FC = () => {
 
   useEffect(() => { loadData(); }, [user]);
 
-  // Reset refund state when opening a new receipt
   useEffect(() => {
     if (viewingSale) {
       setSelectedItems({});
@@ -95,15 +94,12 @@ export const Transactions: React.FC = () => {
   }, [viewingSale]);
 
   const toggleItemSelection = (index: number, maxQty: number) => {
-    if (maxQty <= 0) return; // Prevent selecting fully refunded items
-    
+    if (maxQty <= 0) return;
     setSelectedItems(prev => {
       const newState = { ...prev, [index]: !prev[index] };
       if (newState[index]) {
-        // If selecting, set default quantity to max remaining
         setRefundQuantities(q => ({ ...q, [index]: maxQty }));
       } else {
-        // If deselecting, remove quantity
         setRefundQuantities(q => {
           const next = { ...q };
           delete next[index];
@@ -186,13 +182,17 @@ export const Transactions: React.FC = () => {
     }
   };
 
+  const getEffectiveDate = (sale: DailySale) => {
+    if (sale.createdAt) return new Date(sale.createdAt);
+    return new Date(sale.date);
+  };
+
   const filteredTransactions = useMemo(() => {
-    return sales.filter(s => {
+    const result = sales.filter(s => {
       const bizMatch = selectedBusinessId === 'all' || s.businessId === selectedBusinessId;
       const methodMatch = methodFilter === 'all' || s.paymentMethod === methodFilter;
       
-      // FIX: Convert UTC timestamp to LOCAL Date String before comparing with filter
-      const d = new Date(s.date);
+      const d = getEffectiveDate(s);
       const transDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       
       const dateMatch = !dateFilter || transDate === dateFilter;
@@ -210,19 +210,14 @@ export const Transactions: React.FC = () => {
 
       return bizMatch && methodMatch && dateMatch && (basicSearchMatch || itemSearchMatch);
     });
+
+    // STRICT SORTING: Latest to Oldest using effective timestamp
+    return result.sort((a, b) => getEffectiveDate(b).getTime() - getEffectiveDate(a).getTime());
   }, [sales, businesses, selectedBusinessId, search, dateFilter, methodFilter]);
 
   const getTimeString = (sale: DailySale) => {
-    if (sale.date && sale.date.length > 10) {
-       const date = new Date(sale.date);
-       if (!(date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0)) {
-          return date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
-       }
-    }
-    if (sale.createdAt) {
-       return new Date(sale.createdAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
-    }
-    return '--:--';
+    const d = getEffectiveDate(sale);
+    return d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
   };
 
   const copySql = () => {
@@ -317,6 +312,7 @@ export const Transactions: React.FC = () => {
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Date & Time</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Business Unit</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Method</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Margin</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Revenue</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Details</th>
               </tr>
@@ -327,6 +323,8 @@ export const Transactions: React.FC = () => {
                 const isCash = s.paymentMethod === PaymentMethod.CASH;
                 const isAdjustment = !s.items || s.items.length === 0;
                 const displayTime = getTimeString(s);
+                const effectiveDate = getEffectiveDate(s);
+                const profitPct = s.profitPercentage ?? (s.salesAmount > 0 ? (s.profitAmount / s.salesAmount) * 100 : 0);
                 
                 return (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
@@ -338,10 +336,10 @@ export const Transactions: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
-                        <span className="text-xs font-black text-slate-700">{formatDate(s.date)}</span>
+                        <span className="text-xs font-black text-slate-700">{formatDate(effectiveDate.toISOString())}</span>
                         <div className="flex items-center gap-1 text-slate-400">
                           <Clock size={10} />
-                          <span className={`text-[10px] font-bold ${displayTime === '--:--' ? 'text-slate-300' : ''}`}>{displayTime}</span>
+                          <span className="text-[10px] font-bold">{displayTime}</span>
                         </div>
                       </div>
                     </td>
@@ -355,6 +353,17 @@ export const Transactions: React.FC = () => {
                         {isCash ? <Banknote size={12} /> : <Globe size={12} />}
                         {isCash ? 'Cash in Hand' : 'Online / Bank'}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-2 py-1 rounded-md text-[10px] font-black border ${
+                        isAdjustment 
+                          ? 'bg-slate-50 text-slate-400 border-slate-100' 
+                          : (profitPct >= 30 
+                              ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                              : 'bg-amber-50 text-amber-600 border-amber-100')
+                      }`}>
+                        {isAdjustment ? 'N/A' : `${profitPct.toFixed(1)}%`}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <span className={`text-sm font-black ${isAdjustment ? 'text-rose-600' : (s.isRefunded ? 'text-slate-400 line-through decoration-rose-500' : 'text-teal-600')}`}>
@@ -381,7 +390,7 @@ export const Transactions: React.FC = () => {
               })}
               {filteredTransactions.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-24 text-center text-slate-300 italic">
+                  <td colSpan={7} className="py-24 text-center text-slate-300 italic">
                     <ShoppingCart size={48} className="mx-auto mb-4 opacity-5" />
                     <p className="text-[10px] font-black uppercase tracking-widest">No matching transactions found</p>
                   </td>
@@ -491,7 +500,13 @@ export const Transactions: React.FC = () => {
                 })}
                 
                 <div className="pt-4 mt-2 border-t border-slate-200 flex justify-between items-center">
-                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Transaction Value</span>
+                   <div className="flex flex-col">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Transaction Value</span>
+                      <span className="text-[9px] font-bold text-teal-600 uppercase tracking-widest mt-0.5">
+                        <Percent size={10} className="inline mr-1"/>
+                        Margin: {(viewingSale.profitPercentage ?? 0).toFixed(1)}%
+                      </span>
+                   </div>
                    <span className="text-2xl font-black text-slate-900">{formatZAR(viewingSale.salesAmount)}</span>
                 </div>
              </div>
@@ -505,7 +520,7 @@ export const Transactions: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between px-4 py-3 bg-slate-50 rounded-xl border border-slate-100">
                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction Date</span>
-                   <span className="text-xs font-black text-slate-800 uppercase tracking-widest">{formatDate(viewingSale.date)} {new Date(viewingSale.date).toLocaleTimeString()}</span>
+                   <span className="text-xs font-black text-slate-800 uppercase tracking-widest">{formatDate(getEffectiveDate(viewingSale).toISOString())} {getEffectiveDate(viewingSale).toLocaleTimeString()}</span>
                 </div>
              </div>
 
