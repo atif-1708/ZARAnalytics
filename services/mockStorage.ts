@@ -158,7 +158,14 @@ export const storage = {
   saveProduct: async (product: Partial<Product>) => {
     const { orgId: contextOrgId } = await getFilter();
     const finalOrgId = product.orgId || contextOrgId;
-    const payload = mapToDb({ ...product, org_id: finalOrgId });
+    
+    // BACKWARD COMPATIBILITY: If the table still has 'name' as NOT NULL, we use SKU as a fallback.
+    const productWithGracefulName = {
+      ...product,
+      name: product.sku || 'Unnamed Item'
+    };
+
+    const payload = mapToDb({ ...productWithGracefulName, org_id: finalOrgId });
     const operation = payload.id ? supabase.from('products').upsert(payload) : supabase.from('products').insert(payload);
     const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
@@ -172,7 +179,11 @@ export const storage = {
 
   bulkUpsertProducts: async (products: Partial<Product>[]) => {
     const { orgId: contextOrgId } = await getFilter();
-    const payloads = products.map(p => mapToDb({ ...p, org_id: p.orgId || contextOrgId }));
+    const payloads = products.map(p => {
+      // Use SKU as Name for backward compatibility with older DB constraints
+      const data = { ...p, name: p.sku || 'Unnamed Item', org_id: p.orgId || contextOrgId };
+      return mapToDb(data);
+    });
     const { data, error } = await supabase.from('products').upsert(payloads).select();
     if (error) throw new Error(error.message);
     return (data || []).map(mapFromDb);

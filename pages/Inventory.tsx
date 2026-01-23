@@ -35,20 +35,15 @@ import { useAuth } from '../context/AuthContext';
 import { Product, Business, UserRole, StockMovement } from '../types';
 import { formatZAR, formatDate } from '../utils/formatters';
 
-const MISSING_SCHEMA_SQL = `-- 1. CREATE PRODUCTS TABLE
-CREATE TABLE IF NOT EXISTS products (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  sku text NOT NULL,
-  description text,
-  cost_price numeric DEFAULT 0,
-  sale_price numeric DEFAULT 0,
-  current_stock int DEFAULT 0,
-  business_id uuid REFERENCES businesses(id) ON DELETE CASCADE,
-  org_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
-  created_at timestamptz DEFAULT now()
-);
+const MISSING_SCHEMA_SQL = `-- 1. UPDATE EXISTING PRODUCTS TABLE (FIX FOR 'NAME' ERROR)
+ALTER TABLE products ALTER COLUMN name DROP NOT NULL;
+ALTER TABLE products DROP COLUMN IF EXISTS category;
 
--- 2. CREATE STOCK MOVEMENTS LEDGER
+-- 2. ENSURE COLUMNS EXIST
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS description text;
+
+-- 3. CREATE STOCK MOVEMENTS LEDGER IF MISSING
 CREATE TABLE IF NOT EXISTS stock_movements (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   product_id uuid REFERENCES products(id) ON DELETE CASCADE,
@@ -61,11 +56,14 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   created_at timestamptz DEFAULT now()
 );
 
--- 3. ENABLE RLS
+-- 4. ENABLE RLS
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
 
+-- 5. POLICIES
+DROP POLICY IF EXISTS "Allow all for authenticated" ON products;
 CREATE POLICY "Allow all for authenticated" ON products FOR ALL TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow all for authenticated movements" ON stock_movements;
 CREATE POLICY "Allow all for authenticated movements" ON stock_movements FOR ALL TO authenticated USING (true);`;
 
 export const Inventory: React.FC = () => {
@@ -137,7 +135,7 @@ export const Inventory: React.FC = () => {
       await loadProducts();
       setIsModalOpen(false);
     } catch (err: any) { 
-      if (err.message?.includes('relation') || err.code === '42P01') setIsSchemaNoticeOpen(true);
+      if (err.message?.includes('relation') || err.code === '42P01' || err.message?.includes('violates not-null')) setIsSchemaNoticeOpen(true);
       else alert(err.message); 
     } finally { setIsSaving(false); }
   };
@@ -168,7 +166,6 @@ export const Inventory: React.FC = () => {
     }
   };
 
-  // --- CSV IMPORT LOGIC ---
   const triggerFilePicker = () => {
     fileInputRef.current?.click();
   };
@@ -189,7 +186,6 @@ export const Inventory: React.FC = () => {
         const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
         const expected = ['sku', 'description', 'costprice', 'saleprice', 'currentstock'];
         
-        // Simple validation
         const missing = expected.filter(exp => !headers.includes(exp));
         if (missing.length > 0) {
           throw new Error(`Missing columns: ${missing.join(', ')}`);
@@ -224,7 +220,8 @@ export const Inventory: React.FC = () => {
           alert(`Successfully imported ${importedProducts.length} items.`);
         }
       } catch (err: any) {
-        alert("Import Error: " + err.message);
+        if (err.message?.includes('violates not-null')) setIsSchemaNoticeOpen(true);
+        else alert("Import Error: " + err.message);
       } finally {
         setIsSaving(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -273,9 +270,9 @@ export const Inventory: React.FC = () => {
              <Database size={32} />
            </div>
            <div className="flex-1 space-y-2">
-              <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">System Migration Required</h4>
+              <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">Database Migration Required</h4>
               <p className="text-sm text-rose-600 font-medium leading-relaxed">
-                The updated inventory tables are missing from your database. Click "Setup Database" to view the required SQL commands.
+                The database schema is out of sync. You need to remove the "NOT NULL" constraint on the "name" column. Click "Setup Database" to fix this.
               </p>
            </div>
            <button onClick={() => setIsSchemaNoticeOpen(true)} className="bg-rose-600 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest">
@@ -524,7 +521,7 @@ export const Inventory: React.FC = () => {
               <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-lg"><Terminal size={24} /></div>
               <h3 className="text-xl font-black text-white uppercase">Database Migration</h3>
             </div>
-            <p className="text-sm text-slate-400">Run this SQL in your Supabase SQL Editor to update the inventory structure.</p>
+            <p className="text-sm text-slate-400">Run this SQL in your Supabase SQL Editor to update the inventory structure and remove old constraints.</p>
             <div className="relative group">
                <pre className="bg-slate-950 p-6 rounded-2xl border border-white/5 text-[11px] font-mono text-indigo-300 overflow-x-auto max-h-[300px]">
                  {MISSING_SCHEMA_SQL}
