@@ -9,7 +9,7 @@ import { storage } from '../services/mockStorage';
 import { FilterPanel } from '../components/FilterPanel';
 import { Filters, Business, DailySale, MonthlyExpense, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { formatCurrency, formatDate } from '../utils/formatters';
+import { formatCurrency } from '../utils/formatters';
 
 const TrendBadge: React.FC<{ trend?: { value: number; isUp: boolean } }> = ({ trend }) => {
   if (!trend) return null;
@@ -79,6 +79,16 @@ export const Reports: React.FC = () => {
   }, [user]);
 
   const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
+
+  // Helper to get local date string YYYY-MM-DD from any date input
+  const getLocalDateKey = (dateInput: string) => {
+    if (!dateInput) return 'Invalid';
+    const d = new Date(dateInput);
+    // If input is YYYY-MM-DD already, return it
+    if (dateInput.length === 10 && !dateInput.includes('T')) return dateInput;
+    // Otherwise extract local YYYY-MM-DD parts
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
 
   const reportData = useMemo(() => {
     const now = new Date();
@@ -152,8 +162,41 @@ export const Reports: React.FC = () => {
         return inRange && userHasAccess && matchesBiz;
       });
 
+      // AGGREGATE SALES BY DATE & BUSINESS
+      const aggregatedSales = Object.values(fSales.reduce((acc, sale) => {
+        const dateKey = getLocalDateKey(sale.date); // Use local date YYYY-MM-DD
+        const key = `${sale.businessId}_${dateKey}`;
+        
+        if (!acc[key]) {
+          acc[key] = {
+            id: key, // Synthetic ID for key
+            businessId: sale.businessId,
+            date: dateKey,
+            salesAmount: 0,
+            profitAmount: 0,
+            transactionCount: 0
+          };
+        }
+        
+        acc[key].salesAmount += Number(sale.salesAmount);
+        acc[key].profitAmount += Number(sale.profitAmount);
+        acc[key].transactionCount += 1;
+        
+        return acc;
+      }, {} as Record<string, {
+        id: string;
+        businessId: string;
+        date: string;
+        salesAmount: number;
+        profitAmount: number;
+        transactionCount: number;
+      }>)).sort((a, b) => b.date.localeCompare(a.date));
+
       const fExpenses = expenses.filter(item => {
-        const itemDate = new Date(item.month + '-01');
+        // Robust Date Parsing: Handle YYYY-MM (legacy) and YYYY-MM-DD (new)
+        const dateStr = item.month.length === 7 ? item.month + '-01' : item.month;
+        const itemDate = new Date(dateStr);
+        
         const inRange = itemDate >= start && itemDate <= end;
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
@@ -165,7 +208,7 @@ export const Reports: React.FC = () => {
       const rawExpenses = fExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
       const rawNet = rawProfit - rawExpenses;
 
-      return { fSales, fExpenses, rawSales, rawProfit, rawExpenses, rawNet };
+      return { aggregatedSales, fExpenses, rawSales, rawProfit, rawExpenses, rawNet };
     };
 
     const current = calculateStats(startDate, endDate);
@@ -183,7 +226,7 @@ export const Reports: React.FC = () => {
     const avgMargin = current.rawSales > 0 ? (current.rawProfit / current.rawSales) * 100 : 0;
 
     return { 
-      fSales: current.fSales, 
+      aggregatedSales: current.aggregatedSales,
       fExpenses: current.fExpenses, 
       totalSales: convert(current.rawSales), 
       totalProfit: convert(current.rawProfit), 
@@ -304,14 +347,23 @@ export const Reports: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {reportData.fSales.length === 0 ? (
+              {reportData.aggregatedSales.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No records match the current filters.</td>
                 </tr>
               ) : (
                 <>
-                  {reportData.fSales.map(s => {
+                  {reportData.aggregatedSales.map((s: any) => {
                     const b = businesses.find(bx => bx.id === s.businessId);
+                    // Use date directly from aggregation (YYYY-MM-DD) to ensure it renders as Local Time
+                    const dateDisplay = new Date(s.date).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }); 
+                    // ^ NOTE: We treat the YYYY-MM-DD string as UTC so it doesn't shift, 
+                    // or better yet, simpler: s.date is "2023-10-27". Using simple formatting:
+                    const [y, m, d] = s.date.split('-');
+                    const displayDate = `${d} ${new Date(Number(y), Number(m)-1).toLocaleString('default', { month: 'short' })} ${y}`;
+
+                    const profitPct = s.salesAmount > 0 ? (s.profitAmount / s.salesAmount) * 100 : 0;
+
                     return (
                       <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
@@ -324,10 +376,10 @@ export const Reports: React.FC = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-500">{formatDate(s.date)}</td>
+                        <td className="px-6 py-4 text-sm text-slate-500">{displayDate}</td>
                         <td className="px-6 py-4 text-center">
                           <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
-                            {s.profitPercentage}%
+                            {profitPct.toFixed(2)}%
                           </span>
                         </td>
                         <td className="px-6 py-4 text-right text-sm font-medium">{formatCurrency(convert(s.salesAmount), currency)}</td>
@@ -338,7 +390,7 @@ export const Reports: React.FC = () => {
                   {/* Totals Row */}
                   <tr className="bg-slate-900 text-white font-bold">
                     <td className="px-6 py-4 text-xs uppercase tracking-widest font-black" colSpan={2}>Report Totals</td>
-                    <td className="px-6 py-4 text-center text-[10px] uppercase font-black">Avg: {reportData.avgMargin.toFixed(1)}%</td>
+                    <td className="px-6 py-4 text-center text-[10px] uppercase font-black">Avg: {reportData.avgMargin.toFixed(2)}%</td>
                     <td className="px-6 py-4 text-right text-sm font-black">{formatCurrency(reportData.totalSales, currency)}</td>
                     <td className="px-6 py-4 text-right text-sm font-black text-teal-400">{formatCurrency(reportData.totalProfit, currency)}</td>
                   </tr>
