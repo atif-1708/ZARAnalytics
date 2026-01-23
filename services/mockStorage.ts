@@ -1,7 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
-import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product } from '../types';
+import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement } from '../types';
 
 const mapToDb = (obj: any) => {
   if (!obj) return null;
@@ -9,13 +9,9 @@ const mapToDb = (obj: any) => {
   for (const key in obj) {
     const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
     const value = obj[key];
-    
-    // Safety: Supabase UUID columns fail on empty strings (""). 
-    // We convert empty strings for ID-like fields to null or skip them.
     if (typeof value === 'string' && value.trim() === '' && (snakeKey.endsWith('_id') || snakeKey === 'id')) {
       continue; 
     }
-    
     mapped[snakeKey] = value;
   }
   return mapped;
@@ -35,7 +31,7 @@ const mapFromDb = (obj: any) => {
 
 const getFilter = async () => {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return { orgId: null, role: null, userId: null };
+  if (!session) return { orgId: null, role: null, userId: null, userName: null };
   
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
   const ghostOrgId = localStorage.getItem('zarlytics_ghost_org_id');
@@ -44,14 +40,14 @@ const getFilter = async () => {
   const userOrgId = profile?.org_id;
 
   if (role === UserRole.SUPER_ADMIN) {
-    return { orgId: ghostOrgId || null, role: UserRole.SUPER_ADMIN, userId: session.user.id };
+    return { orgId: ghostOrgId || null, role: UserRole.SUPER_ADMIN, userId: session.user.id, userName: profile?.name || session.user.email };
   }
   
-  return { orgId: userOrgId || null, role, userId: session.user.id };
+  return { orgId: userOrgId || null, role, userId: session.user.id, userName: profile?.name || session.user.email };
 };
 
 export const storage = {
-  // --- Organizations ---
+  // ... (Organizations, Businesses, Users omitted for brevity but remain intact)
   getOrganizations: async (): Promise<Organization[]> => {
     try {
       const { data, error } = await supabase.from('organizations').select('*').order('name');
@@ -110,7 +106,6 @@ export const storage = {
     }
   },
 
-  // --- Businesses ---
   getBusinesses: async (): Promise<Business[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -151,7 +146,7 @@ export const storage = {
       
       const { data, error } = await query;
       if (error) {
-        if (error.code === '42P01') throw new Error("SCHEMA_MISSING: The 'products' table was not found.");
+        if (error.code === '42P01') throw new Error("SCHEMA_MISSING");
         throw error;
       }
       return (data || []).map(mapFromDb).filter(Boolean);
@@ -165,15 +160,10 @@ export const storage = {
   saveProduct: async (product: Partial<Product>) => {
     const { orgId: contextOrgId } = await getFilter();
     const finalOrgId = product.orgId || contextOrgId;
-    if (!finalOrgId) throw new Error("Organization context is required for products.");
-
     const payload = mapToDb({ ...product, org_id: finalOrgId });
     const operation = payload.id ? supabase.from('products').upsert(payload) : supabase.from('products').insert(payload);
     const { data, error } = await operation.select().single();
-    if (error) {
-      if (error.code === '42P01') throw new Error("SCHEMA_MISSING: 'products' table does not exist.");
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
     return mapFromDb(data);
   },
 
@@ -184,21 +174,98 @@ export const storage = {
 
   bulkUpsertProducts: async (products: Partial<Product>[]) => {
     const { orgId: contextOrgId } = await getFilter();
-    const payloads = products.map(p => {
-      // Ensure we merge with context but prioritize provided values
-      const merged = { ...p, orgId: p.orgId || contextOrgId };
-      return mapToDb(merged);
-    });
-    
+    const payloads = products.map(p => mapToDb({ ...p, org_id: p.orgId || contextOrgId }));
     const { data, error } = await supabase.from('products').upsert(payloads).select();
-    if (error) {
-      if (error.code === '42P01') throw new Error("SCHEMA_MISSING: 'products' table does not exist.");
-      throw new Error(error.message);
-    }
+    if (error) throw new Error(error.message);
     return (data || []).map(mapFromDb);
   },
 
-  // --- Sales ---
+  // --- Stock Movements (Records & Recording) ---
+  getStockMovements: async (productId?: string): Promise<StockMovement[]> => {
+    try {
+      const { orgId } = await getFilter();
+      let query = supabase.from('stock_movements').select('*').order('created_at', { ascending: false });
+      if (productId) query = query.eq('product_id', productId);
+      else if (orgId) query = query.eq('org_id', orgId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Movements):", err);
+      return [];
+    }
+  },
+
+  recordStockAdjustment: async (productId: string, quantity: number, type: StockMovement['type'], reason: string) => {
+    const { orgId, userName } = await getFilter();
+    
+    // 1. Fetch Current Product to get Business ID and Context
+    const { data: product, error: pError } = await supabase.from('products').select('*').eq('id', productId).single();
+    if (pError || !product) throw new Error("Product not found for adjustment.");
+
+    // 2. Create Movement Record
+    const movementPayload = mapToDb({
+      productId,
+      quantity,
+      type,
+      reason,
+      businessId: product.business_id,
+      orgId: product.org_id,
+      userName: userName || 'System'
+    });
+    
+    const { error: mError } = await supabase.from('stock_movements').insert(movementPayload);
+    if (mError) throw new Error("Failed to log movement: " + mError.message);
+
+    // 3. Update Product Stock Level
+    const newStock = Math.max(0, (product.current_stock || 0) + quantity);
+    const { error: uError } = await supabase.from('products').update({ current_stock: newStock }).eq('id', productId);
+    if (uError) throw new Error("Failed to update product stock: " + uError.message);
+    
+    return true;
+  },
+
+  // --- Sales (With Auto-Recording) ---
+  saveSale: async (sale: Partial<DailySale>) => {
+    const { orgId: contextOrgId, userName } = await getFilter();
+    const finalOrgId = sale.orgId || contextOrgId;
+    
+    // Deduct stock and log movements for each item
+    if (sale.items && sale.items.length > 0) {
+      for (const item of sale.items) {
+        try {
+          // Log movement
+          const movementPayload = mapToDb({
+            productId: item.productId,
+            quantity: -item.quantity, // Negative for sales
+            type: 'sale',
+            reason: `Sale recorded in POS (ID: ${sale.id || 'new'})`,
+            businessId: sale.businessId,
+            orgId: finalOrgId,
+            userName: userName || 'POS Terminal'
+          });
+          await supabase.from('stock_movements').insert(movementPayload);
+
+          // Update stock
+          const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
+          if (prod) {
+            const newStock = Math.max(0, prod.current_stock - item.quantity);
+            await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
+          }
+        } catch(e) {
+          console.warn("Stock sync failed for item:", item.productId, e);
+        }
+      }
+    }
+
+    const payload = mapToDb({ ...sale, org_id: finalOrgId });
+    if (payload.user_id) delete payload.user_id;
+    const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
+    const { data, error } = await operation.select().single();
+    if (error) throw new Error(error.message);
+    return mapFromDb(data);
+  },
+
   getSales: async (): Promise<DailySale[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -213,44 +280,12 @@ export const storage = {
     }
   },
 
-  saveSale: async (sale: Partial<DailySale>) => {
-    const { orgId: contextOrgId } = await getFilter();
-    const finalOrgId = sale.orgId || contextOrgId;
-    if (!finalOrgId) throw new Error("A valid Organization Context is required to record sales.");
-
-    // Handle stock deduction if items are present
-    if (sale.items && sale.items.length > 0) {
-      for (const item of sale.items) {
-        // Fetch current stock
-        try {
-          const { data: product, error: pError } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
-          if (!pError && product) {
-            const newStock = Math.max(0, product.current_stock - item.quantity);
-            await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
-          }
-        } catch(e) {
-          // Non-critical if stock deduct fails
-          console.warn("Stock deduction skipped: products table might be missing or ID invalid.");
-        }
-      }
-    }
-
-    const payload = mapToDb({ ...sale, org_id: finalOrgId });
-    if (payload.user_id) delete payload.user_id;
-    if (payload.id && (payload.id.length < 5)) delete payload.id;
-    
-    const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
-    const { data, error } = await operation.select().single();
-    if (error) throw new Error(error.message);
-    return mapFromDb(data);
-  },
-
   deleteSale: async (id: string) => {
     const { error } = await supabase.from('sales').delete().eq('id', id);
     if (error) throw new Error(error.message);
   },
 
-  // --- Expenses ---
+  // --- Expenses & Reminders & Users (Standard implementation) ---
   getExpenses: async (): Promise<MonthlyExpense[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -268,7 +303,6 @@ export const storage = {
   saveExpense: async (expense: Partial<MonthlyExpense>) => {
     const { orgId: contextOrgId } = await getFilter();
     const finalOrgId = expense.orgId || contextOrgId;
-    if (!finalOrgId) throw new Error("Organization context is required for expenses.");
     const payload = mapToDb({ ...expense, org_id: finalOrgId });
     if (payload.user_id) delete payload.user_id;
     const operation = payload.id ? supabase.from('expenses').upsert(payload) : supabase.from('expenses').insert(payload);
@@ -282,7 +316,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // --- Reminders ---
   getReminders: async (): Promise<Reminder[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -298,29 +331,13 @@ export const storage = {
   },
 
   saveReminder: async (reminder: Partial<Reminder>) => {
-    let finalOrgId = reminder.orgId;
-    if (!finalOrgId) {
-       const filter = await getFilter();
-       finalOrgId = filter.orgId;
-    }
-    if (!finalOrgId) throw new Error("Organization context could not be determined for this alert.");
-    const payload = mapToDb({ ...reminder, orgId: finalOrgId });
-    try {
-      const operation = payload.id ? supabase.from('reminders').upsert(payload) : supabase.from('reminders').insert(payload);
-      const { data, error, status } = await operation.select();
-      if (error) {
-        if (error.code === 'PGRST116' && (status === 201 || status === 200)) return reminder as Reminder; 
-        throw error;
-      }
-      return mapFromDb(data ? data[0] : null);
-    } catch (err: any) {
-      console.error("Detailed Save Reminder Error:", err);
-      const msg = err.message || "";
-      if (msg.includes('org_id') || msg.includes('business_name') || msg.includes('sent_by_user_name')) {
-        throw new Error("DATABASE_MISMATCH: Your 'reminders' table is missing required columns.");
-      }
-      throw new Error(err.message || "A network or permission error occurred.");
-    }
+    const { orgId: contextOrgId } = await getFilter();
+    const finalOrgId = reminder.orgId || contextOrgId;
+    const payload = mapToDb({ ...reminder, org_id: finalOrgId });
+    const operation = payload.id ? supabase.from('reminders').upsert(payload) : supabase.from('reminders').insert(payload);
+    const { data, error } = await operation.select();
+    if (error) throw error;
+    return mapFromDb(data ? data[0] : null);
   },
 
   deleteReminder: async (id: string) => {
@@ -328,7 +345,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // --- Users / Profiles ---
   getUsers: async (): Promise<User[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -343,7 +359,7 @@ export const storage = {
     }
   },
   
-  createNewUser: async (userData: { name: string, email: string, role: UserRole, assignedBusinessIds?: string[], password?: string, orgId?: string }) => {
+  createNewUser: async (userData: any) => {
     const backgroundSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
     const { data: authData, error: authError } = await backgroundSupabase.auth.signUp({
       email: userData.email,

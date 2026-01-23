@@ -56,6 +56,18 @@ export interface Product {
   createdAt: string;
 }
 
+export interface StockMovement {
+  id: string;
+  productId: string;
+  quantity: number;
+  type: 'arrival' | 'sale' | 'adjustment' | 'return' | 'damaged';
+  reason: string;
+  createdAt: string;
+  businessId: string;
+  orgId?: string;
+  userName?: string;
+}
+
 export interface SaleItem {
   productId: string;
   name: string;
