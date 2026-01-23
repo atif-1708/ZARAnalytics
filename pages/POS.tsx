@@ -21,11 +21,13 @@ import {
   Wallet,
   Building,
   PlusCircle,
-  Layers
+  Layers,
+  Tag,
+  Coins
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
-import { Product, Business, SaleItem, PaymentMethod, UserRole, DailySale } from '../types';
+import { Product, Business, SaleItem, PaymentMethod, UserRole } from '../types';
 import { formatZAR } from '../utils/formatters';
 
 export const POS: React.FC = () => {
@@ -34,12 +36,17 @@ export const POS: React.FC = () => {
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<SaleItem[]>([]);
+  const [discount, setDiscount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Change Calculation State
+  const [receivedAmount, setReceivedAmount] = useState<string>('');
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   
   const [todayTotals, setTodayTotals] = useState({ cash: 0, bank: 0 });
 
@@ -144,33 +151,45 @@ export const POS: React.FC = () => {
     setCart(prev => prev.filter(item => item.productId !== productId));
   };
 
-  const cartTotal = cart.reduce((acc, item) => acc + (item.priceAtSale * item.quantity), 0);
+  const cartSubtotal = cart.reduce((acc, item) => acc + (item.priceAtSale * item.quantity), 0);
   const cartCost = cart.reduce((acc, item) => acc + (item.costAtSale * item.quantity), 0);
+  const finalTotal = Math.max(0, cartSubtotal - discount);
+  const changeDue = Math.max(0, (parseFloat(receivedAmount) || 0) - finalTotal);
 
-  const handleCheckout = async (method: PaymentMethod) => {
-    if (cart.length === 0 || isProcessing) return;
+  const handleCheckout = async () => {
+    if (cart.length === 0 || !selectedMethod || isProcessing) return;
+    
+    // For cash, validate received amount
+    if (selectedMethod === PaymentMethod.CASH && (parseFloat(receivedAmount) || 0) < finalTotal) {
+      alert("Insufficient funds received for this transaction.");
+      return;
+    }
+
     setIsProcessing(true);
     try {
       const biz = businesses.find(b => b.id === selectedBusinessId);
       await storage.saveSale({
         businessId: selectedBusinessId,
         date: new Date().toISOString(),
-        salesAmount: cartTotal,
-        profitPercentage: cartTotal > 0 ? ((cartTotal - cartCost) / cartTotal) * 100 : 0,
-        profitAmount: cartTotal - cartCost,
-        paymentMethod: method,
+        salesAmount: finalTotal,
+        profitPercentage: finalTotal > 0 ? ((finalTotal - cartCost) / finalTotal) * 100 : 0,
+        profitAmount: finalTotal - cartCost,
+        paymentMethod: selectedMethod,
         items: cart,
         orgId: biz?.orgId
       });
 
-      setSuccessMessage(`Checkout Complete (${formatZAR(cartTotal)})`);
+      setSuccessMessage(`Checkout Complete (${formatZAR(finalTotal)})`);
       setCart([]);
+      setDiscount(0);
+      setReceivedAmount('');
+      setSelectedMethod(null);
       setIsCheckoutOpen(false);
       
       await loadProducts();
       await fetchTodayTotals(selectedBusinessId);
       
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setTimeout(() => setSuccessMessage(null), 4000);
     } catch (e) {
       alert("Checkout failed: " + (e as Error).message);
     } finally {
@@ -307,7 +326,7 @@ export const POS: React.FC = () => {
               <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Digital Basket</h3>
             </div>
             {cart.length > 0 && (
-              <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Transaction</button>
+              <button onClick={() => {setCart([]); setDiscount(0);}} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Transaction</button>
             )}
           </div>
 
@@ -366,13 +385,36 @@ export const POS: React.FC = () => {
         </div>
 
         <div className="p-6 bg-slate-900 border-t border-slate-800 space-y-4 shadow-2xl">
-          <div className="flex justify-between items-center px-1">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Order Total</span>
-            <span className="text-3xl font-black text-white tracking-tighter">{formatZAR(cartTotal)}</span>
+          <div className="flex flex-col gap-2 mb-2">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Subtotal</span>
+              <span className="text-sm font-black text-slate-400 line-through decoration-slate-600">{formatZAR(cartSubtotal)}</span>
+            </div>
+            
+            <div className="flex items-center gap-3 px-1">
+              <Tag size={12} className="text-indigo-400" />
+              <input 
+                type="number" 
+                placeholder="Add Discount (ZAR)" 
+                disabled={cart.length === 0}
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs font-black text-white outline-none focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-slate-600"
+                value={discount || ''}
+                onChange={(e) => setDiscount(Math.abs(parseFloat(e.target.value)) || 0)}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center px-1 border-t border-white/5 pt-4">
+            <span className="text-[10px] font-black text-white uppercase tracking-widest">Order Total</span>
+            <span className="text-3xl font-black text-teal-400 tracking-tighter">{formatZAR(finalTotal)}</span>
           </div>
           <button 
             disabled={cart.length === 0 || isSuspended || isProcessing} 
-            onClick={() => setIsCheckoutOpen(true)} 
+            onClick={() => {
+              setSelectedMethod(null);
+              setReceivedAmount('');
+              setIsCheckoutOpen(true);
+            }} 
             className="w-full py-5 bg-teal-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-teal-500 shadow-xl disabled:opacity-50 disabled:bg-slate-700 flex items-center justify-center gap-3 transition-all active:scale-[0.98] border border-white/10"
           >
             {isSuspended ? (
@@ -393,39 +435,111 @@ export const POS: React.FC = () => {
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => !isProcessing && setIsCheckoutOpen(false)} />
-          <div className="bg-white rounded-[3rem] w-full max-w-md p-12 relative shadow-2xl text-center border border-slate-100">
-             <div className="w-20 h-20 bg-teal-50 text-teal-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-inner">
-               <CreditCard size={40} />
-             </div>
-             <h3 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter uppercase">Process Payment</h3>
-             <p className="text-sm font-bold text-slate-500 mb-10">Balance Due: <span className="text-teal-600 font-black">{formatZAR(cartTotal)}</span></p>
-             
-             <div className="grid grid-cols-2 gap-4">
-                <button 
-                  disabled={isProcessing} 
-                  onClick={() => handleCheckout(PaymentMethod.CASH)} 
-                  className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-emerald-500 hover:bg-emerald-50/30 transition-all group active:scale-95 shadow-sm"
-                >
-                   <Banknote size={32} className="text-slate-400 group-hover:text-emerald-600 transition-colors" />
-                   <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-emerald-700">Cash in Hand</span>
-                </button>
-                <button 
-                  disabled={isProcessing} 
-                  onClick={() => handleCheckout(PaymentMethod.CARD)} 
-                  className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-blue-500 hover:bg-blue-50/30 transition-all group active:scale-95 shadow-sm"
-                >
-                   <Globe size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
-                   <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-blue-700">Online / Bank</span>
-                </button>
+          <div className="bg-white rounded-[3rem] w-full max-w-2xl p-10 relative shadow-2xl text-center border border-slate-100 flex flex-col md:flex-row gap-8">
+             {/* Left Column: Method Selection */}
+             <div className="flex-1 space-y-6">
+                <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-[1.5rem] flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <CreditCard size={32} />
+                </div>
+                <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tighter uppercase">Payment Channel</h3>
+                <p className="text-sm font-bold text-slate-500 mb-6">Due: <span className="text-teal-600 font-black">{formatZAR(finalTotal)}</span></p>
+                
+                <div className="grid grid-cols-1 gap-3">
+                    <button 
+                      onClick={() => setSelectedMethod(PaymentMethod.CASH)} 
+                      className={`flex items-center gap-4 p-5 rounded-[1.5rem] border-2 transition-all group active:scale-95 text-left ${selectedMethod === PaymentMethod.CASH ? 'border-emerald-500 bg-emerald-50/30' : 'bg-slate-50 border-slate-100'}`}
+                    >
+                       <div className={`p-3 rounded-xl ${selectedMethod === PaymentMethod.CASH ? 'bg-emerald-500 text-white' : 'bg-white text-slate-400 group-hover:text-emerald-500'}`}>
+                         <Banknote size={24} />
+                       </div>
+                       <div className="flex-1">
+                          <span className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Primary</span>
+                          <span className="text-sm font-black uppercase text-slate-800">Cash in Hand</span>
+                       </div>
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setSelectedMethod(PaymentMethod.CARD);
+                        setReceivedAmount(finalTotal.toString());
+                      }} 
+                      className={`flex items-center gap-4 p-5 rounded-[1.5rem] border-2 transition-all group active:scale-95 text-left ${selectedMethod === PaymentMethod.CARD ? 'border-blue-500 bg-blue-50/30' : 'bg-slate-50 border-slate-100'}`}
+                    >
+                       <div className={`p-3 rounded-xl ${selectedMethod === PaymentMethod.CARD ? 'bg-blue-500 text-white' : 'bg-white text-slate-400 group-hover:text-blue-500'}`}>
+                         <Globe size={24} />
+                       </div>
+                       <div className="flex-1">
+                          <span className="block text-[10px] font-black uppercase tracking-widest text-slate-400">Digital</span>
+                          <span className="text-sm font-black uppercase text-slate-800">Online / Bank</span>
+                       </div>
+                    </button>
+                </div>
              </div>
 
-             <button 
-               disabled={isProcessing}
-               onClick={() => setIsCheckoutOpen(false)} 
-               className="mt-10 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-900 transition-colors disabled:opacity-30"
-             >
-               Discard Order
-             </button>
+             {/* Right Column: Calculator / Actions */}
+             <div className="flex-1 flex flex-col justify-between pt-4">
+                {selectedMethod === PaymentMethod.CASH ? (
+                  <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                    <div className="text-left bg-slate-900 p-6 rounded-[2rem] shadow-xl border border-white/5">
+                        <label className="block text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400 mb-4 flex items-center gap-2">
+                           <Coins size={14} /> Cash Received (ZAR)
+                        </label>
+                        <input 
+                          type="number" 
+                          autoFocus
+                          placeholder="0.00"
+                          className="w-full bg-transparent text-4xl font-black text-white outline-none placeholder:text-slate-800"
+                          value={receivedAmount}
+                          onChange={(e) => setReceivedAmount(e.target.value)}
+                        />
+                        <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center">
+                           <span className="text-[10px] font-black uppercase text-slate-500">Change Due</span>
+                           <span className="text-2xl font-black text-emerald-400">{formatZAR(changeDue)}</span>
+                        </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2">
+                       {[50, 100, 200].map(val => (
+                         <button 
+                            key={val} 
+                            onClick={() => setReceivedAmount((prev => (parseFloat(prev) || 0) + val).toString())}
+                            className="py-3 bg-slate-100 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-200 transition-colors"
+                         >
+                           +{val}
+                         </button>
+                       ))}
+                    </div>
+                  </div>
+                ) : selectedMethod === PaymentMethod.CARD ? (
+                  <div className="flex-1 flex flex-col items-center justify-center space-y-4 animate-in fade-in zoom-in">
+                    <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center">
+                       <CreditCard size={32} />
+                    </div>
+                    <p className="text-sm font-bold text-slate-500">Awaiting bank verification...</p>
+                    <div className="text-2xl font-black text-slate-900">{formatZAR(finalTotal)}</div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center opacity-30 italic text-slate-400 text-xs">
+                     Choose a payment method to proceed
+                  </div>
+                )}
+
+                <div className="mt-8 space-y-3">
+                  <button 
+                    disabled={!selectedMethod || isProcessing || (selectedMethod === PaymentMethod.CASH && (parseFloat(receivedAmount) || 0) < finalTotal)}
+                    onClick={handleCheckout} 
+                    className="w-full py-5 bg-teal-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-teal-700 shadow-xl disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isProcessing ? <Loader2 size={18} className="animate-spin" /> : 'Complete Transaction'}
+                  </button>
+                  <button 
+                    disabled={isProcessing}
+                    onClick={() => setIsCheckoutOpen(false)} 
+                    className="w-full py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-900 transition-colors"
+                  >
+                    Return to Basket
+                  </button>
+                </div>
+             </div>
           </div>
         </div>
       )}
