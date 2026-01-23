@@ -69,9 +69,9 @@ export const Reminders: React.FC = () => {
   // Logic to clear compliance alerts (mark as seen) when the user views this page
   useEffect(() => {
     if (user && !isSuperAdmin && !isStaff && allReminders.length > 0) {
-      // Find all pending system alerts relevant to this view
+      // Find all pending system alerts relevant to this view (operational ones linked to businesses)
       const pendingAlertIds = allReminders
-        .filter(r => r.type === 'system_alert' && r.status === 'pending')
+        .filter(r => r.type === 'system_alert' && r.status === 'pending' && r.businessId)
         .map(r => r.id);
       
       if (pendingAlertIds.length > 0) {
@@ -81,9 +81,6 @@ export const Reminders: React.FC = () => {
         // Merge with existing seen IDs to avoid duplicates
         const newSeen = Array.from(new Set([...existingSeen, ...pendingAlertIds]));
         localStorage.setItem(seenKey, JSON.stringify(newSeen));
-        
-        // Note: The Layout component periodically checks this localStorage key 
-        // to update the sidebar badge count.
       }
     }
   }, [allReminders, user, isSuperAdmin, isStaff]);
@@ -124,8 +121,9 @@ export const Reminders: React.FC = () => {
     }
 
     // 3. Regular System Alerts for non-super admins
+    // IMPORTANT: Subscription alerts (businessId is null) are hidden for standard users.
     const activeAlerts = !isSuperAdmin 
-      ? allReminders.filter(r => r.type === 'system_alert' && r.status === 'pending')
+      ? allReminders.filter(r => r.type === 'system_alert' && r.status === 'pending' && r.businessId)
       : [];
 
     return { missingForStaff, subscriptionAlerts, activeAlerts };
@@ -256,7 +254,7 @@ export const Reminders: React.FC = () => {
                     <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 shrink-0 ${
                       org.isExpired 
                         ? 'bg-rose-600 text-white animate-pulse' 
-                        : 'bg-amber-500 text-white'
+                        : 'bg-amber-50 text-amber-500'
                     }`}>
                       {org.isExpired ? <CalendarX size={32} /> : <AlertCircle size={32} />}
                     </div>

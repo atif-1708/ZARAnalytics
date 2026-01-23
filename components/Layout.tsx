@@ -165,7 +165,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         setRemindersCount(missingCount);
       } else {
         const reminders = await storage.getReminders();
-        const pendingAlerts = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending');
+        // IMPORTANT: Exclude subscription requests (where businessId is missing) from standard user badges.
+        // Subscription requests are strictly for Super Admin visibility.
+        const pendingAlerts = reminders.filter(r => 
+          r.type === 'system_alert' && 
+          r.status === 'pending' && 
+          r.businessId
+        );
         const seenKey = `zarlytics_seen_alerts_${user.id}`;
         const seenIds = JSON.parse(localStorage.getItem(seenKey) || '[]');
         const unseenCount = pendingAlerts.filter(r => !seenIds.includes(r.id)).length;
