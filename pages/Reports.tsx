@@ -80,13 +80,25 @@ export const Reports: React.FC = () => {
 
   const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
-  // Helper to get local date string YYYY-MM-DD from any date input
+  // Helper to get robust local date key YYYY-MM-DD
   const getLocalDateKey = (dateInput: string) => {
     if (!dateInput) return 'Invalid';
-    const d = new Date(dateInput);
-    // If input is YYYY-MM-DD already, return it
+    
+    // If it looks like a standard date string YYYY-MM-DD, return it directly
     if (dateInput.length === 10 && !dateInput.includes('T')) return dateInput;
-    // Otherwise extract local YYYY-MM-DD parts
+    
+    const d = new Date(dateInput);
+    
+    // EDGE CASE: If the time is exactly 00:00:00 UTC (common for 'date-only' storage), 
+    // treat it as that specific date regardless of local timezone to prevent shifting to previous day.
+    const isMidnightUTC = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
+    
+    if (isMidnightUTC) {
+        // Return the UTC date part
+        return dateInput.split('T')[0];
+    }
+
+    // Otherwise, convert to local time (handles POS transactions that happened at specific times)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
@@ -164,7 +176,7 @@ export const Reports: React.FC = () => {
 
       // AGGREGATE SALES BY DATE & BUSINESS
       const aggregatedSales = Object.values(fSales.reduce((acc, sale) => {
-        const dateKey = getLocalDateKey(sale.date); // Use local date YYYY-MM-DD
+        const dateKey = getLocalDateKey(sale.date); // Use smart local date key
         const key = `${sale.businessId}_${dateKey}`;
         
         if (!acc[key]) {
@@ -355,12 +367,11 @@ export const Reports: React.FC = () => {
                 <>
                   {reportData.aggregatedSales.map((s: any) => {
                     const b = businesses.find(bx => bx.id === s.businessId);
-                    // Use date directly from aggregation (YYYY-MM-DD) to ensure it renders as Local Time
-                    const dateDisplay = new Date(s.date).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }); 
-                    // ^ NOTE: We treat the YYYY-MM-DD string as UTC so it doesn't shift, 
-                    // or better yet, simpler: s.date is "2023-10-27". Using simple formatting:
+                    // Use date directly from aggregation (YYYY-MM-DD) which is already cleaned
+                    // Create a date object specifically for formatting
                     const [y, m, d] = s.date.split('-');
-                    const displayDate = `${d} ${new Date(Number(y), Number(m)-1).toLocaleString('default', { month: 'short' })} ${y}`;
+                    const dateObj = new Date(Number(y), Number(m)-1, Number(d));
+                    const displayDate = dateObj.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' });
 
                     const profitPct = s.salesAmount > 0 ? (s.profitAmount / s.salesAmount) * 100 : 0;
 
@@ -376,7 +387,7 @@ export const Reports: React.FC = () => {
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-slate-500">{displayDate}</td>
+                        <td className="px-6 py-4 text-sm text-slate-500 font-medium">{displayDate}</td>
                         <td className="px-6 py-4 text-center">
                           <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-[10px] font-black">
                             {profitPct.toFixed(2)}%
