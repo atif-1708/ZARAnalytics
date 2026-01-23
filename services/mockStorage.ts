@@ -304,10 +304,9 @@ export const storage = {
         return item;
     });
 
-    // 3. Inventory Restoration (Loop through requested items)
+    // 3. Inventory Restoration
     for (const item of itemsToProcess) {
       try {
-        // Log return movement
         const movementPayload = mapToDb({
           productId: item.productId,
           quantity: item.quantity, 
@@ -319,7 +318,6 @@ export const storage = {
         });
         await supabase.from('stock_movements').insert(movementPayload);
 
-        // Update product stock
         const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
         if (prod) {
           const newStock = (prod.current_stock || 0) + item.quantity;
@@ -330,25 +328,38 @@ export const storage = {
       }
     }
 
-    // Calculate approximate profit reversal
     const margin = original.salesAmount > 0 ? (original.profitAmount / original.salesAmount) : 0;
     totalRefundProfit = totalRefundAmount * margin;
 
     // 4. Update Original Sale Record
-    // Check if ALL items are now fully refunded
     const isFullyRefundedNow = updatedItems.every((item: SaleItem) => (item.refundedQuantity || 0) >= item.quantity);
     
     try {
-        await supabase.from('sales').update({ 
-            items: updatedItems, // Persist the new refunded counts
+        // Attempt full update first
+        const { error: fullUpdateError } = await supabase.from('sales').update({ 
+            items: updatedItems, 
             is_refunded: isFullyRefundedNow 
         }).eq('id', saleId);
-    } catch (e) {
+
+        if (fullUpdateError) {
+            // Fallback: If 'is_refunded' column is missing, just update 'items' to ensure quantities persist
+            if (fullUpdateError.message.includes('is_refunded')) {
+                console.warn("Schema issue detected: 'is_refunded' column missing. Fallback to item-only update.");
+                const { error: fallbackError } = await supabase.from('sales').update({ 
+                    items: updatedItems 
+                }).eq('id', saleId);
+                
+                if (fallbackError) throw fallbackError;
+            } else {
+                throw fullUpdateError;
+            }
+        }
+    } catch (e: any) {
         console.warn("Failed to update original transaction state.", e);
-        throw new Error("Failed to update transaction record. Stock was restored but log update failed.");
+        throw new Error(`Failed to update transaction record: ${e.message}. Stock was restored but log may be out of sync.`);
     }
 
-    // 5. Financial Adjustment (Negative Transaction)
+    // 5. Financial Adjustment
     const finalOrgId = original.orgId || contextOrgId;
     if (!finalOrgId) throw new Error("Organization ID missing. Cannot process refund adjustment.");
 
@@ -359,7 +370,7 @@ export const storage = {
       profitAmount: -Math.abs(totalRefundProfit),
       profitPercentage: 0, 
       paymentMethod: original.paymentMethod,
-      items: [], // Empty items to avoid double counting in stats
+      items: [], 
       orgId: finalOrgId
     };
 
