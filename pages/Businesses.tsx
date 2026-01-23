@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2, Zap, ArrowUpCircle, Lock } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +14,7 @@ const TIER_LIMITS: Record<SubscriptionTier, number> = {
 
 export const Businesses: React.FC = () => {
   const { user, selectedOrgId, isSuspended } = useAuth();
+  const navigate = useNavigate();
   const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
   
   // Can manage unless the org is suspended (only for tenants)
@@ -183,7 +185,10 @@ export const Businesses: React.FC = () => {
               <p className="text-xs font-medium">You've hit the maximum shops for the {tierInfo.tier} plan. Upgrade to unlock more capacity.</p>
             </div>
           </div>
-          <button className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors flex items-center gap-2">
+          <button 
+            onClick={() => navigate('/billing')}
+            className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-colors flex items-center gap-2"
+          >
             <ArrowUpCircle size={14} /> Upgrade Plan
           </button>
         </div>

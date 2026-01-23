@@ -1,32 +1,47 @@
 
 import React, { useState, useEffect } from 'react';
-import { CreditCard, CheckCircle2, AlertTriangle, Calendar, Zap, ShieldCheck, Loader2, Send, Layers, Building2, Clock } from 'lucide-react';
+import { CreditCard, CheckCircle2, AlertTriangle, Calendar, Zap, ShieldCheck, Loader2, Send, Layers, Building2, Clock, ChevronRight, TrendingUp, Store, Info } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Organization, SubscriptionTier, Reminder } from '../types';
 import { formatDate } from '../utils/formatters';
 
-const TIER_DETAILS = {
+const COMMON_FEATURES = [
+  'Comprehensive Financial Reporting',
+  'Daily Sales & Profit Tracking',
+  'Expense Management Ledger',
+  'Staff & Regional Access Control',
+  'Audit Compliance Monitoring',
+  'Priority Technical Support'
+];
+
+const TIER_DETAILS: Record<SubscriptionTier, any> = {
   starter: { 
+    id: 'starter',
     name: 'Starter', 
     price: 300, 
     limit: '1 Business Unit', 
-    features: ['Basic Financial Reports', 'Daily Sales Entry', 'Standard Support'],
-    color: 'border-blue-200 bg-blue-50 text-blue-600'
+    features: COMMON_FEATURES,
+    color: 'border-blue-200 bg-blue-50 text-blue-600',
+    iconColor: 'bg-blue-100 text-blue-600'
   },
   growth: { 
+    id: 'growth',
     name: 'Growth', 
     price: 550, 
     limit: '2 Business Units', 
-    features: ['Advanced Analytics', 'Expense Tracking', 'Priority Support', 'Role-Based Access'],
-    color: 'border-amber-200 bg-amber-50 text-amber-600'
+    features: COMMON_FEATURES,
+    color: 'border-amber-200 bg-amber-50 text-amber-600',
+    iconColor: 'bg-amber-100 text-amber-600'
   },
   enterprise: { 
+    id: 'enterprise',
     name: 'Enterprise', 
     price: 1500, 
     limit: 'Unlimited Units', 
-    features: ['Full Multi-Tenancy', 'Global Pulse Dashboard', 'API Access', '24/7 Dedicated Support'],
-    color: 'border-indigo-200 bg-indigo-50 text-indigo-600'
+    features: COMMON_FEATURES,
+    color: 'border-indigo-200 bg-indigo-50 text-indigo-600',
+    iconColor: 'bg-indigo-100 text-indigo-600'
   }
 };
 
@@ -34,8 +49,8 @@ export const Billing: React.FC = () => {
   const { user, selectedOrgId } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [requestSent, setRequestSent] = useState(false);
+  const [isProcessing, setIsProcessing] = useState<string | null>(null);
+  const [requestSent, setRequestSent] = useState<string | null>(null);
   const [existingReminders, setExistingReminders] = useState<Reminder[]>([]);
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
@@ -55,14 +70,13 @@ export const Billing: React.FC = () => {
       const current = orgs.find(o => o.id === targetOrgId);
       setOrg(current || null);
       
-      // Check if there's already a pending renewal request
       const pending = reminders.filter(r => 
         r.orgId === targetOrgId && 
         r.type === 'system_alert' && 
         r.status === 'pending'
       );
       setExistingReminders(pending);
-      if (pending.length > 0) setRequestSent(true);
+      if (pending.length > 0) setRequestSent('general');
 
     } finally {
       setLoading(false);
@@ -73,18 +87,19 @@ export const Billing: React.FC = () => {
     loadOrgData();
   }, [targetOrgId]);
 
-  const handleRequestResubscribe = async () => {
-    if (!org || isProcessing || requestSent) return;
-    setIsProcessing(true);
+  const handleRequestTierAction = async (requestedTier: SubscriptionTier) => {
+    if (!org || isProcessing || (requestSent && requestedTier === requestSent)) return;
+    setIsProcessing(requestedTier);
     
     try {
-      // Simulate network request
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      // Create a system alert for the Super Admin to review
+      const isUpgrade = requestedTier !== org.tier;
+      const actionLabel = isUpgrade ? `UPGRADE to ${requestedTier.toUpperCase()}` : 'RENEWAL';
+
       await storage.saveReminder({
         businessId: 'ORG_LEVEL',
-        businessName: org.name,
+        businessName: `${org.name} (${actionLabel})`,
         date: new Date().toISOString().split('T')[0],
         sentBy: user?.id || '',
         sentByUserName: user?.name || 'Account Admin',
@@ -93,11 +108,11 @@ export const Billing: React.FC = () => {
         orgId: org.id
       });
       
-      setRequestSent(true);
+      setRequestSent(requestedTier);
     } catch (err) {
-      alert("Renewal request failed. Please contact support@zarlytics.com");
+      alert("Request failed. Please contact support@zarlytics.com");
     } finally {
-      setIsProcessing(false);
+      setIsProcessing(null);
     }
   };
 
@@ -114,162 +129,143 @@ export const Billing: React.FC = () => {
   }
 
   const isExpired = new Date(org.subscriptionEndDate) < new Date();
-  const tier = TIER_DETAILS[org.tier || 'starter'];
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pb-20 text-left">
+    <div className="max-w-6xl mx-auto space-y-8 pb-20 text-left">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Billing & Plan</h2>
-          <p className="text-slate-500 font-medium">Manage your subscription and payment preferences</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tight">Plan & Payment</h2>
+          <p className="text-slate-500 font-medium text-lg">Select the optimal infrastructure for your business scale</p>
         </div>
-        <div className={`px-4 py-2 rounded-2xl border flex items-center gap-2 ${isExpired ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-emerald-50 border-emerald-100 text-emerald-600'}`}>
-          {isExpired ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
+        <div className={`px-5 py-2.5 rounded-2xl border flex items-center gap-3 shadow-sm ${isExpired ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-emerald-50 border-emerald-100 text-emerald-600'}`}>
+          {isExpired ? <AlertTriangle size={18} /> : <ShieldCheck size={18} />}
           <span className="text-xs font-black uppercase tracking-widest">
-            {isExpired ? 'Subscription Expired' : 'Account Active'}
+            {isExpired ? 'Subscription Expired' : 'Active Service'}
           </span>
         </div>
       </div>
 
-      {requestSent && (
-        <div className="p-6 bg-blue-600 text-white rounded-3xl flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500 shadow-xl shadow-blue-500/20">
-          <Clock size={32} className="shrink-0 animate-pulse" />
-          <div>
-            <p className="font-black text-lg leading-tight">Renewal Request Pending</p>
-            <p className="text-blue-100 text-sm font-medium">We've notified the platform administrators. Your account will be reactivated once the request is processed.</p>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:scale-110 transition-transform pointer-events-none">
-              <Zap size={180} />
+      <div className="grid grid-cols-1 gap-4">
+        {isExpired && (
+          <div className="p-6 bg-rose-600 text-white rounded-[2.5rem] flex flex-col md:flex-row items-center gap-6 shadow-xl shadow-rose-500/20 border-l-8 border-rose-800 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center shrink-0">
+              <AlertTriangle size={32} className="animate-pulse" />
             </div>
-            
-            <div className="relative z-10">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Current Plan</p>
-              <div className="flex items-center gap-4 mb-6">
-                <h3 className="text-5xl font-black text-slate-900 tracking-tighter">{tier.name}</h3>
-                <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${tier.color}`}>
-                  R{tier.price} / mo
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-6 border-t border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400">
-                    <Layers size={20} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Capacity</p>
-                    <p className="text-sm font-bold text-slate-800">{tier.limit}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isExpired ? 'bg-rose-50 text-rose-500' : 'bg-emerald-50 text-emerald-500'}`}>
-                    <Calendar size={20} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Last Expiry / Renewal</p>
-                    <p className={`text-sm font-bold ${isExpired ? 'text-rose-600' : 'text-slate-800'}`}>
-                      {formatDate(org.subscriptionEndDate)}
-                    </p>
-                  </div>
-                </div>
-              </div>
+            <div className="flex-1 text-center md:text-left">
+              <p className="font-black text-xl leading-tight uppercase tracking-tight">Access Restricted</p>
+              <p className="text-rose-100 text-sm font-medium mt-1">Your subscription expired on {formatDate(org.subscriptionEndDate)}. Please request a renewal below to restore full data entry and management capabilities.</p>
             </div>
           </div>
+        )}
 
-          <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm">
-             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
-               <ShieldCheck size={16} className="text-teal-500" /> Plan Features
-             </h4>
-             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-               {tier.features.map((feature, i) => (
-                 <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100">
-                   <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center text-teal-600 shadow-sm">
-                     <CheckCircle2 size={14} />
-                   </div>
-                   <span className="text-xs font-bold text-slate-700">{feature}</span>
-                 </div>
-               ))}
-             </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className={`p-8 rounded-[3rem] shadow-2xl flex flex-col justify-between min-h-[400px] transition-colors duration-500 ${requestSent ? 'bg-slate-50 border border-slate-200 text-slate-400' : 'bg-slate-900 text-white shadow-indigo-500/20'}`}>
-            <div>
-              <div className="flex items-center gap-3 mb-8">
-                <div className={`p-3 rounded-2xl ${requestSent ? 'bg-slate-200 text-slate-400' : 'bg-white/10 text-white'}`}>
-                  <CreditCard size={24} />
-                </div>
-                <div>
-                  <h4 className="text-lg font-black tracking-tight leading-none">{requestSent ? 'Request Filed' : 'Renewal'}</h4>
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${requestSent ? 'text-slate-400' : 'text-slate-400'}`}>Manual Authorization Flow</p>
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-10">
-                <div className="flex justify-between items-center text-sm font-medium">
-                  <span className={requestSent ? 'text-slate-400' : 'text-slate-400'}>Subscription Renewal</span>
-                  <span className={requestSent ? 'text-slate-400' : 'text-white'}>R{tier.price.toFixed(2)}</span>
-                </div>
-                <div className={`pt-4 border-t flex justify-between items-center ${requestSent ? 'border-slate-200' : 'border-white/10'}`}>
-                  <span className="text-xs font-black uppercase tracking-widest">Total Valuation</span>
-                  <span className={`text-2xl font-black ${requestSent ? 'text-slate-400' : 'text-white'}`}>R{tier.price.toFixed(2)}</span>
-                </div>
-              </div>
+        {requestSent && (
+          <div className="p-6 bg-indigo-600 text-white rounded-[2.5rem] flex flex-col md:flex-row items-center gap-6 shadow-xl shadow-indigo-500/20 border-l-8 border-indigo-800 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="w-16 h-16 bg-white/20 rounded-3xl flex items-center justify-center shrink-0">
+              <Clock size={32} className="animate-pulse" />
             </div>
+            <div className="flex-1 text-center md:text-left">
+              <p className="font-black text-xl leading-tight uppercase tracking-tight">Request Processing</p>
+              <p className="text-indigo-100 text-sm font-medium mt-1">Platform administrators have been notified. Your account status will update once the manual authorization is complete.</p>
+            </div>
+          </div>
+        )}
+      </div>
 
-            <div className="space-y-4">
-              {isExpired && !requestSent && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-400">
-                  <AlertTriangle size={18} className="shrink-0" />
-                  <p className="text-[10px] font-bold leading-tight">Your account is restricted. Requesting a renewal will alert the admin to reactivate your service.</p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 pt-4">
+        {(Object.keys(TIER_DETAILS) as SubscriptionTier[]).map((tierKey) => {
+          const t = TIER_DETAILS[tierKey];
+          const isCurrent = org.tier === tierKey;
+          const isHigher = (tierKey === 'enterprise' && org.tier !== 'enterprise') || (tierKey === 'growth' && org.tier === 'starter');
+          const isRequested = requestSent === tierKey;
+          
+          return (
+            <div 
+              key={tierKey} 
+              className={`flex flex-col bg-white rounded-[3rem] border-2 p-10 transition-all duration-300 relative overflow-hidden ${
+                isCurrent 
+                  ? 'border-teal-500 shadow-2xl shadow-teal-500/10' 
+                  : 'border-slate-100 shadow-sm hover:border-slate-300'
+              }`}
+            >
+              {isCurrent && (
+                <div className="absolute top-6 right-6 px-3 py-1 bg-teal-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg shadow-lg">
+                  Current Tier
                 </div>
               )}
               
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-8 ${t.iconColor}`}>
+                {tierKey === 'starter' ? <Layers size={28} /> : tierKey === 'growth' ? <TrendingUp size={28} /> : <Zap size={28} />}
+              </div>
+
+              <h3 className="text-3xl font-black text-slate-900 tracking-tighter mb-1">{t.name}</h3>
+              <div className="flex items-baseline gap-1 mb-6">
+                <span className="text-2xl font-black text-slate-800">R{t.price}</span>
+                <span className="text-xs font-bold text-slate-400 uppercase">/ month</span>
+              </div>
+
+              <div className="space-y-4 mb-10 flex-1">
+                <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 mb-2">
+                   <Store size={16} className="text-teal-600" />
+                   <span className="text-xs font-black text-slate-800">{t.limit}</span>
+                </div>
+                {t.features.map((f: string, idx: number) => (
+                  <div key={idx} className="flex items-start gap-3 px-1">
+                    <CheckCircle2 size={16} className="text-teal-500 shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-slate-500 leading-tight">{f}</span>
+                  </div>
+                ))}
+              </div>
+
               <button 
-                onClick={handleRequestResubscribe}
-                disabled={isProcessing || requestSent}
-                className={`w-full py-5 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-3 group disabled:cursor-not-allowed ${
-                  requestSent 
-                    ? 'bg-emerald-100 text-emerald-600 border border-emerald-200' 
-                    : 'bg-white text-slate-900 hover:bg-teal-50 shadow-xl'
+                onClick={() => handleRequestTierAction(tierKey)}
+                disabled={!!isProcessing || isRequested || (isCurrent && !isExpired)}
+                className={`w-full py-5 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-lg ${
+                  isCurrent 
+                    ? (isExpired 
+                        ? (isRequested ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-600 text-white hover:bg-rose-700')
+                        : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none')
+                    : (isRequested 
+                        ? 'bg-indigo-100 text-indigo-600'
+                        : (isHigher 
+                            ? 'bg-slate-900 text-white hover:bg-teal-600' 
+                            : 'bg-slate-100 text-slate-500 hover:bg-slate-200'))
                 }`}
               >
-                {isProcessing ? (
+                {isProcessing === tierKey ? (
+                  <Loader2 className="animate-spin" size={18} />
+                ) : isRequested ? (
                   <>
-                    <Loader2 className="animate-spin" size={20} />
-                    <span>Processing Request...</span>
+                    <Clock size={16} />
+                    <span>Requested</span>
                   </>
-                ) : requestSent ? (
-                  <>
-                    <CheckCircle2 size={20} />
-                    <span>Request Sent</span>
-                  </>
+                ) : isCurrent ? (
+                  isExpired ? 'Request Renewal' : 'Tier Active'
                 ) : (
-                  <>
-                    Request Subscription Renewal
-                    <Send size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                  </>
+                  isHigher ? 'Request Upgrade' : 'Request Downgrade'
                 )}
               </button>
-              
-              <p className="text-center text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-                Admin review required for reactivation
-              </p>
             </div>
-          </div>
-          
-          <div className="p-6 bg-slate-50 border border-slate-200 rounded-[2rem] text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Assigned Tenant</p>
-            <p className="text-xs font-black text-slate-800">{org.name}</p>
-          </div>
-        </div>
+          );
+        })}
+      </div>
+
+      <div className="bg-slate-900 p-12 rounded-[4rem] text-white flex flex-col md:flex-row items-center justify-between gap-10 shadow-2xl relative overflow-hidden group">
+         <div className="absolute top-0 right-0 p-12 opacity-5 group-hover:scale-110 transition-transform pointer-events-none">
+           <Building2 size={240} />
+         </div>
+         <div className="relative z-10 space-y-4 max-w-xl">
+           <div className="flex items-center gap-2 text-teal-400">
+             <Info size={18} />
+             <span className="text-[10px] font-black uppercase tracking-widest">Enterprise Feature</span>
+           </div>
+           <h3 className="text-3xl font-black tracking-tighter">Custom Enterprise Solutions</h3>
+           <p className="text-slate-400 text-sm font-medium leading-relaxed">
+             Need more than unlimited shops? Our enterprise architecture supports massive-scale multi-tenancy with dedicated cloud resources, custom API endpoints, and high-availability nodes.
+           </p>
+         </div>
+         <button className="relative z-10 px-10 py-5 bg-teal-500 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-teal-400 transition-all shadow-xl shadow-teal-500/20">
+           Contact Sales
+         </button>
       </div>
     </div>
   );
