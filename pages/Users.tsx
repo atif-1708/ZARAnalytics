@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { UserPlus, Shield, Mail, Edit, Loader2, Plus, Key, Trash2, Image as ImageIcon, Upload, AlertCircle, Store, Check, CheckSquare, Square, Building2, UserCheck } from 'lucide-react';
+import { UserPlus, Shield, Mail, Edit, Loader2, Plus, Key, Trash2, Image as ImageIcon, Upload, AlertCircle, Store, Check, CheckSquare, Square, Building2, UserCheck, Lock } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { User, UserRole, Business, Organization } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 export const UsersPage: React.FC = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isSuspended } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [businesses, setBusinesses] = useState<Business[]>([]);
@@ -18,6 +18,7 @@ export const UsersPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   const isSuperAdmin = currentUser?.role === UserRole.SUPER_ADMIN;
+  const canManage = !isSuspended;
 
   const [formData, setFormData] = useState<{
     name: string;
@@ -41,8 +42,6 @@ export const UsersPage: React.FC = () => {
         isSuperAdmin ? storage.getOrganizations() : Promise.resolve([])
       ]);
       
-      // SUPER ADMIN LOGIC: Only manage other Super Admins or Org Admins (Tenants)
-      // Hide all Staff/View-Only users to remove operational noise.
       const filteredUsers = isSuperAdmin 
         ? uData.filter(u => u.role === UserRole.SUPER_ADMIN || u.role === UserRole.ORG_ADMIN || u.role === UserRole.ADMIN)
         : uData;
@@ -59,7 +58,7 @@ export const UsersPage: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSaving) return;
+    if (!canManage || isSaving) return;
     setError(null);
     setIsSaving(true);
     try {
@@ -94,6 +93,7 @@ export const UsersPage: React.FC = () => {
   };
 
   const toggleBusinessSelection = (id: string) => {
+    if (!canManage) return;
     setFormData(prev => {
         const isSelected = prev.assignedBusinessIds.includes(id);
         if (isSelected) {
@@ -117,25 +117,31 @@ export const UsersPage: React.FC = () => {
             {isSuperAdmin ? 'Managing Root Operators and Tenant Administrators' : 'Manage organization team members and permissions'}
           </p>
         </div>
-        <button 
-          onClick={() => { 
-            setError(null); 
-            setEditingUser(null); 
-            setFormData({ 
-              name: '', 
-              email: '', 
-              role: isSuperAdmin ? UserRole.ORG_ADMIN : UserRole.STAFF, 
-              assignedBusinessIds: [], 
-              avatarUrl: '', 
-              password: '',
-              orgId: currentUser?.orgId || ''
-            }); 
-            setIsModalOpen(true); 
-          }} 
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all ${isSuperAdmin ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-900 text-white'}`}
-        >
-          <Plus size={20} /> Provision Admin
-        </button>
+        {canManage ? (
+          <button 
+            onClick={() => { 
+              setError(null); 
+              setEditingUser(null); 
+              setFormData({ 
+                name: '', 
+                email: '', 
+                role: isSuperAdmin ? UserRole.ORG_ADMIN : UserRole.STAFF, 
+                assignedBusinessIds: [], 
+                avatarUrl: '', 
+                password: '',
+                orgId: currentUser?.orgId || ''
+              }); 
+              setIsModalOpen(true); 
+            }} 
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all ${isSuperAdmin ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-900 text-white'}`}
+          >
+            <Plus size={20} /> Provision Admin
+          </button>
+        ) : isSuspended && (
+           <div className="bg-slate-100 text-slate-400 px-4 py-2 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
+            <Lock size={16} /> Access Locked
+          </div>
+        )}
       </div>
 
       {isSuperAdmin && (
@@ -192,32 +198,40 @@ export const UsersPage: React.FC = () => {
                   ID: {u.id.substring(0, 8)}...
                 </div>
                 <div className="flex gap-1">
-                  <button 
-                    onClick={() => { 
-                      setError(null); 
-                      setEditingUser(u); 
-                      setFormData({ 
-                        name: u.name, 
-                        email: u.email || '', 
-                        role: u.role, 
-                        assignedBusinessIds: u.assignedBusinessIds || [], 
-                        avatarUrl: u.avatarUrl || '', 
-                        password: '',
-                        orgId: u.orgId || ''
-                      }); 
-                      setIsModalOpen(true); 
-                    }} 
-                    className="p-2 text-slate-400 hover:text-indigo-400 transition-colors"
-                  >
-                    <Edit size={16} />
-                  </button>
-                  {u.id !== currentUser?.id && (
-                    <button 
-                      onClick={async () => { if(window.confirm('Revoke access for this admin?')) { await storage.deleteUser(u.id); loadData(); } }} 
-                      className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                  {canManage ? (
+                    <>
+                      <button 
+                        onClick={() => { 
+                          setError(null); 
+                          setEditingUser(u); 
+                          setFormData({ 
+                            name: u.name, 
+                            email: u.email || '', 
+                            role: u.role, 
+                            assignedBusinessIds: u.assignedBusinessIds || [], 
+                            avatarUrl: u.avatarUrl || '', 
+                            password: '',
+                            orgId: u.orgId || ''
+                          }); 
+                          setIsModalOpen(true); 
+                        }} 
+                        className="p-2 text-slate-400 hover:text-indigo-400 transition-colors"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      {u.id !== currentUser?.id && (
+                        <button 
+                          onClick={async () => { if(window.confirm('Revoke access for this admin?')) { await storage.deleteUser(u.id); loadData(); } }} 
+                          className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="p-2 text-slate-300">
+                      <Lock size={14} />
+                    </div>
                   )}
                 </div>
               </div>

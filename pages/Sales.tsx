@@ -8,16 +8,15 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 import { FilterPanel } from '../components/FilterPanel';
 
 export const Sales: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isSuspended } = useAuth();
   
   // ORG_ADMIN has visibility but NOT entry/edit access
   const isAdminVisibility = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.ORG_ADMIN;
   
-  // These roles can actually MODIFY data
-  const canModify = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.STAFF;
+  // These roles can actually MODIFY data, UNLESS the org is suspended
+  const canModify = (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.STAFF) && !isSuspended;
   
   const isStaff = user?.role === UserRole.STAFF;
-  const isViewOnly = user?.role === UserRole.VIEW_ONLY || user?.role === UserRole.ORG_ADMIN;
   const isScoped = !isAdminVisibility && (user?.assignedBusinessIds?.length || 0) > 0;
   
   const [sales, setSales] = useState<DailySale[]>([]);
@@ -75,7 +74,6 @@ export const Sales: React.FC = () => {
     fetchExchangeRate();
   }, [user]);
 
-  // Ensure formData.businessId is set to a valid assigned business when businesses are loaded
   useEffect(() => {
     if (businesses.length > 0 && !formData.businessId) {
       const initialBiz = isScoped 
@@ -176,7 +174,6 @@ export const Sales: React.FC = () => {
 
       await storage.saveSale(payload);
 
-      // System notification
       if (!editingSale) {
         try {
           await storage.saveReminder({
@@ -205,6 +202,7 @@ export const Sales: React.FC = () => {
   };
 
   const openAddModal = () => {
+    if (!canModify) return;
     setEditingSale(null);
     setSaveError(null);
     
@@ -222,6 +220,7 @@ export const Sales: React.FC = () => {
   };
 
   const openEditModal = (sale: DailySale) => {
+    if (!canModify) return;
     setEditingSale(sale);
     setSaveError(null);
     setFormData({
@@ -244,13 +243,17 @@ export const Sales: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Sales Records</h2>
           <p className="text-slate-500">{isScoped ? 'Operational data for your assigned shops' : 'Global revenue streams'}</p>
         </div>
-        {canModify && (
+        {canModify ? (
           <button 
             onClick={openAddModal}
             className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-xl font-bold shadow-lg hover:bg-teal-700 transition-all"
           >
             <Plus size={20} /> Add Sale Entry
           </button>
+        ) : isSuspended && (
+          <div className="bg-slate-100 text-slate-400 px-4 py-2 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
+            <Lock size={16} /> Sales Locked
+          </div>
         )}
       </div>
 

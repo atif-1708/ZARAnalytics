@@ -1,10 +1,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2, Zap, ArrowUpCircle } from 'lucide-react';
+import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2, Zap, ArrowUpCircle, Lock } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Business, UserRole, Organization, SubscriptionTier } from '../types';
-import { formatDate } from '../utils/formatters';
 
 const TIER_LIMITS: Record<SubscriptionTier, number> = {
   starter: 1,
@@ -13,9 +12,11 @@ const TIER_LIMITS: Record<SubscriptionTier, number> = {
 };
 
 export const Businesses: React.FC = () => {
-  const { user, selectedOrgId } = useAuth();
+  const { user, selectedOrgId, isSuspended } = useAuth();
   const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
-  const canManage = user?.role === UserRole.ADMIN || user?.role === UserRole.ORG_ADMIN || isSuperAdmin;
+  
+  // Can manage unless the org is suspended (only for tenants)
+  const canManage = (user?.role === UserRole.ADMIN || user?.role === UserRole.ORG_ADMIN || isSuperAdmin) && !isSuspended;
   
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -47,7 +48,6 @@ export const Businesses: React.FC = () => {
 
   useEffect(() => { loadData(); }, []);
 
-  // Check if current user is at their tier limit
   const tierInfo = useMemo(() => {
     const orgId = isSuperAdmin ? selectedOrgId : user?.orgId;
     if (!orgId) return null;
@@ -82,7 +82,6 @@ export const Businesses: React.FC = () => {
         throw new Error("An organization must be assigned to this business.");
       }
 
-      // Enforce limit only when adding new business
       if (!editingBusiness) {
         const org = organizations.find(o => o.id === finalOrgId);
         if (org) {
@@ -113,6 +112,7 @@ export const Businesses: React.FC = () => {
   };
 
   const openAdd = () => {
+    if (!canManage) return;
     if (tierInfo?.isAtLimit && !isSuperAdmin) {
       setError(`You have reached the limit of ${tierInfo.limit} shop(s) for your plan.`);
     } else {
@@ -148,7 +148,7 @@ export const Businesses: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Business Units</h2>
           <p className="text-slate-500">Manage shop locations and service points</p>
         </div>
-        {canManage && (
+        {canManage ? (
           <div className="flex items-center gap-4">
             {tierInfo && !isSuperAdmin && (
               <div className={`hidden md:flex flex-col items-end px-4 py-1.5 border rounded-2xl ${tierInfo.isAtLimit ? 'bg-rose-50 border-rose-100' : 'bg-indigo-50 border-indigo-100'}`}>
@@ -166,6 +166,10 @@ export const Businesses: React.FC = () => {
               <Plus size={20} />
               <span>Register New Shop</span>
             </button>
+          </div>
+        ) : isSuspended && (
+           <div className="bg-slate-100 text-slate-400 px-4 py-2 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
+            <Lock size={16} /> Registry Locked
           </div>
         )}
       </div>
@@ -195,17 +199,23 @@ export const Businesses: React.FC = () => {
                   <div className={`p-4 rounded-2xl border transition-all ${isSuperAdmin ? 'bg-indigo-50 border-indigo-100 text-indigo-600' : 'bg-teal-50 border-teal-100 text-teal-600'}`}>
                     <Store size={24} />
                   </div>
-                  {canManage && (
-                    <div className="flex gap-1">
-                      <button onClick={() => openEdit(business)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><Edit3 size={18} /></button>
-                      <button 
-                        onClick={async () => { if(window.confirm('Delete this unit?')) { await storage.deleteBusiness(business.id); loadData(); } }} 
-                        className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex gap-1">
+                    {canManage ? (
+                      <>
+                        <button onClick={() => openEdit(business)} className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"><Edit3 size={18} /></button>
+                        <button 
+                          onClick={async () => { if(window.confirm('Delete this unit?')) { await storage.deleteBusiness(business.id); loadData(); } }} 
+                          className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </>
+                    ) : (
+                      <div className="p-2 text-slate-300">
+                        <Lock size={14} />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <h3 className="text-xl font-black text-slate-900 mb-1">{business.name}</h3>
                 <div className="flex items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-wider mb-4">

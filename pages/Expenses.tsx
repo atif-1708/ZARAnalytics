@@ -8,16 +8,15 @@ import { formatCurrency, formatMonth } from '../utils/formatters';
 import { FilterPanel } from '../components/FilterPanel';
 
 export const Expenses: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isSuspended } = useAuth();
   
   // ORG_ADMIN sees everything in org but doesn't write
   const isAdminVisibility = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.ORG_ADMIN;
   
-  // These roles can MODIFY expenses
-  const canModify = user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.STAFF;
+  // These roles can MODIFY expenses, UNLESS org is suspended
+  const canModify = (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.STAFF) && !isSuspended;
   
   const isStaff = user?.role === UserRole.STAFF;
-  const isViewOnly = user?.role === UserRole.VIEW_ONLY || user?.role === UserRole.ORG_ADMIN;
   const isScoped = !isAdminVisibility && (user?.assignedBusinessIds?.length || 0) > 0;
   
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
@@ -164,7 +163,7 @@ export const Expenses: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">Operational Costs</h2>
           <p className="text-slate-500">{isScoped ? 'Fixed costs for your assigned shops' : 'Global expense ledger'}</p>
         </div>
-        {canModify && (
+        {canModify ? (
           <button 
             onClick={() => { 
               setEditingExpense(null); 
@@ -181,6 +180,10 @@ export const Expenses: React.FC = () => {
           >
             <Plus size={20} /> Record Expense
           </button>
+        ) : isSuspended && (
+           <div className="bg-slate-100 text-slate-400 px-4 py-2 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
+            <Lock size={16} /> Costs Locked
+          </div>
         )}
       </div>
 

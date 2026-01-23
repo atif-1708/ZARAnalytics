@@ -1,8 +1,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, AuthState, UserRole } from '../types';
+import { User, AuthState, UserRole, Organization } from '../types';
 import { supabase, isConfigured } from '../services/supabase';
-import { LogOut, ShieldAlert, Loader2 } from 'lucide-react';
+import { ShieldAlert, Loader2 } from 'lucide-react';
 
 interface AuthContextType extends AuthState {
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
@@ -11,6 +11,8 @@ interface AuthContextType extends AuthState {
   isInitializing: boolean;
   selectedOrgId: string | null;
   setSelectedOrgId: (id: string | null) => void;
+  isSuspended: boolean;
+  suspendedOrgName: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,16 +33,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isInitializing, setIsInitializing] = useState(true);
   const [criticalError, setCriticalError] = useState<string | null>(null);
   const [selectedOrgId, setSelectedOrgIdState] = useState<string | null>(localStorage.getItem('zarlytics_ghost_org_id'));
+  const [isSuspended, setIsSuspended] = useState(false);
+  const [suspendedOrgName, setSuspendedOrgName] = useState<string | null>(null);
   const initHandled = useRef(false);
 
-  const setSelectedOrgId = (id: string | null) => {
-    if (id) {
-      localStorage.setItem('zarlytics_ghost_org_id', id);
-    } else {
-      localStorage.removeItem('zarlytics_ghost_org_id');
+  const checkOrgSuspension = async (orgId: string | null, role?: UserRole) => {
+    if (!orgId || role === UserRole.SUPER_ADMIN && !selectedOrgId) {
+      setIsSuspended(false);
+      setSuspendedOrgName(null);
+      return;
     }
-    // Update state to trigger reactive re-render throughout the app
+
+    try {
+      const { data: org } = await supabase.from('organizations').select('name, is_active, subscription_end_date').eq('id', orgId).single();
+      if (org) {
+        const expired = new Date(org.subscription_end_date) < new Date();
+        const suspended = !org.is_active || expired;
+        setIsSuspended(suspended);
+        setSuspendedOrgName(suspended ? org.name : null);
+      }
+    } catch (e) {
+      console.error("Suspension check failed", e);
+    }
+  };
+
+  const setSelectedOrgId = async (id: string | null) => {
+    if (!id) {
+      localStorage.removeItem('zarlytics_ghost_org_id');
+      setSelectedOrgIdState(null);
+      setIsSuspended(false);
+      return;
+    }
+    localStorage.setItem('zarlytics_ghost_org_id', id);
     setSelectedOrgIdState(id);
+    await checkOrgSuspension(id, auth.user?.role);
   };
 
   const performEmergencyReset = (reason: string) => {
@@ -72,22 +98,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      const role = (profile?.role as UserRole) || UserRole.VIEW_ONLY;
+      const orgId = profile?.org_id || null;
+      
       setAuth({
         user: { 
           id: sbUser.id, 
           name: profile?.name || sbUser.user_metadata?.full_name || 'Business User', 
           email: sbUser.email, 
-          role: (profile?.role as UserRole) || UserRole.VIEW_ONLY,
+          role,
           assignedBusinessIds: profile?.assigned_business_ids || [], 
           avatarUrl: profile?.avatar_url || null,
-          orgId: profile?.org_id || null
+          orgId
         },
         token,
         isAuthenticated: true
       });
+
+      // For normal users, check their own org. For Super Admins, check ghost org if selected.
+      const targetOrg = role === UserRole.SUPER_ADMIN ? selectedOrgId : orgId;
+      await checkOrgSuspension(targetOrg, role);
+      
       setCriticalError(null);
     } catch (err) {
-      console.error("Profile fetch sequence failed. Entering degraded mode.", err);
+      console.error("Profile fetch sequence failed.", err);
       setAuth({
         user: { 
           id: sbUser.id, 
@@ -148,6 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuth({ user: null, token: null, isAuthenticated: false });
         setCriticalError(null);
         setIsInitializing(false);
+        setIsSuspended(false);
       }
     });
 
@@ -185,6 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setAuth({ user: null, token: null, isAuthenticated: false });
       setCriticalError(null);
+      setIsSuspended(false);
       sessionStorage.clear();
       window.location.reload();
     }
@@ -218,14 +254,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             <h2 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Access Revoked</h2>
             <p className="text-sm text-slate-500 font-medium leading-relaxed">
               Authenticated session detected, but no matching business profile was found in our database. 
-              Contact your Administrator to verify your credentials.
             </p>
           </div>
           <button 
             onClick={logout}
-            className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-4 rounded-2xl font-black text-sm hover:bg-rose-600 transition-all group"
+            className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm hover:bg-rose-600 transition-all group"
           >
-            <LogOut size={18} className="group-hover:-translate-x-1 transition-transform" />
             Clear Session & Sign Out
           </button>
         </div>
@@ -234,7 +268,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <AuthContext.Provider value={{ ...auth, login, logout, refreshProfile, isInitializing, selectedOrgId, setSelectedOrgId }}>
+    <AuthContext.Provider value={{ ...auth, login, logout, refreshProfile, isInitializing, selectedOrgId, setSelectedOrgId, isSuspended, suspendedOrgName }}>
       {children}
     </AuthContext.Provider>
   );

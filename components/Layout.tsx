@@ -16,11 +16,14 @@ import {
   Sparkles,
   Building2,
   Globe,
-  Layers,
   ShieldCheck,
-  Zap,
   Activity,
-  Server
+  Server,
+  CreditCard,
+  AlertTriangle,
+  ArrowRight,
+  Loader2,
+  Lock
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Organization } from '../types';
@@ -74,7 +77,7 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
 };
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, logout, selectedOrgId, setSelectedOrgId } = useAuth();
+  const { user, logout, selectedOrgId, setSelectedOrgId, isSuspended, suspendedOrgName } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -82,7 +85,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   
   const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
-  // If Super Admin has no org selected, we are in "Global Kernel" mode
   const isGlobalKernelMode = isSuperAdmin && !selectedOrgId;
   const currentTheme = isGlobalKernelMode ? 'admin' : 'standard';
 
@@ -92,13 +94,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     }
   }, [isSuperAdmin]);
 
-  interface MenuItem extends Omit<SidebarItemProps, 'active' | 'theme'> {
-    roles: UserRole[];
-    hideInGlobalMode?: boolean;
-    showOnlyInGlobalMode?: boolean;
-  }
-
-  const menuItems: MenuItem[] = [
+  const menuItems: any[] = [
     { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
     { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
@@ -117,23 +113,16 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     { to: '/profile', label: 'My Profile', icon: <UserCircle size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
   ];
 
-  // Filter logic based on User Role AND Global/Ghost Mode
   const filteredItems = menuItems.filter(item => {
-    // 1. Basic Role Check
     const hasRole = item.roles.includes(user?.role as UserRole) || (isSuperAdmin && item.roles.includes(UserRole.SUPER_ADMIN));
     if (!hasRole) return false;
-
-    // 2. Platform Owner Global Mode Overrides
     if (isGlobalKernelMode) {
       if (item.hideInGlobalMode) return false;
     } else if (isSuperAdmin && selectedOrgId) {
-      // In Ghost Mode, Super Admin sees EVERYTHING (both global tools and business tools)
       return true;
     } else {
-      // For Standard Users
       if (item.showOnlyInGlobalMode) return false;
     }
-
     return true;
   });
 
@@ -146,7 +135,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       thirtyDaysFromNow.setDate(today.getDate() + 30);
       
       if (isGlobalKernelMode) {
-        // SUPER ADMIN: Count organizations with expired or expiring subscriptions
         const orgs = await storage.getOrganizations();
         const flaggedCount = orgs.filter(org => {
           const endDate = new Date(org.subscriptionEndDate);
@@ -154,7 +142,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         }).length;
         setRemindersCount(flaggedCount);
       } else if (user.role === UserRole.STAFF) {
-        // STAFF: Count businesses missing today's entry
         const [businesses, sales] = await Promise.all([
           storage.getBusinesses(),
           storage.getSales()
@@ -166,7 +153,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           .length;
         setRemindersCount(missingCount);
       } else {
-        // ADMIN/ORG_ADMIN: Count pending system alerts
         const reminders = await storage.getReminders();
         const pendingAlerts = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending');
         const seenKey = `zarlytics_seen_alerts_${user.id}`;
@@ -192,12 +178,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       <aside className={`fixed inset-y-0 left-0 w-64 ${isGlobalKernelMode ? 'bg-slate-900 border-r border-white/5 shadow-2xl shadow-indigo-500/10' : 'bg-slate-900'} text-white z-50 transition-all duration-300 lg:translate-x-0 lg:static lg:block flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 text-left">
           <div className="flex items-center gap-3 mb-10">
             <div className={`w-10 h-10 ${isGlobalKernelMode ? 'bg-indigo-600' : 'bg-teal-500'} rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-black/20`}>
               {isGlobalKernelMode ? <Server size={20} /> : 'ZL'}
             </div>
-            <div className="text-left">
+            <div>
               <h1 className="text-xl font-black tracking-tight leading-none">ZARlytics</h1>
               <p className={`text-[9px] font-black uppercase tracking-widest ${isGlobalKernelMode ? 'text-indigo-400' : 'text-teal-500'}`}>
                 {isGlobalKernelMode ? 'Global Command' : 'Business Portal'}
@@ -206,7 +192,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
           <nav className="space-y-2">
             {filteredItems.map((item) => {
-              const { roles, hideInGlobalMode, showOnlyInGlobalMode, ...sidebarProps } = item;
+              const { roles, hideInGlobalMode, WoodOnlyInGlobalMode, ...sidebarProps } = item;
               return (
                 <SidebarItem 
                   key={item.to} 
@@ -221,7 +207,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
 
         <div className={`p-6 border-t ${isGlobalKernelMode ? 'border-white/5 bg-slate-900' : 'border-slate-800 bg-slate-900'}`}>
-          <div className="flex items-center gap-3 mb-6 px-2">
+          <div className="flex items-center gap-3 mb-6 px-2 text-left">
             {user?.avatarUrl ? (
               <img src={user.avatarUrl} alt={user.name} className="w-10 h-10 rounded-full object-cover ring-2 ring-indigo-500/30" />
             ) : (
@@ -229,7 +215,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 {user?.name.charAt(0)}
               </div>
             )}
-            <div className="overflow-hidden text-left">
+            <div className="overflow-hidden">
               <p className="text-sm font-semibold truncate">{user?.name}</p>
               <p className={`text-[9px] ${isGlobalKernelMode ? 'text-indigo-400' : 'text-slate-400'} truncate uppercase tracking-tighter font-black`}>
                 {user?.role?.replace('_', ' ')}
@@ -281,7 +267,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 )}
               </div>
             )}
-
             <Link to="/profile" className={`flex items-center gap-2 transition-colors ${isGlobalKernelMode ? 'text-indigo-300 hover:text-white' : 'text-slate-500 hover:text-teal-600'}`}>
               {user?.avatarUrl ? (
                 <img src={user.avatarUrl} alt={user.name} className="w-8 h-8 rounded-full object-cover ring-2 ring-indigo-500/20" />
@@ -292,7 +277,26 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
         </header>
 
-        <div className="p-6 max-w-7xl mx-auto w-full">{children}</div>
+        {isSuspended && !isGlobalKernelMode && (
+          <div className="bg-rose-600 text-white px-6 py-2 flex items-center justify-center gap-4 sticky top-16 z-20 shadow-lg animate-in slide-in-from-top duration-300">
+             <AlertTriangle size={16} className="animate-pulse" />
+             <p className="text-xs font-black uppercase tracking-widest">
+               Read-Only Mode: {suspendedOrgName} Subscription has expired. Data entry is restricted.
+             </p>
+             {user?.role === UserRole.ORG_ADMIN && (
+               <button 
+                 onClick={() => navigate('/organizations')} 
+                 className="bg-white text-rose-600 px-3 py-1 rounded-lg text-[9px] font-black hover:bg-rose-50 transition-colors uppercase tracking-widest ml-2 shadow-sm"
+               >
+                 Resubscribe
+               </button>
+             )}
+          </div>
+        )}
+
+        <div className="p-6 max-w-7xl mx-auto w-full">
+          {children}
+        </div>
       </main>
     </div>
   );
