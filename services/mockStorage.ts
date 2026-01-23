@@ -88,6 +88,11 @@ export const storage = {
     }
   },
 
+  deleteOrganization: async (id: string) => {
+    const { error } = await supabase.from('organizations').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
   getBusinesses: async (): Promise<Business[]> => {
     try {
       const { orgId, role } = await getFilter();

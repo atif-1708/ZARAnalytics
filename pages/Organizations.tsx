@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Briefcase, Calendar, CheckCircle2, XCircle, UserPlus, Loader2, ShieldCheck, Mail, Key, Zap, Layers, AlertCircle, Copy, Check, Database, LayoutDashboard, Power, PowerOff, AlertTriangle } from 'lucide-react';
+import { Plus, Briefcase, Calendar, CheckCircle2, XCircle, UserPlus, Loader2, ShieldCheck, Mail, Key, Zap, Layers, AlertCircle, Copy, Check, Database, LayoutDashboard, Power, PowerOff, AlertTriangle, Trash2 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { Organization, UserRole, SubscriptionTier } from '../types';
 import { formatDate } from '../utils/formatters';
@@ -103,6 +103,23 @@ export const Organizations: React.FC = () => {
     }
   };
 
+  const handleDeleteOrg = async (org: Organization) => {
+    if (isSaving) return;
+    const confirmMsg = `NUCLEAR OPTION: Delete ${org.name}?\n\nThis will permanently remove the organization and its associated metadata. This action is irreversible.`;
+    
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsSaving(true);
+    try {
+      await storage.deleteOrganization(org.id);
+      await loadOrgs();
+    } catch (err: any) {
+      alert("Deletion failed: " + err.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
 
   return (
@@ -182,18 +199,28 @@ export const Organizations: React.FC = () => {
                 >
                   Modify Subscription
                 </button>
-                <button 
-                  disabled={isSaving}
-                  onClick={() => handleToggleActive(org)} 
-                  className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all border ${
-                    org.isActive 
-                      ? 'border-rose-100 text-rose-600 hover:bg-rose-50' 
-                      : 'border-emerald-100 text-emerald-600 hover:bg-emerald-50'
-                  }`}
-                >
-                  {isSaving ? <Loader2 className="animate-spin" size={14}/> : (org.isActive ? <PowerOff size={14} /> : <Power size={14} />)}
-                  {org.isActive ? 'Deactivate Access' : 'Restore Access'}
-                </button>
+                <div className="flex gap-2">
+                  <button 
+                    disabled={isSaving}
+                    onClick={() => handleToggleActive(org)} 
+                    className={`flex-1 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all border ${
+                      org.isActive 
+                        ? 'border-rose-100 text-rose-600 hover:bg-rose-50' 
+                        : 'border-emerald-100 text-emerald-600 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {isSaving ? <Loader2 className="animate-spin" size={14}/> : (org.isActive ? <PowerOff size={14} /> : <Power size={14} />)}
+                    {org.isActive ? 'Deactivate' : 'Restore'}
+                  </button>
+                  <button 
+                    disabled={isSaving}
+                    onClick={() => handleDeleteOrg(org)}
+                    className="px-4 py-3 border border-rose-100 text-rose-400 hover:bg-rose-600 hover:text-white rounded-xl transition-all flex items-center justify-center"
+                    title="Delete Organization"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           );
