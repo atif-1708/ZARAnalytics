@@ -35,7 +35,8 @@ import { useAuth } from '../context/AuthContext';
 import { Product, Business, UserRole, StockMovement } from '../types';
 import { formatZAR, formatDate } from '../utils/formatters';
 
-const MISSING_SCHEMA_SQL = `-- 1. FIX COLUMN TYPES FOR ACCURATE TIMEKEEPING
+export const MISSING_SCHEMA_SQL = `-- 1. FIX COLUMN TYPES FOR ACCURATE TIMEKEEPING
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE sales ALTER COLUMN date TYPE timestamptz USING date::timestamptz;
 ALTER TABLE stock_movements ALTER COLUMN created_at TYPE timestamptz USING created_at::timestamptz;
 

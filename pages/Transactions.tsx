@@ -21,12 +21,14 @@ import {
   Square,
   Minus,
   Plus,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Database
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { DailySale, Business, UserRole, PaymentMethod } from '../types';
 import { formatDate, formatZAR } from '../utils/formatters';
+import { MISSING_SCHEMA_SQL } from './Inventory';
 
 export const Transactions: React.FC = () => {
   const { user } = useAuth();
@@ -34,6 +36,8 @@ export const Transactions: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefunding, setIsRefunding] = useState(false);
+  const [showSchemaAlert, setShowSchemaAlert] = useState(false);
+  const [copied, setCopied] = useState(false);
   
   // Filters
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('all');
@@ -62,8 +66,19 @@ export const Transactions: React.FC = () => {
       );
 
       setBusinesses(filteredBiz);
-      // Include standard sales (with items) AND financial adjustments (negative amounts, often with no items)
-      setSales(sData.filter(s => (s.items && s.items.length > 0) || s.salesAmount < 0));
+      const relevantSales = sData.filter(s => (s.items && s.items.length > 0) || s.salesAmount < 0);
+      setSales(relevantSales);
+
+      // Detect if recent transactions are missing full timestamp info
+      // Check last 5 sales: if they have date ending in T00:00:00... and NO createdAt, assume DB is truncating
+      const recent = relevantSales.slice(0, 5);
+      const isMissingTime = recent.some(s => {
+         const dateIsMidnight = s.date.endsWith('T00:00:00.000Z') || s.date.endsWith('T00:00:00') || s.date.length === 10;
+         return dateIsMidnight && !s.createdAt;
+      });
+      
+      if (isMissingTime) setShowSchemaAlert(true);
+
     } finally { 
       setIsLoading(false); 
     }
@@ -121,12 +136,10 @@ export const Transactions: React.FC = () => {
   const handleRefund = async () => {
     if (!viewingSale || isRefunding) return;
     
-    // Construct refund payload
     const itemsToRefund = viewingSale.items?.map((item, idx) => {
       if (selectedItems[idx]) {
         const remainingQty = item.quantity - (item.refundedQuantity || 0);
         const requestQty = refundQuantities[idx] || remainingQty;
-        
         return {
           sku: item.sku,
           quantity: requestQty,
@@ -150,27 +163,21 @@ export const Transactions: React.FC = () => {
     setIsRefunding(true);
     try {
       await storage.processRefund(viewingSale.id, itemsToRefund);
-      
-      // Reload strictly from DB to get the new state (refundedQuantity updates AND new adjustment record)
       const freshSales = await storage.getSales();
       setSales(freshSales.filter(s => (s.items && s.items.length > 0) || s.salesAmount < 0));
       
       const updatedSale = freshSales.find(s => s.id === viewingSale.id);
-      
       if (updatedSale) {
         if (updatedSale.isRefunded) {
            setViewingSale(prev => prev ? { ...prev, isRefunded: true } : null);
         } else {
-           // Update the currently viewed sale with new item data (so badges update)
            setViewingSale(updatedSale);
-           // Clear selection state for next action
            setSelectedItems({});
            setRefundQuantities({});
         }
       } else {
         setViewingSale(null);
       }
-      
       alert("Refund processed successfully.");
     } catch (e: any) {
       alert("Refund Failed: " + e.message);
@@ -202,22 +209,22 @@ export const Transactions: React.FC = () => {
   }, [sales, businesses, selectedBusinessId, search, dateFilter, methodFilter]);
 
   const getTimeString = (sale: DailySale) => {
-    // 1. Try to use the primary date field if it contains valid time info
     if (sale.date && sale.date.length > 10) {
        const date = new Date(sale.date);
-       // If it's NOT midnight UTC (00:00:00), we trust the time is present.
-       // Note: 5 AM PKT is 00:00 UTC, but a real transaction is unlikely to be EXACTLY 00:00:00.000
        if (!(date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0)) {
           return date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
        }
     }
-    
-    // 2. Fallback to createdAt if date was truncated (e.g. legacy DATE column)
     if (sale.createdAt) {
        return new Date(sale.createdAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
     }
-
     return '--:--';
+  };
+
+  const copySql = () => {
+    navigator.clipboard.writeText(MISSING_SCHEMA_SQL);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
@@ -228,6 +235,28 @@ export const Transactions: React.FC = () => {
         <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Granular Transaction Log</h2>
         <p className="text-slate-500">Itemized audit of every digital checkout processed via POS</p>
       </div>
+
+      {showSchemaAlert && (
+        <div className="p-8 bg-rose-50 border border-rose-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-8 animate-in slide-in-from-top-4 text-left">
+           <div className="w-16 h-16 bg-rose-600 text-white rounded-3xl flex items-center justify-center shrink-0 shadow-lg shadow-rose-200">
+             <Database size={32} />
+           </div>
+           <div className="flex-1 space-y-2">
+              <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">Database Update Required</h4>
+              <p className="text-sm text-rose-600 font-medium leading-relaxed">
+                Your database transaction table (sales) is missing critical timestamp columns. New transactions will not show accurate times until this is fixed. Run this script in the Supabase SQL Editor.
+              </p>
+           </div>
+           <div className="flex flex-col gap-2">
+             <button onClick={copySql} className="bg-white text-rose-600 border border-rose-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-rose-50 transition-colors">
+                {copied ? 'Copied to Clipboard' : 'Copy Repair Script'}
+             </button>
+             <button onClick={() => setShowSchemaAlert(false)} className="text-rose-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
+               Dismiss
+             </button>
+           </div>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -431,7 +460,6 @@ export const Transactions: React.FC = () => {
                       </div>
                       
                       <div className="flex items-center gap-6 shrink-0">
-                        {/* Quantity Logic: If selected, show adjuster, else static */}
                         {selectedItems[idx] && !viewingSale.isRefunded ? (
                           <div className="flex items-center bg-white border border-rose-200 rounded-lg">
                              <button 
