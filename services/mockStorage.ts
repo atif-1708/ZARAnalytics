@@ -280,11 +280,6 @@ export const storage = {
     const itemsToProcess = refundItems && refundItems.length > 0 ? refundItems : (original.items || []);
     if (itemsToProcess.length === 0) throw new Error("No items found to refund.");
 
-    // Validate if any items were actually part of the original sale (simple check)
-    if (original.items && original.items.length > 0) {
-        // Optional validation logic could go here
-    }
-
     let totalRefundAmount = 0;
     let totalRefundProfit = 0; 
 
@@ -328,6 +323,7 @@ export const storage = {
       try {
         await supabase.from('sales').update({ is_refunded: true }).eq('id', saleId);
       } catch (e) {
+        // Warning only: if update fails (e.g. column missing), we still proceed with financial adjustment
         console.warn("Could not mark original as refunded (column might be missing), but continuing with financial adjustment.", e);
       }
     }
@@ -345,8 +341,10 @@ export const storage = {
       profitPercentage: 0, 
       paymentMethod: original.paymentMethod,
       items: [], // Empty items to avoid double counting in stats
-      orgId: finalOrgId,
-      isRefunded: false 
+      orgId: finalOrgId
+      // NOTE: We intentionally OMIT `isRefunded: false` here.
+      // The database column defaults to false. By omitting it, we prevent a crash if the schema cache
+      // on the client hasn't refreshed to see the `is_refunded` column yet.
     };
 
     const payload = mapToDb(refundEntry);

@@ -192,7 +192,7 @@ export const Transactions: React.FC = () => {
         <p className="text-slate-500">Itemized audit of every digital checkout processed via POS</p>
       </div>
 
-      {/* Filter Bar (unchanged) */}
+      {/* Filter Bar */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
           <Store size={14} className="text-slate-400" />
@@ -340,6 +340,12 @@ export const Transactions: React.FC = () => {
              )}
 
              <div className={`bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-2 ${viewingSale.isRefunded ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
+                {!viewingSale.isRefunded && (
+                  <div className="flex items-center gap-2 mb-3 bg-rose-50 p-2 rounded-lg text-rose-600">
+                    <CheckSquare size={14} />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Select items below to process partial refund</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200 pb-3 mb-2">
                    <span>Item Description</span>
                    <div className="flex gap-8">
