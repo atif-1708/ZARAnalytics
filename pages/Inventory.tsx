@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
-import { Product, Business } from '../types';
+import { Product, Business, UserRole } from '../types';
 import { formatZAR } from '../utils/formatters';
 
 const MISSING_SCHEMA_SQL = `-- Run this in your Supabase SQL Editor:
@@ -77,18 +77,40 @@ export const Inventory: React.FC = () => {
     setIsLoading(true);
     try {
       const bData = await storage.getBusinesses();
-      const filteredBiz = bData.filter(b => user?.role === 'SUPER_ADMIN' || user?.assignedBusinessIds?.includes(b.id));
+      
+      // FIX: Improved filtering logic for different roles
+      // Super Admins, Org Admins, and Admins should see all businesses returned by the storage service 
+      // (which is already scoped to their Org ID in mockStorage.getBusinesses)
+      const filteredBiz = bData.filter(b => {
+        if (user?.role === UserRole.SUPER_ADMIN || 
+            user?.role === UserRole.ORG_ADMIN || 
+            user?.role === UserRole.ADMIN) {
+          return true;
+        }
+        // Staff are restricted to specific IDs
+        return user?.assignedBusinessIds?.includes(b.id);
+      });
+      
       setBusinesses(filteredBiz);
-      if (filteredBiz.length > 0) setSelectedBusinessId(filteredBiz[0].id);
+      
+      if (filteredBiz.length > 0) {
+        // Only set if not already set or if current selection isn't in new list
+        if (!selectedBusinessId || !filteredBiz.some(b => b.id === selectedBusinessId)) {
+          setSelectedBusinessId(filteredBiz[0].id);
+        }
+      }
     } catch(e) {
-      console.error(e);
+      console.error("Error loading business units:", e);
     } finally {
       setIsLoading(false);
     }
   };
 
   const loadProducts = async () => {
-    if (!selectedBusinessId) return;
+    if (!selectedBusinessId) {
+      setProducts([]);
+      return;
+    }
     try {
       const pData = await storage.getProducts(selectedBusinessId);
       setProducts(pData);
@@ -97,7 +119,7 @@ export const Inventory: React.FC = () => {
       if (e.message?.includes('SCHEMA_MISSING')) {
         setIsSchemaNoticeOpen(true);
       }
-      console.error(e); 
+      console.error("Error loading products:", e); 
     }
   };
 
@@ -106,6 +128,10 @@ export const Inventory: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedBusinessId) {
+      alert("Please select a Business Unit first.");
+      return;
+    }
     if (isSaving) return;
     setIsSaving(true);
     setError(null);
@@ -157,14 +183,16 @@ export const Inventory: React.FC = () => {
     if (!file) return;
 
     // Strict validation of context before proceeding
-    if (!selectedBusinessId || selectedBusinessId === "") {
-      alert("Please select a valid Business Unit before importing.");
+    if (!selectedBusinessId) {
+      alert("No Business Unit selected. Please ensure you have created at least one Business Unit in the 'Businesses' section.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     const biz = businesses.find(b => b.id === selectedBusinessId);
     if (!biz || !biz.orgId) {
-      alert("Organizational context for this business could not be determined.");
+      alert("Context error: The selected business unit is invalid or missing organizational data.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
@@ -172,14 +200,19 @@ export const Inventory: React.FC = () => {
     reader.onload = async (event) => {
       const text = event.target?.result as string;
       const rows = text.split('\n').filter(r => r.trim());
-      const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
       
+      if (rows.length < 2) {
+        alert("The CSV file appears to be empty or missing data rows.");
+        return;
+      }
+
+      const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
       const importedProducts: Partial<Product>[] = [];
 
       for (let i = 1; i < rows.length; i++) {
         const values = rows[i].split(',').map(v => v.trim());
         
-        // Initialize with validated UUIDs only
+        // Initialize with validated IDs
         const prod: any = { 
           businessId: selectedBusinessId, 
           orgId: biz.orgId 
@@ -209,7 +242,7 @@ export const Inventory: React.FC = () => {
           await storage.bulkUpsertProducts(importedProducts as Product[]);
           await loadProducts();
           setIsImportModalOpen(false);
-          alert(`Successfully imported ${importedProducts.length} items.`);
+          alert(`Successfully imported ${importedProducts.length} items to ${biz.name}.`);
         } catch (err: any) {
           if (err.message?.includes('SCHEMA_MISSING')) {
             setIsSchemaNoticeOpen(true);
@@ -250,6 +283,10 @@ export const Inventory: React.FC = () => {
           </button>
           <button 
             onClick={() => {
+              if (!selectedBusinessId) {
+                alert("Please register a Business Unit first.");
+                return;
+              }
               setEditingProduct(null);
               setFormData({ sku: '', name: '', description: '', costPrice: 0, salePrice: 0, currentStock: 0, category: '' });
               setIsModalOpen(true);
@@ -260,6 +297,20 @@ export const Inventory: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {businesses.length === 0 && (
+        <div className="p-8 bg-amber-50 border border-amber-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-6 text-left">
+           <div className="w-12 h-12 bg-amber-500 text-white rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-amber-200">
+             <AlertCircle size={24} />
+           </div>
+           <div className="flex-1">
+              <h4 className="text-sm font-black text-amber-800 uppercase tracking-tight">No Business Units Found</h4>
+              <p className="text-xs text-amber-600 font-medium">
+                Inventory tracking requires a Business Unit. Please go to the <b>Businesses</b> page to register your first shop location.
+              </p>
+           </div>
+        </div>
+      )}
 
       {isSchemaNoticeOpen && (
         <div className="p-8 bg-rose-50 border border-rose-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-8 animate-in slide-in-from-top-4 text-left">
@@ -284,13 +335,14 @@ export const Inventory: React.FC = () => {
 
       {/* Stats / Controls Bar */}
       <div className="flex flex-col md:flex-row items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 min-w-[200px]">
+        <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 min-w-[200px] w-full md:w-auto">
           <Store size={14} className="text-slate-400" />
           <select 
             value={selectedBusinessId} 
             onChange={e => setSelectedBusinessId(e.target.value)}
             className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer w-full"
           >
+            {businesses.length === 0 && <option value="">No Units Available</option>}
             {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
@@ -378,8 +430,10 @@ export const Inventory: React.FC = () => {
                          <Terminal size={40} className="opacity-20" />
                          <p className="font-black uppercase tracking-widest text-xs">Schema Setup Required Above</p>
                       </div>
+                    ) : businesses.length === 0 ? (
+                      'Please register a business unit to start adding products.'
                     ) : (
-                      'No products in inventory.'
+                      'No products found in this business inventory.'
                     )}
                   </td>
                 </tr>
@@ -454,7 +508,7 @@ export const Inventory: React.FC = () => {
              </div>
              <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Bulk CSV Import</h3>
              <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed">
-               Select a spreadsheet to ingest products.
+               Select a spreadsheet to ingest products into the selected unit.
              </p>
 
              <div className="space-y-4">
