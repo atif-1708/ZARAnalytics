@@ -24,7 +24,10 @@ import {
   Layers,
   Tag,
   Coins,
-  Receipt
+  Receipt,
+  Percent,
+  // Fix: Import missing X icon component
+  X
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -37,7 +40,6 @@ export const POS: React.FC = () => {
   const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<SaleItem[]>([]);
-  const [discount, setDiscount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState('');
@@ -133,7 +135,8 @@ export const POS: React.FC = () => {
         sku: product.sku,
         quantity: 1,
         priceAtSale: product.salePrice,
-        costAtSale: product.costPrice
+        costAtSale: product.costPrice,
+        discount: 0
       }];
     });
   };
@@ -148,16 +151,24 @@ export const POS: React.FC = () => {
     }));
   };
 
+  const updateItemDiscount = (productId: string, discount: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.productId === productId) {
+        return { ...item, discount: Math.max(0, discount) };
+      }
+      return item;
+    }));
+  };
+
   const removeFromCart = (productId: string) => {
     setCart(prev => prev.filter(item => item.productId !== productId));
   };
 
+  // Calculations
   const cartSubtotal = cart.reduce((acc, item) => acc + (item.priceAtSale * item.quantity), 0);
+  const totalDiscount = cart.reduce((acc, item) => acc + (item.discount || 0), 0);
   const cartCost = cart.reduce((acc, item) => acc + (item.costAtSale * item.quantity), 0);
-  
-  // Ensure discount doesn't exceed subtotal
-  const safeDiscount = Math.min(discount, cartSubtotal);
-  const finalTotal = Math.max(0, cartSubtotal - safeDiscount);
+  const finalTotal = Math.max(0, cartSubtotal - totalDiscount);
   
   const cashReceivedVal = parseFloat(receivedAmount) || 0;
   const changeDue = Math.max(0, cashReceivedVal - finalTotal);
@@ -187,7 +198,6 @@ export const POS: React.FC = () => {
 
       setSuccessMessage(`Sale Completed: ${formatZAR(finalTotal)}`);
       setCart([]);
-      setDiscount(0);
       setReceivedAmount('');
       setSelectedMethod(null);
       setIsCheckoutOpen(false);
@@ -312,89 +322,126 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: Digital Basket & Summary */}
-      <div className="w-full lg:w-[420px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
-        <div className="p-6 border-b border-slate-100">
-          <div className="flex items-center justify-between mb-6">
+      {/* Right: Digital Basket (High Density View) */}
+      <div className="w-full lg:w-[460px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
+        <div className="p-5 border-b border-slate-100">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <ShoppingCart size={20} className="text-slate-400" />
+              <ShoppingCart size={18} className="text-slate-400" />
               <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Digital Basket</h3>
             </div>
             {cart.length > 0 && (
-              <button onClick={() => {setCart([]); setDiscount(0);}} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Session</button>
+              <button onClick={() => {setCart([]);}} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Session</button>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-             <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 flex flex-col">
-                <div className="flex items-center gap-1.5 mb-1 text-emerald-600">
-                   <Wallet size={12} />
+          <div className="grid grid-cols-2 gap-2">
+             <div className="bg-emerald-50/40 border border-emerald-100 rounded-xl p-3 flex flex-col">
+                <div className="flex items-center gap-1.5 mb-0.5 text-emerald-600">
+                   <Wallet size={10} />
                    <span className="text-[8px] font-black uppercase tracking-widest">Today's Cash</span>
                 </div>
-                <span className="text-base font-black text-emerald-700">{formatZAR(todayTotals.cash)}</span>
+                <span className="text-sm font-black text-emerald-700">{formatZAR(todayTotals.cash)}</span>
              </div>
-             <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex flex-col">
-                <div className="flex items-center gap-1.5 mb-1 text-blue-600">
-                   <Building size={12} />
+             <div className="bg-blue-50/40 border border-blue-100 rounded-xl p-3 flex flex-col">
+                <div className="flex items-center gap-1.5 mb-0.5 text-blue-600">
+                   <Building size={10} />
                    <span className="text-[8px] font-black uppercase tracking-widest">Online / Bank</span>
                 </div>
-                <span className="text-base font-black text-blue-700">{formatZAR(todayTotals.bank)}</span>
+                <span className="text-sm font-black text-blue-700">{formatZAR(todayTotals.bank)}</span>
              </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/20">
+        {/* High Density Item List */}
+        <div className="flex-1 overflow-y-auto bg-slate-50/30">
           {successMessage && (
-            <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-700 text-xs font-bold flex items-center gap-3 animate-in zoom-in slide-in-from-top-4">
+            <div className="m-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-700 text-xs font-bold flex items-center gap-3 animate-in zoom-in slide-in-from-top-4">
               <div className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-lg"><CheckCircle size={18} /></div>
               <span>{successMessage}</span>
             </div>
           )}
           
-          {cart.map(item => (
-            <div key={item.productId} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group shadow-sm transition-all hover:border-teal-300">
-              <div className="flex-1 min-w-0 pr-4">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 truncate">{item.sku}</h4>
-                <div className="text-sm font-black text-teal-600 leading-none">{formatZAR(item.priceAtSale * item.quantity)}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-inner">
-                  <button onClick={() => updateQuantity(item.productId, -1)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"><Minus size={14} /></button>
-                  <span className="w-8 text-center text-xs font-black text-slate-800">{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.productId, 1)} className="p-1.5 text-slate-400 hover:text-teal-500 transition-colors"><Plus size={14} /></button>
+          <div className="divide-y divide-slate-100">
+            {cart.map(item => {
+              const itemSubtotal = item.priceAtSale * item.quantity;
+              const itemDiscount = item.discount || 0;
+              const itemFinal = Math.max(0, itemSubtotal - itemDiscount);
+
+              return (
+                <div key={item.productId} className="p-3 bg-white group hover:bg-teal-50/30 transition-all flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0 pr-2">
+                      <Hash size={12} className="text-slate-300" />
+                      <h4 className="text-[11px] font-black text-slate-700 uppercase tracking-tight truncate">{item.sku}</h4>
+                    </div>
+                    <button onClick={() => removeFromCart(item.productId)} className="p-1 text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
+                      <X size={14} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    {/* Quantity Controls */}
+                    <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">
+                      <button onClick={() => updateQuantity(item.productId, -1)} className="p-1 text-slate-400 hover:text-rose-500"><Minus size={12} /></button>
+                      <span className="w-6 text-center text-[11px] font-black text-slate-800">{item.quantity}</span>
+                      <button onClick={() => updateQuantity(item.productId, 1)} className="p-1 text-slate-400 hover:text-teal-500"><Plus size={12} /></button>
+                    </div>
+
+                    {/* Per-Item Discount Input */}
+                    <div className="flex-1 max-w-[120px]">
+                      <div className="relative group/input">
+                        <Tag className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within/input:text-indigo-500 transition-colors" size={10} />
+                        <input 
+                          type="number"
+                          placeholder="Disc. ZAR"
+                          className="w-full pl-6 pr-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black text-slate-700 outline-none focus:border-indigo-400 focus:bg-white transition-all placeholder:text-slate-300"
+                          value={item.discount || ''}
+                          onChange={(e) => updateItemDiscount(item.productId, parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pricing */}
+                    <div className="text-right flex flex-col items-end min-w-[80px]">
+                      {itemDiscount > 0 && (
+                        <span className="text-[9px] font-bold text-slate-400 line-through decoration-slate-300 leading-tight">
+                          {formatZAR(itemSubtotal)}
+                        </span>
+                      )}
+                      <span className={`text-xs font-black leading-none ${itemDiscount > 0 ? 'text-indigo-600' : 'text-teal-600'}`}>
+                        {formatZAR(itemFinal)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <button onClick={() => removeFromCart(item.productId)} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><Trash2 size={16} /></button>
-              </div>
-            </div>
-          ))}
+              );
+            })}
+          </div>
 
           {cart.length === 0 && !successMessage && (
             <div className="py-24 text-center text-slate-300 flex flex-col items-center">
                <div className="w-16 h-16 bg-white rounded-full border border-slate-100 shadow-sm flex items-center justify-center mb-4 opacity-50">
                   <ShoppingCart size={24} className="opacity-20" />
                </div>
-               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">No Items Selected</p>
+               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Add products to basket</p>
             </div>
           )}
         </div>
 
-        <div className="p-6 bg-slate-900 border-t border-slate-800 space-y-4 shadow-2xl">
-          {/* DISCOUNT INPUT */}
-          <div className="space-y-2 border-b border-white/5 pb-4">
-             <div className="flex justify-between items-center px-1">
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Subtotal</span>
-                <span className="text-sm font-black text-slate-300">{formatZAR(cartSubtotal)}</span>
+        {/* Footer Summary */}
+        <div className="p-5 bg-slate-900 border-t border-slate-800 space-y-4 shadow-2xl">
+          <div className="space-y-1 px-1">
+             <div className="flex justify-between items-center">
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Subtotal</span>
+                <span className="text-xs font-black text-slate-300">{formatZAR(cartSubtotal)}</span>
              </div>
-             <div className="flex items-center gap-3 bg-white/5 rounded-xl border border-white/10 px-3 py-2">
-                <Tag size={12} className="text-indigo-400" />
-                <input 
-                   type="number"
-                   placeholder="Fixed Discount (ZAR)"
-                   className="flex-1 bg-transparent text-xs font-black text-white outline-none placeholder:text-slate-600"
-                   value={discount || ''}
-                   onChange={(e) => setDiscount(Math.abs(parseFloat(e.target.value)) || 0)}
-                />
-             </div>
+             {totalDiscount > 0 && (
+               <div className="flex justify-between items-center">
+                  <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Total Savings</span>
+                  <span className="text-xs font-black text-indigo-400">-{formatZAR(totalDiscount)}</span>
+               </div>
+             )}
           </div>
 
           <div className="flex justify-between items-center px-1">
@@ -418,7 +465,7 @@ export const POS: React.FC = () => {
               </>
             ) : (
               <>
-                Finalize Sale <ChevronRight size={18} />
+                Checkout Transaction <ChevronRight size={18} />
               </>
             )}
           </button>
@@ -445,7 +492,7 @@ export const POS: React.FC = () => {
                    </div>
                    <div className="flex justify-between items-center">
                       <span className="text-xs font-bold text-slate-500">Discount</span>
-                      <span className="text-sm font-black text-rose-600">-{formatZAR(safeDiscount)}</span>
+                      <span className="text-sm font-black text-rose-600">-{formatZAR(totalDiscount)}</span>
                    </div>
                    <div className="pt-4 border-t border-slate-200 flex justify-between items-center">
                       <span className="text-sm font-black text-slate-900 uppercase">Total Due</span>

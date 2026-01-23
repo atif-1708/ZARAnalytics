@@ -72,6 +72,7 @@ export interface SaleItem {
   quantity: number;
   priceAtSale: number;
   costAtSale: number;
+  discount?: number;
 }
 
 export interface DailySale {
