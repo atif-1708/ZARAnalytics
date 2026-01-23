@@ -19,7 +19,9 @@ import {
   PackageSearch,
   Globe,
   Wallet,
-  Building
+  Building,
+  PlusCircle,
+  Layers
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -39,7 +41,6 @@ export const POS: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
-  // Real-time reconciliation state
   const [todayTotals, setTodayTotals] = useState({ cash: 0, bank: 0 });
 
   const fetchTodayTotals = async (bizId: string) => {
@@ -92,7 +93,6 @@ export const POS: React.FC = () => {
     try {
       const pData = await storage.getProducts(selectedBusinessId);
       setProducts(pData);
-      // Also refresh totals whenever we refresh products
       await fetchTodayTotals(selectedBusinessId);
     } catch (e) { 
       console.error("POS: Failed to load products", e); 
@@ -112,6 +112,7 @@ export const POS: React.FC = () => {
   }, [products, search]);
 
   const addToCart = (product: Product) => {
+    if ((product.currentStock ?? 0) <= 0) return;
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id);
       if (existing) {
@@ -166,7 +167,6 @@ export const POS: React.FC = () => {
       setCart([]);
       setIsCheckoutOpen(false);
       
-      // Refresh state
       await loadProducts();
       await fetchTodayTotals(selectedBusinessId);
       
@@ -187,7 +187,7 @@ export const POS: React.FC = () => {
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)]">
-      {/* Left: Product Selection */}
+      {/* Left: Product Selection (List View) */}
       <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm text-left">
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/50">
           <div className="flex items-center gap-3 w-full md:w-auto">
@@ -207,103 +207,124 @@ export const POS: React.FC = () => {
                <RefreshCw size={16} />
              </button>
           </div>
-          <div className="relative w-full md:w-80">
+          <div className="relative w-full md:w-96">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 
               type="text" 
-              placeholder="Scan SKU or Search..." 
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all" 
+              placeholder="Filter by SKU or description..." 
+              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all shadow-inner" 
               value={search} 
               onChange={e => setSearch(e.target.value)} 
             />
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
-          {filteredProducts.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-              {filteredProducts.map(product => {
-                const stock = product.currentStock ?? 0;
-                const isOutOfStock = stock <= 0;
-                
-                return (
-                  <button 
-                    key={product.id} 
-                    disabled={isOutOfStock} 
-                    onClick={() => addToCart(product)} 
-                    className={`flex flex-col text-left bg-white p-5 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-teal-400 transition-all group relative ${isOutOfStock ? 'opacity-50' : 'active:scale-95'}`}
-                  >
-                    <div className="flex items-center gap-1.5 mb-3">
-                       <Hash size={12} className="text-slate-300" />
-                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{product.sku}</span>
-                    </div>
-                    <p className="text-xs font-bold text-slate-700 line-clamp-2 mb-6 flex-1">{product.description || 'No Description'}</p>
-                    <div className="mt-auto flex items-end justify-between">
-                      <div className="text-xl font-black text-slate-900">{formatZAR(product.salePrice)}</div>
-                      <div className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase ${stock < 10 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
-                         Stock: {stock}
-                      </div>
-                    </div>
-                    {isOutOfStock && (
-                      <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center rounded-2xl text-center p-4">
-                         <span className="bg-rose-600 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-lg shadow-lg">Out of Stock</span>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
+        <div className="flex-1 overflow-y-auto bg-white">
+          <div className="min-w-full">
+            <div className="sticky top-0 z-10 grid grid-cols-12 gap-4 px-8 py-3 bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">
+               <div className="col-span-3">SKU / ID</div>
+               <div className="col-span-5">Product Details</div>
+               <div className="col-span-2 text-right">Unit Price</div>
+               <div className="col-span-2 text-right">Availability</div>
             </div>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 py-20">
-               <div className="w-20 h-20 bg-slate-100 text-slate-300 rounded-[2rem] flex items-center justify-center mb-6">
-                 {search ? <PackageSearch size={40} /> : <Package size={40} />}
-               </div>
-               <h4 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-1">
-                 {search ? 'No Matches Found' : 'Inventory Empty'}
-               </h4>
-               <p className="text-sm font-medium text-slate-400 max-w-xs text-center">
-                 {search 
-                   ? `Adjust your search term or barcode for "${search}"` 
-                   : "This business unit has no products registered in the Inventory system."}
-               </p>
-               {!search && (
-                 <p className="mt-6 text-[10px] font-black uppercase tracking-widest text-teal-600 bg-teal-50 px-4 py-2 rounded-xl border border-teal-100">
-                    Use Inventory Master to add products
+
+            {filteredProducts.length > 0 ? (
+              <div className="divide-y divide-slate-50">
+                {filteredProducts.map(product => {
+                  const stock = product.currentStock ?? 0;
+                  const isOutOfStock = stock <= 0;
+                  const isLowStock = stock > 0 && stock < 10;
+                  
+                  return (
+                    <button 
+                      key={product.id} 
+                      disabled={isOutOfStock}
+                      onClick={() => addToCart(product)} 
+                      className={`w-full grid grid-cols-12 gap-4 items-center px-8 py-4 text-left transition-all group ${isOutOfStock ? 'opacity-50 cursor-not-allowed bg-slate-50/50' : 'hover:bg-teal-50/40'}`}
+                    >
+                      <div className="col-span-3">
+                         <div className="flex items-center gap-2">
+                           <div className={`p-1.5 rounded-lg border transition-colors ${isOutOfStock ? 'bg-slate-100 text-slate-300 border-slate-200' : 'bg-white text-teal-600 border-teal-100 group-hover:bg-teal-600 group-hover:text-white'}`}>
+                              <Hash size={14} />
+                           </div>
+                           <span className="font-mono text-xs font-black text-slate-800 tracking-tight">{product.sku}</span>
+                         </div>
+                      </div>
+
+                      <div className="col-span-5 overflow-hidden">
+                         <p className="text-sm font-bold text-slate-700 truncate">{product.description || 'No Description Available'}</p>
+                         <div className="flex items-center gap-2 mt-0.5">
+                            <Layers size={10} className="text-slate-300" />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Standard Inventory Unit</span>
+                         </div>
+                      </div>
+
+                      <div className="col-span-2 text-right">
+                         <span className="text-sm font-black text-slate-900">{formatZAR(product.salePrice)}</span>
+                      </div>
+
+                      <div className="col-span-2 flex flex-col items-end">
+                         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                           isOutOfStock ? 'bg-rose-50 text-rose-600 border-rose-100' : 
+                           isLowStock ? 'bg-amber-50 text-amber-600 border-amber-100' : 
+                           'bg-emerald-50 text-emerald-600 border-emerald-100 group-hover:bg-emerald-600 group-hover:text-white'
+                         }`}>
+                           {isOutOfStock ? 'Stock Out' : `${stock} In Stock`}
+                         </div>
+                         {!isOutOfStock && (
+                           <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-teal-600 font-black text-[9px] uppercase tracking-tighter">
+                             <PlusCircle size={10} /> Add To Cart
+                           </div>
+                         )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-32 text-slate-400">
+                 <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-[2.5rem] flex items-center justify-center mb-6">
+                   {search ? <PackageSearch size={40} /> : <Package size={40} />}
+                 </div>
+                 <h4 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-1">
+                   {search ? 'No Matches' : 'No Items'}
+                 </h4>
+                 <p className="text-xs font-medium text-slate-400 max-w-xs text-center">
+                   {search ? `Adjust your filters for "${search}"` : "This branch has no inventory recorded."}
                  </p>
-               )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Right: Cart & Checkout */}
-      <div className="w-full lg:w-[400px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
+      <div className="w-full lg:w-[420px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
         <div className="p-6 border-b border-slate-100">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <ShoppingCart size={20} className="text-slate-400" />
-              <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Active Sale</h3>
+              <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Digital Basket</h3>
             </div>
             {cart.length > 0 && (
-              <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear All</button>
+              <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Transaction</button>
             )}
           </div>
 
-          {/* Real-time End-of-Day Reconciliation Dashboard */}
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
              <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 flex flex-col">
                 <div className="flex items-center gap-1.5 mb-1 text-emerald-600">
                    <Wallet size={12} />
-                   <span className="text-[8px] font-black uppercase tracking-widest">Cash In Hand</span>
+                   <span className="text-[8px] font-black uppercase tracking-widest">Today's Cash</span>
                 </div>
-                <span className="text-sm font-black text-emerald-700">{formatZAR(todayTotals.cash)}</span>
+                <span className="text-base font-black text-emerald-700">{formatZAR(todayTotals.cash)}</span>
              </div>
              <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex flex-col">
                 <div className="flex items-center gap-1.5 mb-1 text-blue-600">
                    <Building size={12} />
                    <span className="text-[8px] font-black uppercase tracking-widest">Online / Bank</span>
                 </div>
-                <span className="text-sm font-black text-blue-700">{formatZAR(todayTotals.bank)}</span>
+                <span className="text-base font-black text-blue-700">{formatZAR(todayTotals.bank)}</span>
              </div>
           </div>
         </div>
@@ -317,40 +338,42 @@ export const POS: React.FC = () => {
           )}
           
           {cart.map(item => (
-            <div key={item.productId} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group shadow-sm">
-              <div className="flex-1 min-w-0">
+            <div key={item.productId} className="p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between group shadow-sm transition-all hover:border-teal-300">
+              <div className="flex-1 min-w-0 pr-4">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 truncate">{item.sku}</h4>
-                <div className="text-xs font-black text-teal-600">{formatZAR(item.priceAtSale * item.quantity)}</div>
+                <div className="text-sm font-black text-teal-600 leading-none">{formatZAR(item.priceAtSale * item.quantity)}</div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-1">
-                  <button onClick={() => updateQuantity(item.productId, -1)} className="p-1.5 hover:text-rose-500 transition-colors"><Minus size={14} /></button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-inner">
+                  <button onClick={() => updateQuantity(item.productId, -1)} className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"><Minus size={14} /></button>
                   <span className="w-8 text-center text-xs font-black text-slate-800">{item.quantity}</span>
-                  <button onClick={() => updateQuantity(item.productId, 1)} className="p-1.5 hover:text-teal-500 transition-colors"><Plus size={14} /></button>
+                  <button onClick={() => updateQuantity(item.productId, 1)} className="p-1.5 text-slate-400 hover:text-teal-500 transition-colors"><Plus size={14} /></button>
                 </div>
-                <button onClick={() => removeFromCart(item.productId)} className="p-2 text-slate-300 hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16} /></button>
+                <button onClick={() => removeFromCart(item.productId)} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><Trash2 size={16} /></button>
               </div>
             </div>
           ))}
 
           {cart.length === 0 && !successMessage && (
-            <div className="py-20 text-center text-slate-300">
-               <ShoppingCart size={48} className="mx-auto mb-4 opacity-5" />
-               <p className="text-[10px] font-black uppercase tracking-widest">Terminal Idle</p>
-               <p className="text-[9px] font-bold uppercase mt-2 text-slate-400">Select items to begin</p>
+            <div className="py-24 text-center text-slate-300 flex flex-col items-center">
+               <div className="w-16 h-16 bg-white rounded-full border border-slate-100 shadow-sm flex items-center justify-center mb-4 opacity-50">
+                  <ShoppingCart size={24} className="opacity-20" />
+               </div>
+               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Terminal Idle</p>
+               <p className="text-[9px] font-bold uppercase mt-2 text-slate-300">Select items to begin checkout</p>
             </div>
           )}
         </div>
 
         <div className="p-6 bg-slate-900 border-t border-slate-800 space-y-4 shadow-2xl">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Grand Total</span>
+          <div className="flex justify-between items-center px-1">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Order Total</span>
             <span className="text-3xl font-black text-white tracking-tighter">{formatZAR(cartTotal)}</span>
           </div>
           <button 
             disabled={cart.length === 0 || isSuspended || isProcessing} 
             onClick={() => setIsCheckoutOpen(true)} 
-            className="w-full py-5 bg-teal-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-teal-500 shadow-xl disabled:opacity-50 disabled:bg-slate-700 flex items-center justify-center gap-3 transition-all active:scale-[0.98]"
+            className="w-full py-5 bg-teal-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-teal-500 shadow-xl disabled:opacity-50 disabled:bg-slate-700 flex items-center justify-center gap-3 transition-all active:scale-[0.98] border border-white/10"
           >
             {isSuspended ? (
               <>
@@ -359,7 +382,7 @@ export const POS: React.FC = () => {
               </>
             ) : (
               <>
-                Confirm Payment <ChevronRight size={18} />
+                Finalize & Pay <ChevronRight size={18} />
               </>
             )}
           </button>
@@ -369,19 +392,19 @@ export const POS: React.FC = () => {
       {/* Checkout Modal */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => !isProcessing && setIsCheckoutOpen(false)} />
-          <div className="bg-white rounded-[3rem] w-full max-w-md p-12 relative shadow-2xl text-center">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => !isProcessing && setIsCheckoutOpen(false)} />
+          <div className="bg-white rounded-[3rem] w-full max-w-md p-12 relative shadow-2xl text-center border border-slate-100">
              <div className="w-20 h-20 bg-teal-50 text-teal-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-inner">
                <CreditCard size={40} />
              </div>
-             <h3 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter uppercase">Finalize Sale</h3>
-             <p className="text-sm font-bold text-slate-500 mb-10">Total Due: <span className="text-teal-600 font-black">{formatZAR(cartTotal)}</span></p>
+             <h3 className="text-3xl font-black text-slate-900 mb-2 tracking-tighter uppercase">Process Payment</h3>
+             <p className="text-sm font-bold text-slate-500 mb-10">Balance Due: <span className="text-teal-600 font-black">{formatZAR(cartTotal)}</span></p>
              
              <div className="grid grid-cols-2 gap-4">
                 <button 
                   disabled={isProcessing} 
                   onClick={() => handleCheckout(PaymentMethod.CASH)} 
-                  className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-emerald-500 hover:bg-emerald-50/30 transition-all group active:scale-95"
+                  className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-emerald-500 hover:bg-emerald-50/30 transition-all group active:scale-95 shadow-sm"
                 >
                    <Banknote size={32} className="text-slate-400 group-hover:text-emerald-600 transition-colors" />
                    <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-emerald-700">Cash in Hand</span>
@@ -389,7 +412,7 @@ export const POS: React.FC = () => {
                 <button 
                   disabled={isProcessing} 
                   onClick={() => handleCheckout(PaymentMethod.CARD)} 
-                  className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-blue-500 hover:bg-blue-50/30 transition-all group active:scale-95"
+                  className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-blue-500 hover:bg-blue-50/30 transition-all group active:scale-95 shadow-sm"
                 >
                    <Globe size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
                    <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-blue-700">Online / Bank</span>
@@ -401,7 +424,7 @@ export const POS: React.FC = () => {
                onClick={() => setIsCheckoutOpen(false)} 
                className="mt-10 text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-900 transition-colors disabled:opacity-30"
              >
-               Discard Current Session
+               Discard Order
              </button>
           </div>
         </div>
