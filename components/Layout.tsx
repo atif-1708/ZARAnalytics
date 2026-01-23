@@ -23,7 +23,8 @@ import {
   AlertTriangle,
   ArrowRight,
   Loader2,
-  Lock
+  Lock,
+  BellRing
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Organization } from '../types';
@@ -82,6 +83,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [remindersCount, setRemindersCount] = useState(0);
+  const [subRequestsCount, setSubRequestsCount] = useState(0);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   
   const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
@@ -97,6 +99,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const menuItems: any[] = [
     { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
+    { to: '/subscription-requests', label: 'Sub Requests', icon: <BellRing size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true, badge: subRequestsCount, badgeColor: 'indigo' },
     { to: '/billing', label: 'Plan & Payment', icon: <CreditCard size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
     { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
     { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
@@ -136,12 +139,19 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       thirtyDaysFromNow.setDate(today.getDate() + 30);
       
       if (isGlobalKernelMode) {
-        const orgs = await storage.getOrganizations();
+        const [orgs, reminders] = await Promise.all([
+          storage.getOrganizations(),
+          storage.getReminders()
+        ]);
         const flaggedCount = orgs.filter(org => {
           const endDate = new Date(org.subscriptionEndDate);
           return endDate < today || endDate <= thirtyDaysFromNow;
         }).length;
         setRemindersCount(flaggedCount);
+
+        // Count pending sub requests for the new tab
+        const subReqs = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending' && r.businessId === 'ORG_LEVEL');
+        setSubRequestsCount(subReqs.length);
       } else if (user.role === UserRole.STAFF) {
         const [businesses, sales] = await Promise.all([
           storage.getBusinesses(),
