@@ -6,29 +6,30 @@ import {
   Zap, 
   TrendingUp, 
   ShieldCheck, 
-  CalendarDays,
-  Store,
-  Clock,
-  ChevronRight,
-  Box,
   AlertCircle,
   Activity,
+  Server,
+  Search,
+  Filter,
+  History,
+  CreditCard,
+  UserPlus,
   ArrowUpRight,
-  ArrowDownRight,
-  MousePointerClick,
-  Database,
   PieChart as PieIcon,
-  BarChart3,
-  Server
+  Layers,
+  CalendarDays,
+  ChevronRight,
+  Target,
+  ArrowRight
 } from 'lucide-react';
 import { 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar
+  AreaChart, Area, BarChart, Bar, ComposedChart, Line, Legend, Cell
 } from 'recharts';
 import { storage } from '../services/mockStorage';
-import { Organization, Business, DailySale, User, UserRole, SubscriptionTier } from '../types';
+import { Organization, Business, DailySale, User, SubscriptionTier } from '../types';
 import { StatCard } from '../components/StatCard';
-import { formatZAR, formatDate } from '../utils/formatters';
+import { formatZAR } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
 
 const PIE_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444'];
@@ -49,6 +50,11 @@ export const SuperAdminDashboard: React.FC = () => {
   }>({ organizations: [], businesses: [], sales: [], users: [] });
   const [loading, setLoading] = useState(true);
 
+  // Filter States
+  const [filterTier, setFilterTier] = useState<'all' | SubscriptionTier>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [auditMonth, setAuditMonth] = useState(new Date().toISOString().slice(0, 7));
+
   useEffect(() => {
     const fetchGlobalData = async () => {
       setLoading(true);
@@ -68,73 +74,102 @@ export const SuperAdminDashboard: React.FC = () => {
   }, []);
 
   const stats = useMemo(() => {
-    const activeOrgs = data.organizations.filter(o => o.isActive);
+    const today = new Date();
+
+    // Apply Global Filters to Organizations for the main dashboard views
+    const filteredOrgs = data.organizations.filter(o => {
+      const matchesTier = filterTier === 'all' || o.tier === filterTier;
+      const matchesSearch = o.name.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesTier && matchesSearch;
+    });
+
+    const activeOrgs = filteredOrgs.filter(o => o.isActive && new Date(o.subscriptionEndDate) >= today);
+    const expiredOrgs = filteredOrgs.filter(o => !o.isActive || new Date(o.subscriptionEndDate) < today);
     
-    // 1. ECONOMIC HEALTH (Platform Revenue using Tier-based logic)
-    const estimatedMRR = activeOrgs.reduce((acc, org) => {
-      const tierPrice = TIER_REVENUE[org.tier] || 0;
-      return acc + tierPrice;
-    }, 0);
+    // 1. Current MRR (Active only)
+    const currentMRR = activeOrgs.reduce((acc, org) => acc + (TIER_REVENUE[org.tier] || 0), 0);
 
-    // 2. INFRASTRUCTURE PULSE (Throughput)
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const recentActivityCount = data.sales.filter(s => new Date(s.date) >= yesterday).length;
+    // 2. Tier Breakdown
+    const tierCounts = {
+      starter: filteredOrgs.filter(o => o.tier === 'starter').length,
+      growth: filteredOrgs.filter(o => o.tier === 'growth').length,
+      enterprise: filteredOrgs.filter(o => o.tier === 'enterprise').length,
+    };
 
-    // 3. TENANT SEGMENTATION
-    const segmentation = [
-      { name: 'Active', value: activeOrgs.length },
-      { name: 'Inactive', value: data.organizations.length - activeOrgs.length }
-    ];
-
-    // 4. CHURN ANALYSIS
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const staleTenants = activeOrgs.filter(org => {
-      const orgBizIds = data.businesses.filter(b => b.orgId === org.id).map(b => b.id);
-      const hasActivity = data.sales.some(s => orgBizIds.includes(s.businessId) && new Date(s.date) >= sevenDaysAgo);
-      return !hasActivity;
-    }).map(org => ({
-      ...org,
-      unitCount: data.businesses.filter(b => b.orgId === org.id).length
-    })).sort((a,b) => b.unitCount - a.unitCount);
-
-    // 5. REVENUE BY TENANT (Top 5 based on Tier)
-    const revenueByTenant = activeOrgs.map(org => {
-      return {
-        name: org.name,
-        mrr: TIER_REVENUE[org.tier] || 0,
-        id: org.id
-      };
-    }).sort((a,b) => b.mrr - a.mrr).slice(0, 5);
-
-    // 6. SYSTEM THROUGHPUT HISTORY
-    const last7Days = [...Array(7)].map((_, i) => {
+    // 3. 6-Month Historical Intelligence (MRR, Active/Expired, Growth)
+    const monthlyPerformance = [...Array(6)].map((_, i) => {
       const d = new Date();
-      d.setDate(d.getDate() - (6 - i));
-      const dateStr = d.toISOString().split('T')[0];
+      d.setMonth(d.getMonth() - (5 - i));
+      const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+      const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+      const monthLabel = d.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' });
+
+      const activeInMonth = filteredOrgs.filter(org => {
+        const createdDate = new Date(org.createdAt);
+        const expiryDate = new Date(org.subscriptionEndDate);
+        return createdDate <= monthEnd && expiryDate >= monthStart && org.isActive;
+      });
+
+      const expiredInMonth = filteredOrgs.filter(org => {
+        const expiryDate = new Date(org.subscriptionEndDate);
+        return expiryDate >= monthStart && expiryDate <= monthEnd;
+      });
+
+      const addedInMonth = filteredOrgs.filter(org => {
+        const createdDate = new Date(org.createdAt);
+        return createdDate >= monthStart && createdDate <= monthEnd;
+      });
+
+      const mrrReceived = activeInMonth.reduce((sum, org) => sum + (TIER_REVENUE[org.tier] || 0), 0);
+
       return {
-        name: d.toLocaleDateString('en-ZA', { weekday: 'short' }),
-        events: data.sales.filter(s => s.date.split('T')[0] === dateStr).length
+        name: monthLabel,
+        active: activeInMonth.length,
+        expired: expiredInMonth.length,
+        added: addedInMonth.length,
+        mrr: mrrReceived
       };
     });
 
-    return { 
-      estimatedMRR, 
-      activeOrgsCount: activeOrgs.length, 
-      recentActivityCount, 
-      staleCount: staleTenants.length,
-      staleTenants,
-      last7Days,
-      revenueByTenant,
-      segmentation
+    // 4. MONTH-WISE MRR AUDIT (DRILL DOWN)
+    const [auditYear, auditMonthIdx] = auditMonth.split('-').map(Number);
+    const auditStart = new Date(auditYear, auditMonthIdx - 1, 1);
+    const auditEnd = new Date(auditYear, auditMonthIdx, 0, 23, 59, 59);
+
+    const auditLedger = data.organizations.filter(org => {
+      const createdDate = new Date(org.createdAt);
+      const expiryDate = new Date(org.subscriptionEndDate);
+      // Organization must have existed and subscription must have been valid for at least 1 day in the selected month
+      return createdDate <= auditEnd && expiryDate >= auditStart && org.isActive;
+    }).map(org => ({
+      ...org,
+      revenue: TIER_REVENUE[org.tier] || 0
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    const auditTotals = {
+      mrr: auditLedger.reduce((s, o) => s + o.revenue, 0),
+      count: auditLedger.length,
+      starter: auditLedger.filter(o => o.tier === 'starter').length,
+      growth: auditLedger.filter(o => o.tier === 'growth').length,
+      enterprise: auditLedger.filter(o => o.tier === 'enterprise').length,
     };
-  }, [data]);
+
+    return { 
+      currentMRR, 
+      totalTenants: filteredOrgs.length,
+      activeTenants: activeOrgs.length, 
+      expiredTenants: expiredOrgs.length,
+      tierCounts,
+      monthlyPerformance,
+      auditLedger,
+      auditTotals
+    };
+  }, [data, filterTier, searchTerm, auditMonth]);
 
   if (loading) return (
     <div className="h-[80vh] flex flex-col items-center justify-center text-indigo-400">
       <div className="w-10 h-10 border-2 border-indigo-900 border-t-indigo-500 rounded-full animate-spin mb-4" />
-      <p className="font-black uppercase tracking-widest text-[10px] animate-pulse">Synchronizing Platform Command</p>
+      <p className="font-black uppercase tracking-widest text-[10px] animate-pulse">Scanning Platform Data Registry</p>
     </div>
   );
 
@@ -144,187 +179,227 @@ export const SuperAdminDashboard: React.FC = () => {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
           <div className="flex items-center gap-2 text-indigo-500 font-black uppercase tracking-[0.2em] text-[10px] mb-2">
-            <Server size={14} /> System Node: Root Node-01 Alpha
+            <Server size={14} /> Node Alpha-01: Root Intelligence
           </div>
           <h2 className="text-4xl font-black text-white tracking-tighter">Global Control</h2>
-          <p className="text-slate-500 font-bold text-sm mt-1">Cross-tenant infrastructure & commercial overview</p>
+          <p className="text-slate-500 font-bold text-sm mt-1">Real-time tenant analytics and billing lifecycle</p>
         </div>
         <div className="flex items-center gap-3">
            <div className="px-4 py-3 bg-slate-900 border border-white/5 rounded-2xl flex items-center gap-4 shadow-xl">
               <div className="flex items-center gap-2">
                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                 <span className="text-[10px] font-black text-white uppercase">Cloud Operational</span>
+                 <span className="text-[10px] font-black text-white uppercase">Sync Active</span>
               </div>
               <div className="w-px h-4 bg-white/10" />
               <div className="text-right">
-                 <p className="text-[8px] font-black text-slate-500 uppercase leading-none">Uptime</p>
-                 <p className="text-[10px] font-black text-indigo-400">99.998%</p>
+                 <p className="text-[8px] font-black text-slate-500 uppercase leading-none">Last Audit</p>
+                 <p className="text-[10px] font-black text-indigo-400">Just Now</p>
               </div>
            </div>
         </div>
       </div>
 
-      {/* Infrastructure Core Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Platform MRR" value={formatZAR(stats.estimatedMRR)} icon={TrendingUp} color="indigo" trend={{ value: 12, isUp: true }} />
-        <StatCard label="Live Tenants" value={stats.activeOrgsCount.toString()} icon={Building2} color="blue" />
-        <StatCard label="Transaction Load" value={stats.recentActivityCount.toString()} icon={Zap} color="emerald" />
-        <StatCard label="High Churn Risk" value={stats.staleCount.toString()} icon={AlertCircle} color="rose" />
+      {/* Filter & Search Bar */}
+      <div className="bg-slate-900 border border-white/5 rounded-[2rem] p-4 flex flex-col md:flex-row items-center gap-6 shadow-2xl">
+        <div className="flex items-center gap-2 bg-white/5 px-4 py-2.5 rounded-xl border border-white/10 flex-1 w-full md:w-auto">
+          <Search size={16} className="text-slate-500" />
+          <input 
+            type="text"
+            placeholder="Search tenant name..."
+            className="bg-transparent text-sm font-bold text-white outline-none w-full placeholder:text-slate-600"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+          {(['all', 'starter', 'growth', 'enterprise'] as const).map((tier) => (
+            <button
+              key={tier}
+              onClick={() => setFilterTier(tier)}
+              className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${
+                filterTier === tier ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {tier}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Main Utilization Chart */}
-        <div className="lg:col-span-2 bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
+      {/* Core Tenant Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard label="Total Tenants" value={stats.totalTenants.toString()} icon={Building2} color="blue" />
+        <StatCard label="Active Tenants" value={stats.activeTenants.toString()} icon={ShieldCheck} color="emerald" />
+        <StatCard label="Expired Tenants" value={stats.expiredTenants.toString()} icon={AlertCircle} color="rose" />
+        <StatCard label="Platform MRR" value={formatZAR(stats.currentMRR)} icon={TrendingUp} color="indigo" />
+      </div>
+
+      {/* REVENUE DRILL DOWN (AUDIT LEDGER) */}
+      <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-10 gap-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/10"><CalendarDays size={20} /></div>
+            <div>
+              <h3 className="text-xl font-black text-white tracking-tight">Monthly Revenue Audit</h3>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Cross-sectional MRR Drill down</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+            <div className="flex items-center gap-2 px-3">
+              <History size={14} className="text-indigo-400" />
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Audit Month:</span>
+            </div>
+            <input 
+              type="month" 
+              value={auditMonth}
+              onChange={(e) => setAuditMonth(e.target.value)}
+              className="bg-slate-950 border border-white/10 px-4 py-2 rounded-xl text-xs font-black text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-10">
+           <div className="p-6 bg-white/5 border border-white/5 rounded-3xl">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total MRR (Selected)</p>
+              <p className="text-2xl font-black text-indigo-400">{formatZAR(stats.auditTotals.mrr)}</p>
+           </div>
+           <div className="p-6 bg-white/5 border border-white/5 rounded-3xl">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Active Nodes</p>
+              <p className="text-2xl font-black text-white">{stats.auditTotals.count}</p>
+           </div>
+           <div className="p-6 bg-white/5 border border-white/5 rounded-3xl">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Tier Attribution</p>
+              <div className="flex items-center gap-4 mt-1">
+                 <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    <span className="text-xs font-black text-slate-400">{stats.auditTotals.starter}S</span>
+                 </div>
+                 <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    <span className="text-xs font-black text-slate-400">{stats.auditTotals.growth}G</span>
+                 </div>
+                 <div className="flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                    <span className="text-xs font-black text-slate-400">{stats.auditTotals.enterprise}E</span>
+                 </div>
+              </div>
+           </div>
+           <div className="p-6 bg-indigo-600/10 border border-indigo-600/20 rounded-3xl flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Yield Target</p>
+                <p className="text-sm font-black text-white uppercase mt-1">Audit Status: VALID</p>
+              </div>
+              <Target size={24} className="text-indigo-500" />
+           </div>
+        </div>
+
+        <div className="overflow-x-auto text-left">
+           <table className="w-full">
+              <thead>
+                 <tr className="border-b border-white/5">
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Organization Unit</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Service Tier</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Contribution (ZAR)</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Action</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                 {stats.auditLedger.length === 0 ? (
+                    <tr>
+                       <td colSpan={4} className="px-6 py-10 text-center text-slate-600 italic text-sm font-bold uppercase tracking-widest">No active billable nodes found for this period</td>
+                    </tr>
+                 ) : (
+                    stats.auditLedger.map((org) => (
+                       <tr key={org.id} className="hover:bg-white/5 transition-colors group">
+                          <td className="px-6 py-4 font-bold text-white text-sm">{org.name}</td>
+                          <td className="px-6 py-4 text-center">
+                             <span className={`text-[10px] font-black uppercase px-2 py-1 rounded-md ${
+                                org.tier === 'starter' ? 'bg-blue-500/10 text-blue-400' :
+                                org.tier === 'growth' ? 'bg-amber-500/10 text-amber-400' : 'bg-indigo-500/10 text-indigo-400'
+                             }`}>
+                                {org.tier}
+                             </span>
+                          </td>
+                          <td className="px-6 py-4 text-right text-sm font-black text-indigo-400">{formatZAR(org.revenue)}</td>
+                          <td className="px-6 py-4 text-right">
+                             <button 
+                               onClick={() => setSelectedOrgId(org.id)}
+                               className="p-2 text-slate-500 hover:text-indigo-400 transition-colors"
+                             >
+                                <ArrowRight size={16} />
+                             </button>
+                          </td>
+                       </tr>
+                    ))
+                 )}
+              </tbody>
+           </table>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Financial Velocity Chart */}
+        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
           <div className="flex items-center justify-between mb-10">
             <div>
-              <h3 className="text-xl font-black text-white tracking-tight">Infrastructure Throughput</h3>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Global Record Generation Volume (Last 7 Days)</p>
+              <h3 className="text-xl font-black text-white tracking-tight">Financial Velocity</h3>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Month-wise MRR Received & Node Status</p>
             </div>
-            <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/10"><Activity size={20} /></div>
+            <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/10"><CreditCard size={20} /></div>
           </div>
-          <div className="flex-1 min-h-[350px]">
+          <div className="flex-1 min-h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.last7Days}>
+              <ComposedChart data={stats.monthlyPerformance}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff0a" />
+                <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} dy={10} />
+                <YAxis yAxisId="left" orientation="left" stroke="#475569" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} label={{ value: 'Active Nodes', angle: -90, position: 'insideLeft', fill: '#475569', fontSize: 10, fontWeight: 900 }} />
+                <YAxis yAxisId="right" orientation="right" stroke="#818cf8" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#818cf8', fontWeight: 900 }} tickFormatter={(v) => `R${v}`} label={{ value: 'Revenue', angle: 90, position: 'insideRight', fill: '#818cf8', fontSize: 10, fontWeight: 900 }} />
+                <Tooltip 
+                   contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '12px' }} 
+                   itemStyle={{ fontSize: '11px', fontWeight: 900 }}
+                   labelStyle={{ fontWeight: 900, color: '#fff', marginBottom: '8px' }}
+                />
+                <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '20px', fontSize: '10px', textTransform: 'uppercase', fontWeight: 900 }} />
+                <Bar yAxisId="left" dataKey="active" fill="#334155" radius={[4, 4, 0, 0]} name="Active (Paid)" />
+                <Bar yAxisId="left" dataKey="expired" fill="#ef4444" radius={[4, 4, 0, 0]} name="Expired" />
+                <Line yAxisId="right" type="monotone" dataKey="mrr" stroke="#6366f1" strokeWidth={4} dot={{ r: 6, fill: '#6366f1' }} name="MRR" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Tenant Growth Chart (Tenants Added Month-wise) */}
+        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
+          <div className="flex items-center justify-between mb-10">
+            <div>
+              <h3 className="text-xl font-black text-white tracking-tight">Growth Trajectory</h3>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">New Tenants Added per Month</p>
+            </div>
+            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/10"><UserPlus size={20} /></div>
+          </div>
+          <div className="flex-1 min-h-[400px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.monthlyPerformance}>
                 <defs>
-                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff0a" />
                 <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} dy={10} />
                 <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} />
                 <Tooltip 
-                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '12px' }} 
-                  itemStyle={{ fontSize: '11px', fontWeight: 900, color: '#818cf8' }}
-                  labelStyle={{ fontWeight: 900, color: '#fff', marginBottom: '4px' }}
+                   contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '12px' }} 
+                   itemStyle={{ fontSize: '11px', fontWeight: 900 }}
+                   labelStyle={{ fontWeight: 900, color: '#fff', marginBottom: '8px' }}
                 />
-                <Area type="step" dataKey="events" name="Records" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#areaGrad)" />
+                <Area type="monotone" dataKey="added" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#growthGrad)" name="New Tenants" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </div>
-
-        {/* Churn Prevention Center */}
-        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
-           <div className="flex items-center gap-3 mb-8">
-             <div className="p-3 bg-rose-500/10 text-rose-500 rounded-2xl"><AlertCircle size={20} /></div>
-             <div>
-               <h3 className="text-xl font-black text-white tracking-tight">Churn Alert</h3>
-               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Actionable Churn Risks</p>
-             </div>
-           </div>
-           
-           <div className="flex-1 space-y-4 overflow-y-auto max-h-[350px] pr-2 custom-scrollbar text-left">
-             {stats.staleTenants.length === 0 ? (
-               <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-white/5 rounded-3xl">
-                 <ShieldCheck size={40} className="text-emerald-500 mb-3 opacity-30" />
-                 <p className="text-xs font-bold text-slate-500 uppercase tracking-widest leading-relaxed">System-wide Tenant Integrity Maintained</p>
-               </div>
-             ) : (
-               stats.staleTenants.map(tenant => (
-                 <div key={tenant.id} className="p-5 bg-white/5 border border-white/5 rounded-3xl group hover:border-rose-500/30 transition-all cursor-default">
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <p className="text-sm font-black text-white">{tenant.name}</p>
-                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5 tracking-widest">{tenant.unitCount} Business Units</p>
-                      </div>
-                      <div className="w-2 h-2 rounded-full bg-rose-500 shadow-lg shadow-rose-500/50" />
-                    </div>
-                    <button 
-                       onClick={() => setSelectedOrgId(tenant.id)}
-                       className="w-full py-2 bg-rose-500/10 text-rose-500 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500 hover:text-white transition-all border border-rose-500/20"
-                    >
-                      DIVE INTO CONTEXT
-                    </button>
-                 </div>
-               ))
-             )}
-           </div>
-
-           <button 
-             onClick={() => window.location.hash = '#/organizations'}
-             className="mt-8 w-full py-4 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white hover:bg-white/5 transition-all"
-           >
-             Manage All Tenants
-           </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Economic Leaders */}
-        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
-           <div className="flex items-center gap-3 mb-10">
-             <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/10"><BarChart3 size={20} /></div>
-             <div>
-               <h3 className="text-xl font-black text-white tracking-tight">Economic Leaders</h3>
-               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tenants contributing highest Platform MRR</p>
-             </div>
-           </div>
-
-           <div className="flex-1 min-h-[300px]">
-             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={stats.revenueByTenant} layout="vertical" margin={{ left: 20 }}>
-                 <XAxis type="number" hide />
-                 <YAxis dataKey="name" type="category" width={100} fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} />
-                 <Tooltip 
-                   cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                   contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '12px' }} 
-                   itemStyle={{ fontSize: '11px', fontWeight: 900, color: '#10b981' }}
-                   labelStyle={{ fontWeight: 900, color: '#fff', marginBottom: '4px' }}
-                   formatter={(val: number) => [formatZAR(val), 'Platform MRR']}
-                 />
-                 <Bar dataKey="mrr" radius={[0, 8, 8, 0]}>
-                    {stats.revenueByTenant.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                    ))}
-                 </Bar>
-               </BarChart>
-             </ResponsiveContainer>
-           </div>
-        </div>
-
-        {/* Management Controls */}
-        <div className="bg-indigo-600 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden group">
-           <div className="absolute top-0 right-0 p-10 opacity-5 group-hover:scale-110 transition-transform pointer-events-none">
-             <ShieldCheck size={200} />
-           </div>
-           
-           <div className="relative z-10 flex flex-col h-full text-left">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-3 bg-white/20 rounded-2xl"><Users size={24} /></div>
-                <div>
-                  <h3 className="text-2xl font-black tracking-tighter">System Authority</h3>
-                  <p className="text-indigo-100 text-[10px] font-black uppercase tracking-widest">Platform Identity Audit</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 flex-1">
-                 <div className="p-6 bg-white/10 rounded-3xl border border-white/5 flex flex-col justify-between">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-100 mb-2">Total Managed Users</p>
-                    <p className="text-4xl font-black">{data.users.length}</p>
-                    <div className="mt-4 flex items-center gap-2 text-[9px] font-black bg-white/10 w-fit px-2 py-1 rounded-md">
-                       <div className="w-1 h-1 rounded-full bg-emerald-400" /> SYNCED
-                    </div>
-                 </div>
-                 <div className="p-6 bg-white/10 rounded-3xl border border-white/5 flex flex-col justify-between">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-100 mb-2">Provisioned Shops</p>
-                    <p className="text-4xl font-black">{data.businesses.length}</p>
-                    <div className="mt-4 flex items-center gap-2 text-[9px] font-black bg-white/10 w-fit px-2 py-1 rounded-md">
-                       <div className="w-1 h-1 rounded-full bg-indigo-300" /> DEPLOYED
-                    </div>
-                 </div>
-              </div>
-
-              <div className="mt-10 flex gap-4">
-                 <button onClick={() => window.location.hash = '#/users'} className="flex-1 py-4 bg-white text-indigo-600 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-50 transition-all">
-                   IDENTITY ACCESS
-                 </button>
-                 <button onClick={() => window.location.hash = '#/reminders'} className="flex-1 py-4 bg-indigo-800 text-indigo-100 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-900 transition-all border border-indigo-500/30">
-                   FULL AUDIT LOG
-                 </button>
-              </div>
-           </div>
         </div>
       </div>
     </div>
