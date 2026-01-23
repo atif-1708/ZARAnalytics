@@ -17,11 +17,13 @@ import {
   RefreshCw,
   AlertCircle,
   PackageSearch,
-  Globe
+  Globe,
+  Wallet,
+  Building
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
-import { Product, Business, SaleItem, PaymentMethod, UserRole } from '../types';
+import { Product, Business, SaleItem, PaymentMethod, UserRole, DailySale } from '../types';
 import { formatZAR } from '../utils/formatters';
 
 export const POS: React.FC = () => {
@@ -36,6 +38,32 @@ export const POS: React.FC = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Real-time reconciliation state
+  const [todayTotals, setTodayTotals] = useState({ cash: 0, bank: 0 });
+
+  const fetchTodayTotals = async (bizId: string) => {
+    if (!bizId) return;
+    try {
+      const allSales = await storage.getSales();
+      const todayStr = new Date().toISOString().split('T')[0];
+      
+      const bizSalesToday = allSales.filter(s => 
+        s.businessId === bizId && 
+        s.date.startsWith(todayStr)
+      );
+
+      const totals = bizSalesToday.reduce((acc, sale) => {
+        if (sale.paymentMethod === PaymentMethod.CASH) acc.cash += sale.salesAmount;
+        if (sale.paymentMethod === PaymentMethod.CARD) acc.bank += sale.salesAmount;
+        return acc;
+      }, { cash: 0, bank: 0 });
+
+      setTodayTotals(totals);
+    } catch (e) {
+      console.error("Failed to fetch reconciliation totals", e);
+    }
+  };
 
   const loadData = async () => {
     setIsLoading(true);
@@ -64,6 +92,8 @@ export const POS: React.FC = () => {
     try {
       const pData = await storage.getProducts(selectedBusinessId);
       setProducts(pData);
+      // Also refresh totals whenever we refresh products
+      await fetchTodayTotals(selectedBusinessId);
     } catch (e) { 
       console.error("POS: Failed to load products", e); 
     } finally {
@@ -135,7 +165,11 @@ export const POS: React.FC = () => {
       setSuccessMessage(`Checkout Complete (${formatZAR(cartTotal)})`);
       setCart([]);
       setIsCheckoutOpen(false);
-      loadProducts();
+      
+      // Refresh state
+      await loadProducts();
+      await fetchTodayTotals(selectedBusinessId);
+      
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (e) {
       alert("Checkout failed: " + (e as Error).message);
@@ -154,7 +188,7 @@ export const POS: React.FC = () => {
   return (
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)]">
       {/* Left: Product Selection */}
-      <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm text-left">
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/50">
           <div className="flex items-center gap-3 w-full md:w-auto">
              <div className="p-2 bg-slate-900 text-white rounded-xl shadow-lg"><Store size={20} /></div>
@@ -211,7 +245,7 @@ export const POS: React.FC = () => {
                       </div>
                     </div>
                     {isOutOfStock && (
-                      <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center rounded-2xl">
+                      <div className="absolute inset-0 bg-white/60 backdrop-blur-[1px] flex items-center justify-center rounded-2xl text-center p-4">
                          <span className="bg-rose-600 text-white text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-lg shadow-lg">Out of Stock</span>
                       </div>
                     )}
@@ -243,15 +277,35 @@ export const POS: React.FC = () => {
       </div>
 
       {/* Right: Cart & Checkout */}
-      <div className="w-full lg:w-[400px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShoppingCart size={20} className="text-slate-400" />
-            <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Active Sale</h3>
+      <div className="w-full lg:w-[400px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
+        <div className="p-6 border-b border-slate-100">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <ShoppingCart size={20} className="text-slate-400" />
+              <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Active Sale</h3>
+            </div>
+            {cart.length > 0 && (
+              <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear All</button>
+            )}
           </div>
-          {cart.length > 0 && (
-            <button onClick={() => setCart([])} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear All</button>
-          )}
+
+          {/* Real-time End-of-Day Reconciliation Dashboard */}
+          <div className="grid grid-cols-2 gap-2">
+             <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-4 flex flex-col">
+                <div className="flex items-center gap-1.5 mb-1 text-emerald-600">
+                   <Wallet size={12} />
+                   <span className="text-[8px] font-black uppercase tracking-widest">Cash In Hand</span>
+                </div>
+                <span className="text-sm font-black text-emerald-700">{formatZAR(todayTotals.cash)}</span>
+             </div>
+             <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 flex flex-col">
+                <div className="flex items-center gap-1.5 mb-1 text-blue-600">
+                   <Building size={12} />
+                   <span className="text-[8px] font-black uppercase tracking-widest">Online / Bank</span>
+                </div>
+                <span className="text-sm font-black text-blue-700">{formatZAR(todayTotals.bank)}</span>
+             </div>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/20">
