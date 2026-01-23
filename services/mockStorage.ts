@@ -259,8 +259,16 @@ export const storage = {
 
     const payload = mapToDb({ ...sale, org_id: finalOrgId });
     if (payload.user_id) delete payload.user_id;
-    // Ensure we use Local Time if not provided
-    if (!payload.date) payload.date = getLocalISOString();
+    
+    // TIME FIX: Ensure we use Local Time if not provided, OR if provided as just YYYY-MM-DD
+    if (!payload.date) {
+      payload.date = getLocalISOString();
+    } else if (payload.date.length <= 10) {
+      // If it's a short date string (e.g. 2024-01-24), append current time to avoid Midnight UTC (5AM)
+      const now = new Date();
+      const timePart = `T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+      payload.date = `${payload.date}${timePart}`;
+    }
     
     const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
     const { data, error } = await operation.select().single();
@@ -271,21 +279,17 @@ export const storage = {
   processRefund: async (saleId: string, refundItems?: { sku: string, quantity: number, price: number, productId: string }[]) => {
     const { userName, orgId: contextOrgId } = await getFilter();
     
-    // 1. FRESH FETCH: Fetch original sale FRESH from DB to prevent stale UI state double-refunds
     const { data: originalDb, error: fetchError } = await supabase.from('sales').select('*').eq('id', saleId).single();
     if (fetchError || !originalDb) throw new Error("Original transaction not found.");
     
     const original = mapFromDb(originalDb);
     if (original.isRefunded) throw new Error("Transaction has already been fully refunded.");
 
-    // Determine items to process
     const itemsToProcess = refundItems && refundItems.length > 0 ? refundItems : [];
     if (itemsToProcess.length === 0) throw new Error("No items found to refund.");
 
-    // Create a map for quick lookup of requested refunds
     const refundRequestMap = new Map(itemsToProcess.map(i => [i.productId, i.quantity]));
 
-    // 2. Validate Limits and Update Local Item State
     let totalRefundAmount = 0;
     let totalRefundProfit = 0; 
     const updatedItems = (original.items || []).map((item: SaleItem) => {
@@ -299,16 +303,13 @@ export const storage = {
                 throw new Error(`Invalid Refund: ${item.sku} has ${remainingQty} left. You requested ${requestedRefundQty}.`);
             }
 
-            // Calculate financials for THIS refund action
             totalRefundAmount += item.priceAtSale * requestedRefundQty;
             
-            // Return updated item with incremented refundedQuantity
             return { ...item, refundedQuantity: previouslyRefunded + requestedRefundQty };
         }
         return item;
     });
 
-    // 3. Inventory Restoration
     for (const item of itemsToProcess) {
       try {
         const movementPayload = mapToDb({
@@ -335,7 +336,6 @@ export const storage = {
     const margin = original.salesAmount > 0 ? (original.profitAmount / original.salesAmount) : 0;
     totalRefundProfit = totalRefundAmount * margin;
 
-    // 4. Update Original Sale Record
     const isFullyRefundedNow = updatedItems.every((item: SaleItem) => (item.refundedQuantity || 0) >= item.quantity);
     
     try {
@@ -358,13 +358,12 @@ export const storage = {
         throw new Error(`Failed to update transaction record: ${e.message}`);
     }
 
-    // 5. Financial Adjustment (Use Local Time for the refund log)
     const finalOrgId = original.orgId || contextOrgId;
     if (!finalOrgId) throw new Error("Organization ID missing. Cannot process refund adjustment.");
 
     const refundEntry = {
       businessId: original.businessId,
-      date: getLocalISOString(), // USE LOCAL TIME
+      date: getLocalISOString(), 
       salesAmount: -Math.abs(totalRefundAmount),
       profitAmount: -Math.abs(totalRefundProfit),
       profitPercentage: 0, 

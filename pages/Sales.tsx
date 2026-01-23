@@ -194,10 +194,15 @@ export const Sales: React.FC = () => {
 
       const profitAmount = salesVal * (profitPct / 100);
       
+      // Fix: Append current time to the selected date to prevent Midnight UTC (5 AM) issue
+      const now = new Date();
+      const timePart = `T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+      const fullDateTime = `${formData.date}${timePart}`;
+
       const payload = {
         ...(editingSale || {}),
         businessId: formData.businessId,
-        date: formData.date,
+        date: fullDateTime,
         salesAmount: salesVal,
         profitPercentage: profitPct,
         profitAmount: profitAmount,
@@ -211,7 +216,7 @@ export const Sales: React.FC = () => {
           await storage.saveReminder({
             businessId: formData.businessId,
             businessName: selectedBiz.name,
-            date: formData.date,
+            date: fullDateTime,
             sentBy: user?.id || '',
             sentByUserName: user?.name || 'Staff Member',
             status: 'pending',
@@ -257,7 +262,7 @@ export const Sales: React.FC = () => {
     setSaveError(null);
     setFormData({
       businessId: sale.businessId,
-      date: sale.date,
+      date: sale.date.split('T')[0],
       salesAmount: sale.salesAmount,
       profitPercentage: sale.profitPercentage
     });
