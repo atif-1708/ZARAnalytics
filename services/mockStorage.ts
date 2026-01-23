@@ -142,9 +142,13 @@ export const storage = {
       else if (role !== UserRole.SUPER_ADMIN || orgId) query = query.eq('org_id', orgId);
       
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42P01') throw new Error("SCHEMA_MISSING: The 'products' table was not found.");
+        throw error;
+      }
       return (data || []).map(mapFromDb).filter(Boolean);
-    } catch (err) {
+    } catch (err: any) {
+      if (err.message?.includes('SCHEMA_MISSING')) throw err;
       console.error("Storage Error (Products):", err);
       return [];
     }
@@ -159,7 +163,7 @@ export const storage = {
     const operation = payload.id ? supabase.from('products').upsert(payload) : supabase.from('products').insert(payload);
     const { data, error } = await operation.select().single();
     if (error) {
-      if (error.code === '42P01') throw new Error("SCHEMA_ERROR: 'products' table does not exist. Please create it in Supabase.");
+      if (error.code === '42P01') throw new Error("SCHEMA_MISSING: 'products' table does not exist.");
       throw new Error(error.message);
     }
     return mapFromDb(data);
@@ -174,7 +178,10 @@ export const storage = {
     const { orgId: contextOrgId } = await getFilter();
     const payloads = products.map(p => mapToDb({ ...p, org_id: p.orgId || contextOrgId }));
     const { data, error } = await supabase.from('products').upsert(payloads).select();
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === '42P01') throw new Error("SCHEMA_MISSING: 'products' table does not exist.");
+      throw new Error(error.message);
+    }
     return (data || []).map(mapFromDb);
   },
 
@@ -202,10 +209,15 @@ export const storage = {
     if (sale.items && sale.items.length > 0) {
       for (const item of sale.items) {
         // Fetch current stock
-        const { data: product, error: pError } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
-        if (!pError && product) {
-          const newStock = Math.max(0, product.current_stock - item.quantity);
-          await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
+        try {
+          const { data: product, error: pError } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
+          if (!pError && product) {
+            const newStock = Math.max(0, product.current_stock - item.quantity);
+            await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
+          }
+        } catch(e) {
+          // Non-critical if stock deduct fails
+          console.warn("Stock deduction skipped: products table might be missing or ID invalid.");
         }
       }
     }

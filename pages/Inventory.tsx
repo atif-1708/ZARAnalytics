@@ -17,12 +17,35 @@ import {
   History,
   Info,
   Store,
-  FileDown
+  FileDown,
+  Terminal,
+  Copy,
+  Database
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Product, Business } from '../types';
 import { formatZAR } from '../utils/formatters';
+
+const MISSING_SCHEMA_SQL = `-- Run this in your Supabase SQL Editor:
+
+CREATE TABLE IF NOT EXISTS products (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  sku text,
+  name text NOT NULL,
+  description text,
+  cost_price numeric DEFAULT 0,
+  sale_price numeric DEFAULT 0,
+  current_stock int DEFAULT 0,
+  category text,
+  business_id uuid REFERENCES businesses(id) ON DELETE CASCADE,
+  org_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now()
+);
+
+-- Update sales table for POS:
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method text;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS items jsonb DEFAULT '[]';`;
 
 export const Inventory: React.FC = () => {
   const { user } = useAuth();
@@ -33,10 +56,12 @@ export const Inventory: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isSchemaNoticeOpen, setIsSchemaNoticeOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState({
     sku: '',
@@ -55,6 +80,8 @@ export const Inventory: React.FC = () => {
       const filteredBiz = bData.filter(b => user?.role === 'SUPER_ADMIN' || user?.assignedBusinessIds?.includes(b.id));
       setBusinesses(filteredBiz);
       if (filteredBiz.length > 0) setSelectedBusinessId(filteredBiz[0].id);
+    } catch(e) {
+      console.error(e);
     } finally {
       setIsLoading(false);
     }
@@ -65,7 +92,13 @@ export const Inventory: React.FC = () => {
     try {
       const pData = await storage.getProducts(selectedBusinessId);
       setProducts(pData);
-    } catch (e) { console.error(e); }
+      setIsSchemaNoticeOpen(false);
+    } catch (e: any) { 
+      if (e.message?.includes('SCHEMA_MISSING')) {
+        setIsSchemaNoticeOpen(true);
+      }
+      console.error(e); 
+    }
   };
 
   useEffect(() => { loadData(); }, [user]);
@@ -87,7 +120,11 @@ export const Inventory: React.FC = () => {
       await loadProducts();
       setIsModalOpen(false);
     } catch (err: any) {
-      setError(err.message);
+      if (err.message?.includes('SCHEMA_MISSING')) {
+        setIsSchemaNoticeOpen(true);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -153,13 +190,24 @@ export const Inventory: React.FC = () => {
           setIsImportModalOpen(false);
           alert(`Successfully imported ${importedProducts.length} items.`);
         } catch (err: any) {
-          alert("Import failed: " + err.message);
+          if (err.message?.includes('SCHEMA_MISSING')) {
+            setIsSchemaNoticeOpen(true);
+          } else {
+            alert("Import failed: " + err.message);
+          }
         } finally {
           setIsSaving(false);
         }
       }
     };
     reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const copySql = () => {
+    navigator.clipboard.writeText(MISSING_SCHEMA_SQL);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin" /></div>;
@@ -190,6 +238,27 @@ export const Inventory: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {isSchemaNoticeOpen && (
+        <div className="p-8 bg-rose-50 border border-rose-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-8 animate-in slide-in-from-top-4 text-left">
+           <div className="w-16 h-16 bg-rose-600 text-white rounded-3xl flex items-center justify-center shrink-0 shadow-lg shadow-rose-200">
+             <Database size={32} />
+           </div>
+           <div className="flex-1 space-y-2">
+              <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">Database Table Required</h4>
+              <p className="text-sm text-rose-600 font-medium leading-relaxed">
+                The <span className="font-bold">products</span> table hasn't been created in your Supabase project yet. 
+                Please copy the SQL below and run it in your Supabase SQL Editor to enable Inventory and POS features.
+              </p>
+           </div>
+           <button 
+              onClick={() => setIsSchemaNoticeOpen(false)}
+              className="bg-white text-rose-600 px-6 py-3 rounded-xl font-bold text-xs shadow-sm hover:bg-rose-100 transition-colors uppercase tracking-widest"
+           >
+             Close Notice
+           </button>
+        </div>
+      )}
 
       {/* Stats / Controls Bar */}
       <div className="flex flex-col md:flex-row items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -280,7 +349,18 @@ export const Inventory: React.FC = () => {
                 </tr>
               ))}
               {filteredProducts.length === 0 && (
-                <tr><td colSpan={7} className="px-6 py-10 text-center text-slate-400 italic text-sm">No products in inventory.</td></tr>
+                <tr>
+                  <td colSpan={7} className="px-6 py-20 text-center text-slate-400 italic text-sm">
+                    {isSchemaNoticeOpen ? (
+                      <div className="flex flex-col items-center gap-4">
+                         <Terminal size={40} className="opacity-20" />
+                         <p className="font-black uppercase tracking-widest text-xs">Schema Setup Required Above</p>
+                      </div>
+                    ) : (
+                      'No products in inventory.'
+                    )}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -399,6 +479,58 @@ export const Inventory: React.FC = () => {
              >
                Cancel
              </button>
+          </div>
+        </div>
+      )}
+
+      {/* Schema Helper Modal */}
+      {isSchemaNoticeOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => setIsSchemaNoticeOpen(false)} />
+          <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] w-full max-w-2xl p-10 relative shadow-2xl space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-lg">
+                  <Terminal size={24} />
+                </div>
+                <div>
+                   <h3 className="text-xl font-black text-white uppercase tracking-tight">Database Schema Helper</h3>
+                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Required one-time setup</p>
+                </div>
+              </div>
+              <button onClick={() => setIsSchemaNoticeOpen(false)} className="p-2 text-slate-500 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-400 leading-relaxed">
+              To enable products and inventory tracking, you must create the <span className="text-white font-bold">products</span> table in your Supabase database. Copy the code below and paste it into the <span className="text-indigo-400 font-bold">SQL Editor</span> in your Supabase Dashboard.
+            </p>
+
+            <div className="relative group">
+               <pre className="bg-slate-950 p-6 rounded-2xl border border-white/5 text-[11px] font-mono text-indigo-300 overflow-x-auto max-h-[300px] leading-relaxed">
+                 {MISSING_SCHEMA_SQL}
+               </pre>
+               <button 
+                 onClick={copySql}
+                 className="absolute top-4 right-4 flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl"
+               >
+                 {copied ? <><CheckCircle size={14} /> Copied</> : <><Copy size={14} /> Copy SQL</>}
+               </button>
+            </div>
+
+            <div className="flex flex-col md:flex-row items-center justify-between pt-4 gap-4">
+               <div className="flex items-center gap-3 text-slate-500">
+                  <Info size={16} className="text-indigo-500" />
+                  <p className="text-[10px] font-bold uppercase tracking-tight">After running the SQL, refresh this page.</p>
+               </div>
+               <button 
+                  onClick={() => setIsSchemaNoticeOpen(false)}
+                  className="w-full md:w-auto px-8 py-4 bg-white text-slate-900 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-50 transition-all"
+               >
+                 I've updated the database
+               </button>
+            </div>
           </div>
         </div>
       )}
