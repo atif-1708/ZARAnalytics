@@ -98,8 +98,11 @@ export const Billing: React.FC = () => {
       const isUpgrade = requestedTier !== org.tier;
       const actionLabel = isUpgrade ? `UPGRADE to ${requestedTier.toUpperCase()}` : 'RENEWAL';
 
+      // We use undefined for businessId to represent an Organization-level request.
+      // This avoids the 'invalid input syntax for type uuid: "ORG_LEVEL"' error 
+      // when the database expects a UUID for the business_id column.
       await storage.saveReminder({
-        businessId: 'ORG_LEVEL',
+        businessId: undefined, 
         businessName: `${org.name} (${actionLabel})`,
         date: new Date().toISOString().split('T')[0],
         sentBy: user?.id || '',

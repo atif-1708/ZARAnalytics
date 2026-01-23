@@ -149,8 +149,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         }).length;
         setRemindersCount(flaggedCount);
 
-        // Count pending sub requests for the new tab
-        const subReqs = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending' && r.businessId === 'ORG_LEVEL');
+        // Count pending sub requests for the new tab (distinguished by null businessId)
+        const subReqs = reminders.filter(r => r.type === 'system_alert' && r.status === 'pending' && !r.businessId);
         setSubRequestsCount(subReqs.length);
       } else if (user.role === UserRole.STAFF) {
         const [businesses, sales] = await Promise.all([

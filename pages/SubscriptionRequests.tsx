@@ -31,8 +31,9 @@ export const SubscriptionRequests: React.FC = () => {
         storage.getReminders(),
         storage.getOrganizations()
       ]);
-      // Filter for pending subscription requests (identified by businessId: 'ORG_LEVEL')
-      const subRequests = rData.filter(r => r.type === 'system_alert' && r.status === 'pending' && r.businessId === 'ORG_LEVEL');
+      // Filter for pending subscription requests (identified by absence of businessId)
+      // This is the new way to identify Organization-level alerts following the UUID fix.
+      const subRequests = rData.filter(r => r.type === 'system_alert' && r.status === 'pending' && !r.businessId);
       setRequests(subRequests);
       setOrganizations(oData);
     } finally {
