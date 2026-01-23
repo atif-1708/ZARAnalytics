@@ -89,7 +89,6 @@ export const storage = {
   },
 
   deleteOrganization: async (id: string) => {
-    // Perform manual cascading cleanup of all dependent records to satisfy foreign key constraints
     try {
       // 1. Delete associated transactions and logs
       await supabase.from('sales').delete().eq('org_id', id);
@@ -99,22 +98,23 @@ export const storage = {
       // 2. Delete associated businesses
       await supabase.from('businesses').delete().eq('org_id', id);
       
-      // 3. Profiles usually have a hard FK. We must either delete them or set org_id to null.
-      // For a "Nuclear Delete" of an Org, we usually want to clear the profiles or remove them.
-      // If we delete profiles, we might break auth. Setting org_id to null is safer, but usually 
-      // these profiles belong solely to that org.
-      const { error: profileError } = await supabase.from('profiles').delete().eq('org_id', id);
+      // 3. Nullify org_id on profiles to satisfy FK constraint without deleting users
+      // This allows the organization to be deleted while keeping user profiles intact
+      const { error: profileError } = await supabase.from('profiles')
+        .update({ org_id: null })
+        .eq('org_id', id);
+        
       if (profileError) {
-        console.warn("Could not delete profiles directly, attempting to nullify org_id", profileError);
-        await supabase.from('profiles').update({ org_id: null }).eq('org_id', id);
+        console.error("Error nullifying profiles for org deletion:", profileError);
+        throw profileError;
       }
 
-      // 4. Finally delete the organization
+      // 4. Finally delete the organization record
       const { error } = await supabase.from('organizations').delete().eq('id', id);
       if (error) throw error;
     } catch (err: any) {
       console.error("Critical Cleanup Error during Org Deletion:", err);
-      throw new Error(err.message || "Failed to perform cascading delete for organization.");
+      throw new Error(err.message || "Failed to delete organization cleanly.");
     }
   },
 
