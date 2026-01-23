@@ -20,7 +20,8 @@ import {
   CheckSquare,
   Square,
   Minus,
-  Plus
+  Plus,
+  ArrowLeftRight
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -61,7 +62,8 @@ export const Transactions: React.FC = () => {
       );
 
       setBusinesses(filteredBiz);
-      setSales(sData.filter(s => s.items && s.items.length > 0));
+      // Include standard sales (with items) AND financial adjustments (negative amounts, often with no items)
+      setSales(sData.filter(s => (s.items && s.items.length > 0) || s.salesAmount < 0));
     } finally { 
       setIsLoading(false); 
     }
@@ -149,9 +151,9 @@ export const Transactions: React.FC = () => {
     try {
       await storage.processRefund(viewingSale.id, itemsToRefund);
       
-      // Reload strictly from DB to get the new state (refundedQuantity updates)
+      // Reload strictly from DB to get the new state (refundedQuantity updates AND new adjustment record)
       const freshSales = await storage.getSales();
-      setSales(freshSales.filter(s => s.items && s.items.length > 0));
+      setSales(freshSales.filter(s => (s.items && s.items.length > 0) || s.salesAmount < 0));
       
       const updatedSale = freshSales.find(s => s.id === viewingSale.id);
       
@@ -271,6 +273,7 @@ export const Transactions: React.FC = () => {
               {filteredTransactions.map(s => {
                 const biz = businesses.find(b => b.id === s.businessId);
                 const isCash = s.paymentMethod === PaymentMethod.CASH;
+                const isAdjustment = !s.items || s.items.length === 0;
                 
                 return (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
@@ -301,17 +304,24 @@ export const Transactions: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <span className={`text-sm font-black ${s.isRefunded ? 'text-slate-400 line-through decoration-rose-500' : 'text-teal-600'}`}>
+                      <span className={`text-sm font-black ${isAdjustment ? 'text-rose-600' : (s.isRefunded ? 'text-slate-400 line-through decoration-rose-500' : 'text-teal-600')}`}>
                         {formatZAR(s.salesAmount)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button 
-                        onClick={() => setViewingSale(s)}
-                        className="p-2 text-slate-300 hover:text-teal-600 transition-colors"
-                      >
-                        <Eye size={18} />
-                      </button>
+                      {isAdjustment ? (
+                        <div className="flex items-center justify-end gap-1.5 text-rose-500">
+                           <ArrowLeftRight size={14} />
+                           <span className="text-[9px] font-black uppercase tracking-widest">Refund Log</span>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => setViewingSale(s)}
+                          className="p-2 text-slate-300 hover:text-teal-600 transition-colors"
+                        >
+                          <Eye size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
