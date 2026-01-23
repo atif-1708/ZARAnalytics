@@ -201,6 +201,15 @@ export const Transactions: React.FC = () => {
     });
   }, [sales, businesses, selectedBusinessId, search, dateFilter, methodFilter]);
 
+  const getTimeString = (dateStr: string) => {
+    // Check if the string actually contains time data (and isn't just midnight UTC)
+    // Heuristic: If it ends in T00:00:00... or has no T, assume time is missing or defaulted
+    if (dateStr.length <= 10 || dateStr.includes('T00:00:00.000Z') || dateStr.endsWith('T00:00:00')) {
+      return '--:--';
+    }
+    return new Date(dateStr).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+  };
+
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
 
   return (
@@ -274,6 +283,7 @@ export const Transactions: React.FC = () => {
                 const biz = businesses.find(b => b.id === s.businessId);
                 const isCash = s.paymentMethod === PaymentMethod.CASH;
                 const isAdjustment = !s.items || s.items.length === 0;
+                const displayTime = getTimeString(s.date);
                 
                 return (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
@@ -288,7 +298,7 @@ export const Transactions: React.FC = () => {
                         <span className="text-xs font-black text-slate-700">{formatDate(s.date)}</span>
                         <div className="flex items-center gap-1 text-slate-400">
                           <Clock size={10} />
-                          <span className="text-[10px] font-bold">{new Date(s.date).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className={`text-[10px] font-bold ${displayTime === '--:--' ? 'text-slate-300' : ''}`}>{displayTime}</span>
                         </div>
                       </div>
                     </td>

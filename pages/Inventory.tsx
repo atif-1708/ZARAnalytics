@@ -35,16 +35,20 @@ import { useAuth } from '../context/AuthContext';
 import { Product, Business, UserRole, StockMovement } from '../types';
 import { formatZAR, formatDate } from '../utils/formatters';
 
-const MISSING_SCHEMA_SQL = `-- 1. UPDATE EXISTING PRODUCTS TABLE (FIX FOR 'NAME' ERROR)
+const MISSING_SCHEMA_SQL = `-- 1. FIX COLUMN TYPES FOR ACCURATE TIMEKEEPING
+ALTER TABLE sales ALTER COLUMN date TYPE timestamptz USING date::timestamptz;
+ALTER TABLE stock_movements ALTER COLUMN created_at TYPE timestamptz USING created_at::timestamptz;
+
+-- 2. UPDATE EXISTING PRODUCTS TABLE
 ALTER TABLE products ALTER COLUMN name DROP NOT NULL;
 ALTER TABLE products DROP COLUMN IF EXISTS category;
 
--- 2. ENSURE COLUMNS EXIST
+-- 3. ENSURE COLUMNS EXIST
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_refunded boolean DEFAULT false;
 
--- 3. CREATE STOCK MOVEMENTS LEDGER IF MISSING
+-- 4. CREATE STOCK MOVEMENTS LEDGER IF MISSING
 CREATE TABLE IF NOT EXISTS stock_movements (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   product_id uuid REFERENCES products(id) ON DELETE CASCADE,
@@ -57,12 +61,12 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   created_at timestamptz DEFAULT now()
 );
 
--- 4. ENABLE RLS
+-- 5. ENABLE RLS
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
 
--- 5. POLICIES
+-- 6. POLICIES
 DROP POLICY IF EXISTS "Allow all for authenticated" ON products;
 CREATE POLICY "Allow all for authenticated" ON products FOR ALL TO authenticated USING (true);
 DROP POLICY IF EXISTS "Allow all for authenticated movements" ON stock_movements;
@@ -274,14 +278,14 @@ export const Inventory: React.FC = () => {
              <Database size={32} />
            </div>
            <div className="flex-1 space-y-2">
-              <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">Database Migration Required</h4>
+              <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">System Update Required</h4>
               <p className="text-sm text-rose-600 font-medium leading-relaxed">
-                The database schema needs an update to support refunds and flexible products. Copy the SQL script below and run it in your Supabase SQL Editor.
+                We've detected an issue with your database structure (likely the Date format is preventing accurate time tracking). Please run this updated SQL script in your Supabase SQL Editor to fix the timestamp columns.
               </p>
            </div>
            <div className="flex flex-col gap-2">
              <button onClick={copySql} className="bg-white text-rose-600 border border-rose-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-rose-50 transition-colors">
-                {copied ? 'Copied to Clipboard' : 'Copy Script'}
+                {copied ? 'Copied to Clipboard' : 'Copy Repair Script'}
              </button>
              <button onClick={() => setIsSchemaNoticeOpen(false)} className="text-rose-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
                Dismiss Notice

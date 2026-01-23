@@ -260,14 +260,12 @@ export const storage = {
     const payload = mapToDb({ ...sale, org_id: finalOrgId });
     if (payload.user_id) delete payload.user_id;
     
-    // TIME FIX: Ensure we use Local Time if not provided, OR if provided as just YYYY-MM-DD
-    if (!payload.date) {
-      payload.date = getLocalISOString();
-    } else if (payload.date.length <= 10) {
-      // If it's a short date string (e.g. 2024-01-24), append current time to avoid Midnight UTC (5AM)
-      const now = new Date();
-      const timePart = `T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
-      payload.date = `${payload.date}${timePart}`;
+    // TIME FIX: Use standard ISO String which includes 'Z'.
+    // This allows Postgres `timestamptz` to correctly identify it as UTC and convert it to server time properly.
+    // If the DB column is DATE, this will be truncated to YYYY-MM-DD.
+    // If the DB column is TEXT, this will save the full UTC string.
+    if (!payload.date || payload.date.length <= 10) {
+      payload.date = new Date().toISOString(); 
     }
     
     const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
@@ -363,7 +361,7 @@ export const storage = {
 
     const refundEntry = {
       businessId: original.businessId,
-      date: getLocalISOString(), 
+      date: new Date().toISOString(), // Use standard UTC ISO string for robust Timezone handling
       salesAmount: -Math.abs(totalRefundAmount),
       profitAmount: -Math.abs(totalRefundProfit),
       profitPercentage: 0, 
