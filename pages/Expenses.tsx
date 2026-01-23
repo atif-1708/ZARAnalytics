@@ -4,7 +4,7 @@ import { Plus, Trash2, Edit3, Receipt, Loader2, Lock, AlertCircle } from 'lucide
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { MonthlyExpense, UserRole, Business, Filters } from '../types';
-import { formatCurrency, formatMonth } from '../utils/formatters';
+import { formatCurrency, formatDate, getLocalISOString } from '../utils/formatters';
 import { FilterPanel } from '../components/FilterPanel';
 
 export const Expenses: React.FC = () => {
@@ -52,8 +52,10 @@ export const Expenses: React.FC = () => {
   };
   
   const [formData, setFormData] = useState({
-    businessId: '', month: new Date().toISOString().slice(0, 7),
-    amount: 0, description: ''
+    businessId: '', 
+    month: getLocalISOString().split('T')[0], // Default to Today Local (YYYY-MM-DD)
+    amount: 0, 
+    description: ''
   });
 
   const loadData = async () => {
@@ -117,7 +119,10 @@ export const Expenses: React.FC = () => {
     }
 
     return expenses.filter(item => {
-      const itemDate = new Date(item.month + '-01');
+      // Robust Date Parsing: Handle YYYY-MM (legacy) and YYYY-MM-DD (new)
+      const dateStr = item.month.length === 7 ? item.month + '-01' : item.month;
+      const itemDate = new Date(dateStr);
+      
       const inRange = itemDate >= startDate && itemDate <= endDate;
       const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
       if (!userHasAccess) return false;
@@ -170,7 +175,7 @@ export const Expenses: React.FC = () => {
               setSaveError(null);
               setFormData({ 
                 businessId: (entryBusinesses[0]?.id || ''), 
-                month: new Date().toISOString().slice(0, 7), 
+                month: getLocalISOString().split('T')[0], 
                 amount: 0, 
                 description: '' 
               }); 
@@ -203,7 +208,7 @@ export const Expenses: React.FC = () => {
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
-              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Month</th>
+              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Date</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business Unit</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Amount ({currency})</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Actions</th>
@@ -217,9 +222,12 @@ export const Expenses: React.FC = () => {
                 const b = businesses.find(bx => bx.id === ex.businessId);
                 const canEditThis = canModify && (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || (isStaff && user?.assignedBusinessIds?.includes(ex.businessId)));
                 
+                // Handle display date properly
+                const displayDate = ex.month.length === 7 ? ex.month + '-01' : ex.month;
+
                 return (
                   <tr key={ex.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-bold">{formatMonth(ex.month)}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-slate-700">{formatDate(displayDate)}</td>
                     <td className="px-6 py-4">
                       <div className="text-sm font-black text-slate-800 leading-tight">
                         {b ? b.name : 'Unknown'}
@@ -296,9 +304,9 @@ export const Expenses: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Billing Month</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Expense Date</label>
                   <input 
-                    type="month" 
+                    type="date" 
                     required
                     disabled={isSaving}
                     value={formData.month} 
