@@ -27,7 +27,8 @@ import {
   BellRing,
   ShoppingCart,
   Package,
-  History
+  History,
+  ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Organization } from '../types';
@@ -102,8 +103,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const menuItems: any[] = [
     { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/pos', label: 'POS Terminal', icon: <ShoppingCart size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
-    { to: '/inventory', label: 'Inventory', icon: <Package size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true, hasNew: true },
+    { to: '/inventory', label: 'Inventory', icon: <Package size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
     { to: '/movements', label: 'Movement Ledger', icon: <History size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+    { to: '/transactions', label: 'Transaction Log', icon: <ClipboardList size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
     { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
     { to: '/subscription-requests', label: 'Sub Requests', icon: <BellRing size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true, badge: subRequestsCount, badgeColor: 'indigo' },
     { to: '/billing', label: 'Plan & Payment', icon: <CreditCard size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
@@ -241,7 +243,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               </p>
             </div>
           </div>
-          <button onClick={() => { logout(); navigate('/login'); }} className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg ${isGlobalKernelMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-rose-400 hover:bg-rose-500/10'} transition-all group`}>
+          <button onClick={() => { logout(); navigate('/login'); }} className={`flex items-center gap-3 w-full px-4 py-3 rounded-lg ${isGlobalKernelMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-rose-400 hover:bg-rose-50/10'} transition-all group`}>
             <LogOut size={20} className="group-hover:-translate-x-1 transition-transform" />
             <span className="font-medium">Sign Out</span>
           </button>

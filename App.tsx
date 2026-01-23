@@ -19,6 +19,7 @@ import { SubscriptionRequests } from './pages/SubscriptionRequests';
 import { POS } from './pages/POS';
 import { Inventory } from './pages/Inventory';
 import { MovementLedger } from './pages/MovementLedger';
+import { Transactions } from './pages/Transactions';
 import { UserRole } from './types';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode, roles?: UserRole[] }> = ({ children, roles }) => {
@@ -58,7 +59,7 @@ const App: React.FC = () => {
           } />
 
           <Route path="/inventory" element={
-            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN]}>
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF]}>
               <Inventory />
             </ProtectedRoute>
           } />
@@ -66,6 +67,12 @@ const App: React.FC = () => {
           <Route path="/movements" element={
             <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF]}>
               <MovementLedger />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/transactions" element={
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY]}>
+              <Transactions />
             </ProtectedRoute>
           } />
           

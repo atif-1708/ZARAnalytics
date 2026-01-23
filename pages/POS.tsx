@@ -16,7 +16,8 @@ import {
   Hash,
   RefreshCw,
   AlertCircle,
-  PackageSearch
+  PackageSearch,
+  Globe
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -40,7 +41,6 @@ export const POS: React.FC = () => {
     setIsLoading(true);
     try {
       const bData = await storage.getBusinesses();
-      // FIX: Standardize business filtering across roles
       const filteredBiz = bData.filter(b => 
         user?.role === UserRole.SUPER_ADMIN || 
         user?.role === UserRole.ORG_ADMIN || 
@@ -49,7 +49,6 @@ export const POS: React.FC = () => {
       );
       setBusinesses(filteredBiz);
       
-      // Auto-select first business if none selected
       if (filteredBiz.length > 0 && !selectedBusinessId) {
         setSelectedBusinessId(filteredBiz[0].id);
       }
@@ -124,7 +123,7 @@ export const POS: React.FC = () => {
       const biz = businesses.find(b => b.id === selectedBusinessId);
       await storage.saveSale({
         businessId: selectedBusinessId,
-        date: new Date().toISOString().split('T')[0],
+        date: new Date().toISOString(),
         salesAmount: cartTotal,
         profitPercentage: cartTotal > 0 ? ((cartTotal - cartCost) / cartTotal) * 100 : 0,
         profitAmount: cartTotal - cartCost,
@@ -331,15 +330,15 @@ export const POS: React.FC = () => {
                   className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-emerald-500 hover:bg-emerald-50/30 transition-all group active:scale-95"
                 >
                    <Banknote size={32} className="text-slate-400 group-hover:text-emerald-600 transition-colors" />
-                   <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-emerald-700">Cash</span>
+                   <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-emerald-700">Cash in Hand</span>
                 </button>
                 <button 
                   disabled={isProcessing} 
                   onClick={() => handleCheckout(PaymentMethod.CARD)} 
                   className="flex flex-col items-center gap-3 p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-blue-500 hover:bg-blue-50/30 transition-all group active:scale-95"
                 >
-                   <CreditCard size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
-                   <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-blue-700">Card</span>
+                   <Globe size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
+                   <span className="text-[10px] font-black uppercase tracking-widest group-hover:text-blue-700">Online / Bank</span>
                 </button>
              </div>
 
