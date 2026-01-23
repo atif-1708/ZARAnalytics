@@ -8,7 +8,11 @@ import {
   Trophy,
   Zap,
   Layers,
-  Store
+  Store,
+  Percent,
+  CreditCard,
+  Banknote,
+  RotateCcw
 } from 'lucide-react';
 import { 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -16,7 +20,7 @@ import {
 } from 'recharts';
 import { StatCard } from '../components/StatCard';
 import { FilterPanel } from '../components/FilterPanel';
-import { Filters, DailySale, MonthlyExpense, Business, UserRole } from '../types';
+import { Filters, DailySale, MonthlyExpense, Business, UserRole, PaymentMethod } from '../types';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/formatters';
@@ -145,7 +149,8 @@ export const Dashboard: React.FC = () => {
 
     const calculateData = (dataSales: DailySale[], dataExpenses: MonthlyExpense[], start: Date, end: Date) => {
       const filteredSales = dataSales.filter(item => {
-        const itemDate = new Date(item.date);
+        // Prioritize createdAt over date to fix previous-day issue
+        const itemDate = item.createdAt ? new Date(item.createdAt) : new Date(item.date);
         const inRange = itemDate >= start && itemDate <= end;
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
@@ -153,10 +158,19 @@ export const Dashboard: React.FC = () => {
       });
 
       const filteredExpenses = dataExpenses.filter(item => {
-        const itemDate = new Date(item.month + '-01');
+        // Strict Date Filtering
+        // If expense is "2023-10-27" (YYYY-MM-DD), use that specific date.
+        // If expense is "2023-10" (Legacy YYYY-MM), default to 1st of month.
+        const parts = item.month.split('-').map(Number);
+        // parts[0]=Year, parts[1]=Month, parts[2]=Day (or undefined)
+        const itemDate = new Date(parts[0], parts[1] - 1, parts[2] || 1);
+        
+        // Check if the specific date is within the filter range
         const inRange = itemDate >= start && itemDate <= end;
+
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
+        
         return inRange && userHasAccess && matchesBiz;
       });
 
@@ -164,7 +178,22 @@ export const Dashboard: React.FC = () => {
       const gp = filteredSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
       const ex = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
       
-      return { rev, gp, ex, net: gp - ex };
+      // New Metrics Calculation
+      const cash = filteredSales
+        .filter(s => s.paymentMethod === PaymentMethod.CASH && s.salesAmount > 0)
+        .reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+      
+      const card = filteredSales
+        .filter(s => s.paymentMethod === PaymentMethod.CARD && s.salesAmount > 0)
+        .reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
+
+      const returns = filteredSales
+        .filter(s => s.salesAmount < 0)
+        .reduce((acc, curr) => acc + Math.abs(Number(curr.salesAmount)), 0);
+
+      const margin = rev > 0 ? (gp / rev) * 100 : 0;
+
+      return { rev, gp, ex, net: gp - ex, cash, card, returns, margin };
     };
 
     const current = calculateData(sales, expenses, startDate, endDate);
@@ -187,12 +216,14 @@ export const Dashboard: React.FC = () => {
       })
       .map(biz => {
         const bizSales = sales.filter(s => {
-           const sDate = new Date(s.date);
+           const sDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
            return sDate >= startDate && sDate <= endDate && s.businessId === biz.id;
         });
         const bizExpenses = expenses.filter(e => {
-           const eDate = new Date(e.month + '-01');
-           return eDate >= startDate && eDate <= endDate && e.businessId === biz.id;
+           const parts = e.month.split('-').map(Number);
+           const eDate = new Date(parts[0], parts[1] - 1, parts[2] || 1);
+           const inRange = eDate >= startDate && eDate <= endDate;
+           return inRange && e.businessId === biz.id;
         });
         const bRev = bizSales.reduce((sum, s) => sum + Number(s.salesAmount), 0);
         const bGp = bizSales.reduce((sum, s) => sum + Number(s.profitAmount), 0);
@@ -210,11 +241,9 @@ export const Dashboard: React.FC = () => {
     const currentMonthSalesMap = new Map();
     
     sales.forEach(s => {
-      const sDate = new Date(s.date);
+      const sDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
       if (sDate.getFullYear() === currentYear && sDate.getMonth() === currentMonthIndex) {
-        // FIX: Convert to Local Date String before grouping
-        const d = new Date(s.date);
-        const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const dateKey = `${sDate.getFullYear()}-${String(sDate.getMonth() + 1).padStart(2, '0')}-${String(sDate.getDate()).padStart(2, '0')}`;
         currentMonthSalesMap.set(`${dateKey}_${s.businessId}`, s);
       }
     });
@@ -226,7 +255,7 @@ export const Dashboard: React.FC = () => {
       businesses.forEach(biz => {
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
-        if (filters.businessId !== 'all' && biz.id !== filters.businessId) return;
+        if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
         
         const sale = currentMonthSalesMap.get(`${dateStr}_${biz.id}`);
         dayEntry[`biz_${biz.id}`] = sale ? convert(Number(sale.salesAmount)) : 0;
@@ -239,11 +268,19 @@ export const Dashboard: React.FC = () => {
       totalGrossProfit: convert(current.gp), 
       totalExpenses: convert(current.ex), 
       netProfit: convert(current.net),
+      totalCash: convert(current.cash),
+      totalCard: convert(current.card),
+      totalReturns: convert(current.returns),
+      avgMargin: current.margin,
       trends: {
         revenue: calcTrend(current.rev, previous.rev),
         gp: calcTrend(current.gp, previous.gp),
         expenses: calcTrend(current.ex, previous.ex),
-        net: calcTrend(current.net, previous.net)
+        net: calcTrend(current.net, previous.net),
+        cash: calcTrend(current.cash, previous.cash),
+        card: calcTrend(current.card, previous.card),
+        returns: calcTrend(current.returns, previous.returns),
+        margin: calcTrend(current.margin, previous.margin)
       },
       bestUnit: businessRanking[0] || null,
       businessRanking,
@@ -266,6 +303,7 @@ export const Dashboard: React.FC = () => {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Row 1: Core Financials */}
         <StatCard 
           label="Gross Revenue" 
           value={formatCurrency(metrics.totalRevenue, currency)} 
@@ -293,6 +331,36 @@ export const Dashboard: React.FC = () => {
           icon={ArrowDownCircle} 
           color="rose" 
           trend={metrics.trends.expenses}
+        />
+
+        {/* Row 2: Detailed Breakdown */}
+        <StatCard 
+          label="Profit Margin" 
+          value={`${metrics.avgMargin.toFixed(1)}%`}
+          icon={Percent} 
+          color="amber" 
+          trend={metrics.trends.margin}
+        />
+        <StatCard 
+          label="Pay through Card" 
+          value={formatCurrency(metrics.totalCard, currency)} 
+          icon={CreditCard} 
+          color="indigo" 
+          trend={metrics.trends.card}
+        />
+        <StatCard 
+          label="Payment through Cash" 
+          value={formatCurrency(metrics.totalCash, currency)} 
+          icon={Banknote} 
+          color="emerald" 
+          trend={metrics.trends.cash}
+        />
+        <StatCard 
+          label="Returns Processed" 
+          value={formatCurrency(metrics.totalReturns, currency)} 
+          icon={RotateCcw} 
+          color="rose" 
+          trend={metrics.trends.returns}
         />
       </div>
 
