@@ -21,6 +21,7 @@ export const formatCurrency = (amount: number, currency: 'ZAR' | 'PKR'): string 
 };
 
 export const formatDate = (dateString: string): string => {
+  if (!dateString) return 'Invalid Date';
   return new Date(dateString).toLocaleDateString('en-ZA', {
     year: 'numeric',
     month: 'short',
@@ -36,11 +37,18 @@ export const formatMonth = (monthString: string): string => {
 
 /**
  * Returns a timestamp string (ISO format) relative to the user's local timezone.
- * Used to ensure transactions are logged at "Wall Clock" time, not UTC.
+ * Manually constructs the string to ensure "Wall Clock" fidelity.
+ * Example: "2023-10-25T14:30:05.123"
  */
 export const getLocalISOString = (): string => {
   const now = new Date();
-  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
-  const localTime = new Date(now.getTime() - offsetMs);
-  return localTime.toISOString().slice(0, -1); // Removes the 'Z' to indicate local time context
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}.${ms}`;
 };
