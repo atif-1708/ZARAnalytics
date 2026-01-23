@@ -20,7 +20,8 @@ import {
   CalendarDays,
   ChevronRight,
   Target,
-  ArrowRight
+  ArrowRight,
+  MousePointer2
 } from 'lucide-react';
 import { 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -31,8 +32,6 @@ import { Organization, Business, DailySale, User, SubscriptionTier } from '../ty
 import { StatCard } from '../components/StatCard';
 import { formatZAR } from '../utils/formatters';
 import { useAuth } from '../context/AuthContext';
-
-const PIE_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444'];
 
 const TIER_REVENUE: Record<SubscriptionTier, number> = {
   starter: 300,
@@ -89,20 +88,14 @@ export const SuperAdminDashboard: React.FC = () => {
     // 1. Current MRR (Active only)
     const currentMRR = activeOrgs.reduce((acc, org) => acc + (TIER_REVENUE[org.tier] || 0), 0);
 
-    // 2. Tier Breakdown
-    const tierCounts = {
-      starter: filteredOrgs.filter(o => o.tier === 'starter').length,
-      growth: filteredOrgs.filter(o => o.tier === 'growth').length,
-      enterprise: filteredOrgs.filter(o => o.tier === 'enterprise').length,
-    };
-
-    // 3. 6-Month Historical Intelligence (MRR, Active/Expired, Growth)
+    // 2. 6-Month Historical Intelligence (MRR, Active/Expired, Growth)
     const monthlyPerformance = [...Array(6)].map((_, i) => {
       const d = new Date();
       d.setMonth(d.getMonth() - (5 - i));
       const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
       const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
       const monthLabel = d.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' });
+      const rawMonth = d.toISOString().slice(0, 7); // Format: YYYY-MM
 
       const activeInMonth = filteredOrgs.filter(org => {
         const createdDate = new Date(org.createdAt);
@@ -124,6 +117,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
       return {
         name: monthLabel,
+        rawMonth,
         active: activeInMonth.length,
         expired: expiredInMonth.length,
         added: addedInMonth.length,
@@ -139,7 +133,6 @@ export const SuperAdminDashboard: React.FC = () => {
     const auditLedger = data.organizations.filter(org => {
       const createdDate = new Date(org.createdAt);
       const expiryDate = new Date(org.subscriptionEndDate);
-      // Organization must have existed and subscription must have been valid for at least 1 day in the selected month
       return createdDate <= auditEnd && expiryDate >= auditStart && org.isActive;
     }).map(org => ({
       ...org,
@@ -159,12 +152,26 @@ export const SuperAdminDashboard: React.FC = () => {
       totalTenants: filteredOrgs.length,
       activeTenants: activeOrgs.length, 
       expiredTenants: expiredOrgs.length,
-      tierCounts,
       monthlyPerformance,
       auditLedger,
       auditTotals
     };
   }, [data, filterTier, searchTerm, auditMonth]);
+
+  // Handler for chart interaction
+  const handleChartClick = (state: any) => {
+    if (state && state.activePayload && state.activePayload.length > 0) {
+      const rawMonth = state.activePayload[0].payload.rawMonth;
+      if (rawMonth) {
+        setAuditMonth(rawMonth);
+        // Scroll to the audit section for feedback
+        const auditSection = document.getElementById('audit-section');
+        if (auditSection) {
+          auditSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    }
+  };
 
   if (loading) return (
     <div className="h-[80vh] flex flex-col items-center justify-center text-indigo-400">
@@ -236,7 +243,7 @@ export const SuperAdminDashboard: React.FC = () => {
       </div>
 
       {/* REVENUE DRILL DOWN (AUDIT LEDGER) */}
-      <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
+      <div id="audit-section" className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col transition-all scroll-mt-24">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-10 gap-6">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/10"><CalendarDays size={20} /></div>
@@ -246,17 +253,20 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
           </div>
           
-          <div className="flex items-center gap-3 bg-white/5 p-2 rounded-2xl border border-white/10">
+          <div className="flex items-center gap-3 bg-white/5 p-3 rounded-2xl border border-white/10 shadow-inner">
             <div className="flex items-center gap-2 px-3">
               <History size={14} className="text-indigo-400" />
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Select Audit Month:</span>
+              <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest whitespace-nowrap">Audit Month:</span>
             </div>
-            <input 
-              type="month" 
-              value={auditMonth}
-              onChange={(e) => setAuditMonth(e.target.value)}
-              className="bg-slate-950 border border-white/10 px-4 py-2 rounded-xl text-xs font-black text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50"
-            />
+            <div className="relative">
+              <input 
+                type="month" 
+                value={auditMonth}
+                onChange={(e) => setAuditMonth(e.target.value)}
+                className="bg-slate-950 border border-white/10 px-4 py-2 rounded-xl text-xs font-black text-indigo-400 outline-none focus:ring-2 focus:ring-indigo-500/50 cursor-pointer hover:bg-slate-900 transition-colors"
+                style={{ colorScheme: 'dark' }}
+              />
+            </div>
           </div>
         </div>
 
@@ -341,17 +351,22 @@ export const SuperAdminDashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Financial Velocity Chart */}
-        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
+        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col group/chart">
           <div className="flex items-center justify-between mb-10">
             <div>
-              <h3 className="text-xl font-black text-white tracking-tight">Financial Velocity</h3>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-xl font-black text-white tracking-tight">Financial Velocity</h3>
+                <div className="flex items-center gap-1 px-2 py-0.5 bg-indigo-500/10 text-indigo-400 rounded-md text-[8px] font-black uppercase tracking-widest opacity-0 group-hover/chart:opacity-100 transition-opacity">
+                  <MousePointer2 size={10} /> Click to Audit
+                </div>
+              </div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Month-wise MRR Received & Node Status</p>
             </div>
             <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/10"><CreditCard size={20} /></div>
           </div>
           <div className="flex-1 min-h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={stats.monthlyPerformance}>
+              <ComposedChart data={stats.monthlyPerformance} onClick={handleChartClick}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff0a" />
                 <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} dy={10} />
                 <YAxis yAxisId="left" orientation="left" stroke="#475569" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#475569', fontWeight: 900 }} label={{ value: 'Active Nodes', angle: -90, position: 'insideLeft', fill: '#475569', fontSize: 10, fontWeight: 900 }} />
@@ -360,28 +375,34 @@ export const SuperAdminDashboard: React.FC = () => {
                    contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', padding: '12px' }} 
                    itemStyle={{ fontSize: '11px', fontWeight: 900 }}
                    labelStyle={{ fontWeight: 900, color: '#fff', marginBottom: '8px' }}
+                   cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }}
                 />
                 <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '20px', fontSize: '10px', textTransform: 'uppercase', fontWeight: 900 }} />
-                <Bar yAxisId="left" dataKey="active" fill="#334155" radius={[4, 4, 0, 0]} name="Active (Paid)" />
-                <Bar yAxisId="left" dataKey="expired" fill="#ef4444" radius={[4, 4, 0, 0]} name="Expired" />
-                <Line yAxisId="right" type="monotone" dataKey="mrr" stroke="#6366f1" strokeWidth={4} dot={{ r: 6, fill: '#6366f1' }} name="MRR" />
+                <Bar yAxisId="left" dataKey="active" fill="#334155" radius={[4, 4, 0, 0]} name="Active (Paid)" className="cursor-pointer" />
+                <Bar yAxisId="left" dataKey="expired" fill="#ef4444" radius={[4, 4, 0, 0]} name="Expired" className="cursor-pointer" />
+                <Line yAxisId="right" type="monotone" dataKey="mrr" stroke="#6366f1" strokeWidth={4} dot={{ r: 6, fill: '#6366f1' }} name="MRR" className="cursor-pointer" activeDot={{ r: 8, strokeWidth: 0 }} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Tenant Growth Chart (Tenants Added Month-wise) */}
-        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col">
+        <div className="bg-slate-900 rounded-[2.5rem] p-10 border border-white/5 shadow-2xl flex flex-col group/chart">
           <div className="flex items-center justify-between mb-10">
             <div>
-              <h3 className="text-xl font-black text-white tracking-tight">Growth Trajectory</h3>
+               <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-xl font-black text-white tracking-tight">Growth Trajectory</h3>
+                <div className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-400 rounded-md text-[8px] font-black uppercase tracking-widest opacity-0 group-hover/chart:opacity-100 transition-opacity">
+                  <MousePointer2 size={10} /> Click to Audit
+                </div>
+              </div>
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">New Tenants Added per Month</p>
             </div>
             <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/10"><UserPlus size={20} /></div>
           </div>
           <div className="flex-1 min-h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats.monthlyPerformance}>
+              <AreaChart data={stats.monthlyPerformance} onClick={handleChartClick}>
                 <defs>
                   <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
@@ -396,7 +417,7 @@ export const SuperAdminDashboard: React.FC = () => {
                    itemStyle={{ fontSize: '11px', fontWeight: 900 }}
                    labelStyle={{ fontWeight: 900, color: '#fff', marginBottom: '8px' }}
                 />
-                <Area type="monotone" dataKey="added" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#growthGrad)" name="New Tenants" />
+                <Area type="monotone" dataKey="added" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#growthGrad)" name="New Tenants" className="cursor-pointer" activeDot={{ r: 8, strokeWidth: 0 }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
