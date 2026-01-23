@@ -16,6 +16,8 @@ import { Reminders } from './pages/Reminders';
 import { Organizations } from './pages/Organizations';
 import { Billing } from './pages/Billing';
 import { SubscriptionRequests } from './pages/SubscriptionRequests';
+import { POS } from './pages/POS';
+import { Inventory } from './pages/Inventory';
 import { UserRole } from './types';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode, roles?: UserRole[] }> = ({ children, roles }) => {
@@ -29,13 +31,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode, roles?: UserRole[] }
 
 const DashboardRouter: React.FC = () => {
   const { user, selectedOrgId } = useAuth();
-  
-  // If Super Admin has no org selected, show the Global Pulse dashboard
   if (user?.role === UserRole.SUPER_ADMIN && !selectedOrgId) {
     return <SuperAdminDashboard />;
   }
-  
-  // Otherwise show the standard business dashboard (even if Super Admin is in "Ghost Mode")
   return <Dashboard />;
 };
 
@@ -49,6 +47,18 @@ const App: React.FC = () => {
           <Route path="/dashboard" element={
             <ProtectedRoute roles={[UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY]}>
               <DashboardRouter />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/pos" element={
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF]}>
+              <POS />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/inventory" element={
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN]}>
+              <Inventory />
             </ProtectedRoute>
           } />
           

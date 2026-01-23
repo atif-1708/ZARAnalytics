@@ -9,6 +9,11 @@ export enum UserRole {
 
 export type SubscriptionTier = 'starter' | 'growth' | 'enterprise';
 
+export enum PaymentMethod {
+  CASH = 'CASH',
+  CARD = 'CARD'
+}
+
 export interface User {
   id: string;
   name: string;
@@ -37,6 +42,28 @@ export interface Business {
   orgId?: string;
 }
 
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  description: string;
+  costPrice: number;
+  salePrice: number;
+  currentStock: number;
+  category: string;
+  businessId: string;
+  orgId?: string;
+  createdAt: string;
+}
+
+export interface SaleItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  priceAtSale: number;
+  costAtSale: number;
+}
+
 export interface DailySale {
   id: string;
   businessId: string;
@@ -44,6 +71,8 @@ export interface DailySale {
   salesAmount: number;
   profitPercentage: number;
   profitAmount: number;
+  paymentMethod?: PaymentMethod;
+  items?: SaleItem[];
   createdAt: string;
   orgId?: string;
 }
