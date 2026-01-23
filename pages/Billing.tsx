@@ -96,14 +96,14 @@ export const Billing: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 800));
       
       const isUpgrade = requestedTier !== org.tier;
-      const actionLabel = isUpgrade ? `UPGRADE to ${requestedTier.toUpperCase()}` : 'RENEWAL';
+      const actionLabel = isUpgrade ? 'UPGRADE' : 'RENEWAL';
+      const serviceMonth = org.subscriptionEndDate.slice(0, 7);
 
-      // We use undefined for businessId to represent an Organization-level request.
-      // This avoids the 'invalid input syntax for type uuid: "ORG_LEVEL"' error 
-      // when the database expects a UUID for the business_id column.
+      // We explicitly include [TIER] in the name. 
+      // This ensures that when an admin processes this, the ledger knows EXACTLY what was requested.
       await storage.saveReminder({
         businessId: undefined, 
-        businessName: `${org.name} (${actionLabel})`,
+        businessName: `${org.name} [${requestedTier.toUpperCase()}] (${actionLabel} | FOR: ${serviceMonth})`,
         date: new Date().toISOString().split('T')[0],
         sentBy: user?.id || '',
         sentByUserName: user?.name || 'Account Admin',

@@ -14,7 +14,7 @@ const TIER_CONFIG = {
 };
 
 export const Organizations: React.FC = () => {
-  const { setSelectedOrgId } = useAuth();
+  const { user, setSelectedOrgId } = useAuth();
   const navigate = useNavigate();
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +23,6 @@ export const Organizations: React.FC = () => {
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState<{
     id?: string;
@@ -36,12 +35,6 @@ export const Organizations: React.FC = () => {
     subscriptionEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
     isActive: true,
     tier: 'starter'
-  });
-
-  const [ownerData, setOwnerData] = useState({
-    name: '',
-    email: '',
-    password: ''
   });
 
   const loadOrgs = async () => {
@@ -61,7 +54,27 @@ export const Organizations: React.FC = () => {
     setIsSaving(true);
     setError(null);
     try {
-      await storage.saveOrganization(formData);
+      const savedOrg = await storage.saveOrganization(formData);
+      
+      if (savedOrg) {
+        // Attribution logic: We attribute this payment to the MONTH of the Expiry Date in the label,
+        // but the audit ledger uses the 'date' field to show when the transaction actually happened.
+        const serviceMonth = formData.subscriptionEndDate.slice(0, 7);
+        const actionTag = formData.id ? 'UPDATE' : 'PROVISION';
+        
+        // Use full ISO string to ensure precise sorting and deduplication in the audit ledger
+        await storage.saveReminder({
+          orgId: savedOrg.id,
+          businessId: undefined,
+          businessName: `${savedOrg.name} [${savedOrg.tier.toUpperCase()}] (${actionTag} | FOR: ${serviceMonth})`,
+          date: new Date().toISOString(), 
+          sentBy: user?.id || 'SYSTEM',
+          sentByUserName: user?.name || 'System Operator',
+          status: 'read',
+          type: 'system_alert'
+        });
+      }
+
       await loadOrgs();
       setIsModalOpen(false);
     } catch (err: any) {
@@ -90,36 +103,7 @@ export const Organizations: React.FC = () => {
     }
   };
 
-  const handleCopySql = () => {
-    const sql = "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tier text DEFAULT 'starter';";
-    navigator.clipboard.writeText(sql);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleCreateOwner = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedOrg) return;
-    setIsSaving(true);
-    setError(null);
-    try {
-      await storage.createNewUser({
-        ...ownerData,
-        role: UserRole.ORG_ADMIN,
-        orgId: selectedOrg.id
-      });
-      alert(`Success: ${ownerData.name} is now the Admin for ${selectedOrg.name}`);
-      setIsOwnerModalOpen(false);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-indigo-600" size={40} /></div>;
-
-  const isMigrationError = error?.includes('SCHEMA_MIGRATION_REQUIRED');
 
   return (
     <div className="space-y-6">
@@ -128,7 +112,7 @@ export const Organizations: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Client Organizations</h2>
           <p className="text-slate-500">System operator view of paying business owners</p>
         </div>
-        <button onClick={() => { setError(null); setFormData({ name: '', subscriptionEndDate: new Date().toISOString().split('T')[0], isActive: true, tier: 'starter' }); setIsModalOpen(true); }} className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold">
+        <button onClick={() => { setError(null); setFormData({ name: '', subscriptionEndDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0], isActive: true, tier: 'starter' }); setIsModalOpen(true); }} className="flex items-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition-all">
           <Plus size={20} /> Register Client
         </button>
       </div>
@@ -158,9 +142,11 @@ export const Organizations: React.FC = () => {
                   </div>
                 </div>
                 <h3 className="text-xl font-bold text-slate-900 mb-1">{org.name}</h3>
-                <div className={`flex items-center gap-2 text-xs mb-2 font-bold ${isExpired ? 'text-rose-600' : 'text-slate-500'}`}>
-                  <Calendar size={14} />
-                  <span>{isExpired ? 'Expired on:' : 'Expires:'} {formatDate(org.subscriptionEndDate)}</span>
+                <div className="flex items-center gap-2 text-xs mb-2 font-bold">
+                   <Calendar size={14} className={isExpired ? 'text-rose-500' : 'text-slate-400'} />
+                   <span className={isExpired ? 'text-rose-600' : 'text-slate-500'}>
+                     {isExpired ? 'Expired on:' : 'Expires:'} {formatDate(org.subscriptionEndDate)}
+                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-slate-400 text-[10px] font-black uppercase mb-6">
                   <Layers size={12} />
@@ -171,7 +157,7 @@ export const Organizations: React.FC = () => {
               {!canEnter && (
                 <div className="mb-4 p-3 bg-rose-50 rounded-xl border border-rose-100 flex items-center gap-3 text-rose-600 text-[10px] font-bold">
                   <AlertTriangle size={14} className="shrink-0" />
-                  <span>This organization is currently suspended or expired. Access is restricted.</span>
+                  <span>Suspended or expired access. Restoring requires subscription update.</span>
                 </div>
               )}
 
@@ -185,22 +171,16 @@ export const Organizations: React.FC = () => {
                   className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm ${
                     canEnter 
                       ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white' 
-                      : 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-50'
+                      : 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-50 shadow-none'
                   }`}
                 >
                   <LayoutDashboard size={16} /> Go To Dashboard
                 </button>
                 <button 
-                  onClick={() => { setError(null); setSelectedOrg(org); setIsOwnerModalOpen(true); }} 
-                  className="w-full py-3 bg-indigo-50 text-indigo-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-indigo-600 hover:text-white transition-all"
-                >
-                  <UserPlus size={16} /> Manage Owner
-                </button>
-                <button 
                   onClick={() => { setError(null); setFormData({ ...org }); setIsModalOpen(true); }}
-                  className="w-full py-3 border border-slate-100 text-slate-400 rounded-xl font-bold text-xs hover:bg-slate-50 transition-all"
+                  className="w-full py-3 border border-slate-100 text-slate-400 rounded-xl font-bold text-xs hover:bg-slate-50 hover:text-slate-600 transition-all"
                 >
-                  Update Subscription
+                  Modify Subscription
                 </button>
                 <button 
                   disabled={isSaving}
@@ -212,7 +192,7 @@ export const Organizations: React.FC = () => {
                   }`}
                 >
                   {isSaving ? <Loader2 className="animate-spin" size={14}/> : (org.isActive ? <PowerOff size={14} /> : <Power size={14} />)}
-                  {org.isActive ? 'Deactivate Organization' : 'Activate Organization'}
+                  {org.isActive ? 'Deactivate Access' : 'Restore Access'}
                 </button>
               </div>
             </div>
@@ -223,19 +203,21 @@ export const Organizations: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
-          <form onSubmit={handleSaveOrg} className="bg-white rounded-[2rem] w-full max-w-md p-8 relative shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold flex items-center gap-2 text-left"><ShieldCheck className="text-indigo-600"/> Client Settings</h3>
+          <form onSubmit={handleSaveOrg} className="bg-white rounded-[2rem] w-full max-w-md p-8 relative shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto text-left">
+            <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800 tracking-tight">
+              <ShieldCheck className="text-indigo-600"/> Provisioning Authorization
+            </h3>
             
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1 text-left">Organization Name</label>
-              <input required value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Organization Name</label>
+              <input required value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" />
             </div>
             
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1 text-left">Subscription Tier</label>
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">Target Tier</label>
               <div className="grid grid-cols-1 gap-2">
                 {Object.entries(TIER_CONFIG).map(([key, cfg]) => (
-                  <label key={key} className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${formData.tier === key ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100'}`}>
+                  <label key={key} className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${formData.tier === key ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-100 hover:border-slate-200'}`}>
                     <div className="flex items-center gap-3">
                       <input 
                         type="radio" 
@@ -255,15 +237,17 @@ export const Organizations: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1 text-left">Contract Expiry</label>
-              <input type="date" required value={formData.subscriptionEndDate} onChange={e=>setFormData({...formData, subscriptionEndDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold" />
+              <label className="block text-xs font-bold text-slate-400 uppercase mb-1 ml-1">New Expiry Date</label>
+              <input type="date" required value={formData.subscriptionEndDate} onChange={e=>setFormData({...formData, subscriptionEndDate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" />
             </div>
-            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-               <input type="checkbox" checked={formData.isActive} onChange={e=>setFormData({...formData, isActive: e.target.checked})} className="w-5 h-5 rounded" />
-               <span className="text-sm font-bold text-slate-700">Account Active & Authorized</span>
+            
+            <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+               <input type="checkbox" checked={formData.isActive} onChange={e=>setFormData({...formData, isActive: e.target.checked})} className="w-5 h-5 rounded text-indigo-600" />
+               <span className="text-sm font-bold text-slate-700">Grant Operational Authorization</span>
             </div>
-            <button disabled={isSaving} type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-xs tracking-widest mt-4 shadow-lg shadow-indigo-600/20">
-              {isSaving ? 'Processing...' : 'Save Configuration'}
+            
+            <button disabled={isSaving} type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-xs tracking-widest mt-4 shadow-lg shadow-indigo-600/20 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2">
+              {isSaving ? <><Loader2 className="animate-spin" size={16}/> Synchronizing...</> : 'Save Configuration'}
             </button>
           </form>
         </div>

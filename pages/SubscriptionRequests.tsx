@@ -32,7 +32,6 @@ export const SubscriptionRequests: React.FC = () => {
         storage.getOrganizations()
       ]);
       // Filter for pending subscription requests (identified by absence of businessId)
-      // This is the new way to identify Organization-level alerts following the UUID fix.
       const subRequests = rData.filter(r => r.type === 'system_alert' && r.status === 'pending' && !r.businessId);
       setRequests(subRequests);
       setOrganizations(oData);
@@ -51,28 +50,49 @@ export const SubscriptionRequests: React.FC = () => {
       if (action === 'approve' && request.orgId) {
         const org = organizations.find(o => o.id === request.orgId);
         if (org) {
-          // Parse requested tier from the businessName label "OrgName (UPGRADE TO TIER)" or "OrgName (RENEWAL)"
+          // Parse requested tier from bracketed label: "OrgName [TIER] (ACTION | FOR: YYYY-MM)"
           let newTier: SubscriptionTier = org.tier;
-          const nameLower = request.businessName.toLowerCase();
+          const label = request.businessName.toUpperCase();
           
-          if (nameLower.includes('upgrade to enterprise')) newTier = 'enterprise';
-          else if (nameLower.includes('upgrade to growth')) newTier = 'growth';
-          else if (nameLower.includes('upgrade to starter')) newTier = 'starter';
+          if (label.includes('[ENTERPRISE]')) newTier = 'enterprise';
+          else if (label.includes('[GROWTH]')) newTier = 'growth';
+          else if (label.includes('[STARTER]')) newTier = 'starter';
+          
+          // Fallback for legacy requests without brackets
+          else if (label.includes('UPGRADE TO ENTERPRISE')) newTier = 'enterprise';
+          else if (label.includes('UPGRADE TO GROWTH')) newTier = 'growth';
+          else if (label.includes('UPGRADE TO STARTER')) newTier = 'starter';
 
-          // Set new expiry (1 year from now)
-          const newExpiry = new Date();
-          newExpiry.setFullYear(newExpiry.getFullYear() + 1);
+          // 1. Update the Organization Expiry to NEXT MONTH
+          const nextMonth = new Date();
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          const newExpiryStr = nextMonth.toISOString().split('T')[0];
 
           await storage.saveOrganization({
             ...org,
             tier: newTier,
             isActive: true,
-            subscriptionEndDate: newExpiry.toISOString().split('T')[0]
+            subscriptionEndDate: newExpiryStr
+          });
+          
+          // 2. Log the collection in the current month's audit ledger
+          // We use the CURRENT MONTH for the audit record so it shows in the active ledger
+          const currentMonth = new Date().toISOString().slice(0, 7);
+          
+          await storage.saveReminder({
+            orgId: org.id,
+            businessId: undefined,
+            businessName: `${org.name} [${newTier.toUpperCase()}] (AUTHORIZED | FOR: ${currentMonth})`,
+            date: new Date().toISOString().split('T')[0],
+            sentBy: request.sentBy,
+            sentByUserName: 'Platform Authority',
+            status: 'read',
+            type: 'system_alert'
           });
         }
       }
 
-      // Mark request as processed (read)
+      // Mark original request as processed (read)
       await storage.saveReminder({ ...request, status: 'read' });
       await loadData();
     } catch (err: any) {
@@ -113,9 +133,17 @@ export const SubscriptionRequests: React.FC = () => {
                   </div>
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                      <h4 className="text-xl font-black text-white tracking-tight uppercase">{req.businessName}</h4>
+                      <h4 className="text-xl font-black text-white tracking-tight uppercase">
+                        {req.businessName.split('[')[0].trim()}
+                      </h4>
+                      <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest ${
+                         req.businessName.includes('[ENTERPRISE]') ? 'bg-indigo-500 text-white' :
+                         req.businessName.includes('[GROWTH]') ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white'
+                      }`}>
+                         {req.businessName.match(/\[(.*?)\]/)?.[1] || 'Renewal'}
+                      </span>
                       <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-md text-[8px] font-black text-slate-400 uppercase tracking-widest">
-                        {req.id.substring(0, 8)}
+                        ID: {req.id.substring(0, 8)}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
@@ -130,7 +158,7 @@ export const SubscriptionRequests: React.FC = () => {
                       {org && (
                         <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-widest">
                           <Layers size={12} />
-                          Current Tier: {org.tier}
+                          Active Plan: {org.tier}
                         </div>
                       )}
                     </div>
@@ -169,7 +197,7 @@ export const SubscriptionRequests: React.FC = () => {
         <ShieldCheck size={24} className="text-indigo-500" />
         <p className="text-xs font-medium text-slate-400">
           <span className="font-black text-indigo-400 uppercase mr-2">Security Protocol:</span>
-          Approving a request automatically extends the organization's subscription by 12 months, updates their tier access, and restores full platform write privileges.
+          Approving a request sets the new expiry to one month from today. The transaction is recorded in the current month's audit ledger to reflect real-time collection.
         </p>
       </div>
     </div>
