@@ -26,7 +26,9 @@ import {
   Coins,
   Receipt,
   Percent,
-  X
+  X,
+  Calendar,
+  Clock
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -45,12 +47,21 @@ export const POS: React.FC = () => {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState(new Date());
   
   // Checkout & Calculator State
   const [receivedAmount, setReceivedAmount] = useState<string>('');
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   
   const [todayTotals, setTodayTotals] = useState({ cash: 0, bank: 0 });
+
+  // Live Clock Effect
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchTodayTotals = async (bizId: string) => {
     if (!bizId) return;
@@ -333,6 +344,22 @@ export const POS: React.FC = () => {
             {cart.length > 0 && (
               <button onClick={() => {setCart([]);}} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Session</button>
             )}
+          </div>
+
+          {/* Live Clock & Date */}
+          <div className="mb-4 p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Calendar size={14} />
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                {currentTime.toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' })}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-900">
+              <Clock size={14} className="text-teal-600" />
+              <span className="text-sm font-black font-mono tracking-tight">
+                {currentTime.toLocaleTimeString('en-ZA', { hour12: false })}
+              </span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
