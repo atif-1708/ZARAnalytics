@@ -45,12 +45,10 @@ export interface Business {
 export interface Product {
   id: string;
   sku: string;
-  name: string;
   description: string;
   costPrice: number;
   salePrice: number;
   currentStock: number;
-  category: string;
   businessId: string;
   orgId?: string;
   createdAt: string;
@@ -70,7 +68,7 @@ export interface StockMovement {
 
 export interface SaleItem {
   productId: string;
-  name: string;
+  sku: string;
   quantity: number;
   priceAtSale: number;
   costAtSale: number;

@@ -47,7 +47,6 @@ const getFilter = async () => {
 };
 
 export const storage = {
-  // ... (Organizations, Businesses, Users omitted for brevity but remain intact)
   getOrganizations: async (): Promise<Organization[]> => {
     try {
       const { data, error } = await supabase.from('organizations').select('*').order('name');
@@ -84,7 +83,7 @@ export const storage = {
     } catch (err: any) {
       console.error("Save Organization Error:", err);
       if (err.message?.includes('tier') || err.code === 'PGRST204' || err.code === '42703' || err.code === '23502') {
-        throw new Error("SCHEMA_MIGRATION_REQUIRED: The 'tier' column is missing from your 'organizations' table. Please run this SQL in your Supabase Editor: ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tier text DEFAULT 'starter';");
+        throw new Error("SCHEMA_MIGRATION_REQUIRED: The 'tier' column is missing from your 'organizations' table.");
       }
       throw new Error(err.message || "Failed to save organization.");
     }
@@ -136,11 +135,10 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // --- Products / Inventory ---
   getProducts: async (businessId?: string): Promise<Product[]> => {
     try {
       const { orgId, role } = await getFilter();
-      let query = supabase.from('products').select('*').order('name');
+      let query = supabase.from('products').select('*').order('sku');
       if (businessId) query = query.eq('business_id', businessId);
       else if (role !== UserRole.SUPER_ADMIN || orgId) query = query.eq('org_id', orgId);
       
@@ -180,7 +178,6 @@ export const storage = {
     return (data || []).map(mapFromDb);
   },
 
-  // --- Stock Movements (Records & Recording) ---
   getStockMovements: async (productId?: string): Promise<StockMovement[]> => {
     try {
       const { orgId } = await getFilter();
@@ -198,12 +195,9 @@ export const storage = {
 
   recordStockAdjustment: async (productId: string, quantity: number, type: StockMovement['type'], reason: string) => {
     const { orgId, userName } = await getFilter();
-    
-    // 1. Fetch Current Product to get Business ID and Context
     const { data: product, error: pError } = await supabase.from('products').select('*').eq('id', productId).single();
-    if (pError || !product) throw new Error("Product not found for adjustment.");
+    if (pError || !product) throw new Error("Product not found.");
 
-    // 2. Create Movement Record
     const movementPayload = mapToDb({
       productId,
       quantity,
@@ -217,43 +211,38 @@ export const storage = {
     const { error: mError } = await supabase.from('stock_movements').insert(movementPayload);
     if (mError) throw new Error("Failed to log movement: " + mError.message);
 
-    // 3. Update Product Stock Level
     const newStock = Math.max(0, (product.current_stock || 0) + quantity);
     const { error: uError } = await supabase.from('products').update({ current_stock: newStock }).eq('id', productId);
-    if (uError) throw new Error("Failed to update product stock: " + uError.message);
+    if (uError) throw new Error("Failed to update stock: " + uError.message);
     
     return true;
   },
 
-  // --- Sales (With Auto-Recording) ---
   saveSale: async (sale: Partial<DailySale>) => {
     const { orgId: contextOrgId, userName } = await getFilter();
     const finalOrgId = sale.orgId || contextOrgId;
     
-    // Deduct stock and log movements for each item
     if (sale.items && sale.items.length > 0) {
       for (const item of sale.items) {
         try {
-          // Log movement
           const movementPayload = mapToDb({
             productId: item.productId,
-            quantity: -item.quantity, // Negative for sales
+            quantity: -item.quantity,
             type: 'sale',
-            reason: `Sale recorded in POS (ID: ${sale.id || 'new'})`,
+            reason: `Sale Transaction (SKU: ${item.sku})`,
             businessId: sale.businessId,
             orgId: finalOrgId,
             userName: userName || 'POS Terminal'
           });
           await supabase.from('stock_movements').insert(movementPayload);
 
-          // Update stock
           const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
           if (prod) {
             const newStock = Math.max(0, prod.current_stock - item.quantity);
             await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
           }
         } catch(e) {
-          console.warn("Stock sync failed for item:", item.productId, e);
+          console.warn("Stock sync failed:", item.productId, e);
         }
       }
     }
@@ -285,7 +274,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // --- Expenses & Reminders & Users (Standard implementation) ---
   getExpenses: async (): Promise<MonthlyExpense[]> => {
     try {
       const { orgId, role } = await getFilter();
