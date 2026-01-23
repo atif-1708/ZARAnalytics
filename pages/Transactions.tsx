@@ -201,19 +201,23 @@ export const Transactions: React.FC = () => {
     });
   }, [sales, businesses, selectedBusinessId, search, dateFilter, methodFilter]);
 
-  const getTimeString = (dateStr: string) => {
-    // Check for null, empty or short date string
-    if (!dateStr || dateStr.length <= 10) return '--:--';
-    
-    const date = new Date(dateStr);
-    
-    // Check if it's midnight UTC (which shows as 5 AM in PKT/ZAR contexts), indicating a date-only record
-    // If hours, minutes, and seconds are ALL 0 in UTC, it's likely a date-only timestamp.
-    if (date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0) {
-       return '--:--';
+  const getTimeString = (sale: DailySale) => {
+    // 1. Try to use the primary date field if it contains valid time info
+    if (sale.date && sale.date.length > 10) {
+       const date = new Date(sale.date);
+       // If it's NOT midnight UTC (00:00:00), we trust the time is present.
+       // Note: 5 AM PKT is 00:00 UTC, but a real transaction is unlikely to be EXACTLY 00:00:00.000
+       if (!(date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0)) {
+          return date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+       }
     }
     
-    return date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+    // 2. Fallback to createdAt if date was truncated (e.g. legacy DATE column)
+    if (sale.createdAt) {
+       return new Date(sale.createdAt).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    return '--:--';
   };
 
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
@@ -289,7 +293,7 @@ export const Transactions: React.FC = () => {
                 const biz = businesses.find(b => b.id === s.businessId);
                 const isCash = s.paymentMethod === PaymentMethod.CASH;
                 const isAdjustment = !s.items || s.items.length === 0;
-                const displayTime = getTimeString(s.date);
+                const displayTime = getTimeString(s);
                 
                 return (
                   <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
