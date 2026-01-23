@@ -97,6 +97,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const menuItems: any[] = [
     { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
     { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
+    { to: '/billing', label: 'Plan & Payment', icon: <CreditCard size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
     { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
     { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
     { to: '/expenses', label: 'Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
@@ -277,15 +278,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
         </header>
 
-        {isSuspended && !isGlobalKernelMode && (
+        {isSuspended && !isGlobalKernelMode && location.pathname !== '/billing' && location.pathname !== '/profile' && (
           <div className="bg-rose-600 text-white px-6 py-2 flex items-center justify-center gap-4 sticky top-16 z-20 shadow-lg animate-in slide-in-from-top duration-300">
              <AlertTriangle size={16} className="animate-pulse" />
              <p className="text-xs font-black uppercase tracking-widest">
                Read-Only Mode: {suspendedOrgName} Subscription has expired. Data entry is restricted.
              </p>
-             {user?.role === UserRole.ORG_ADMIN && (
+             {(user?.role === UserRole.ORG_ADMIN || user?.role === UserRole.ADMIN) && (
                <button 
-                 onClick={() => navigate('/organizations')} 
+                 onClick={() => navigate('/billing')} 
                  className="bg-white text-rose-600 px-3 py-1 rounded-lg text-[9px] font-black hover:bg-rose-50 transition-colors uppercase tracking-widest ml-2 shadow-sm"
                >
                  Resubscribe
