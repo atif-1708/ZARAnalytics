@@ -202,12 +202,18 @@ export const Transactions: React.FC = () => {
   }, [sales, businesses, selectedBusinessId, search, dateFilter, methodFilter]);
 
   const getTimeString = (dateStr: string) => {
-    // Check if the string actually contains time data (and isn't just midnight UTC)
-    // Heuristic: If it ends in T00:00:00... or has no T, assume time is missing or defaulted
-    if (dateStr.length <= 10 || dateStr.includes('T00:00:00.000Z') || dateStr.endsWith('T00:00:00')) {
-      return '--:--';
+    // Check for null, empty or short date string
+    if (!dateStr || dateStr.length <= 10) return '--:--';
+    
+    const date = new Date(dateStr);
+    
+    // Check if it's midnight UTC (which shows as 5 AM in PKT/ZAR contexts), indicating a date-only record
+    // If hours, minutes, and seconds are ALL 0 in UTC, it's likely a date-only timestamp.
+    if (date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0) {
+       return '--:--';
     }
-    return new Date(dateStr).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+    
+    return date.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
   };
 
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;

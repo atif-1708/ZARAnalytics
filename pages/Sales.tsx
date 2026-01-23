@@ -194,15 +194,17 @@ export const Sales: React.FC = () => {
 
       const profitAmount = salesVal * (profitPct / 100);
       
-      // Fix: Append current time to the selected date to prevent Midnight UTC (5 AM) issue
+      // Fix: Construct proper ISO date combining selected date and CURRENT system time
       const now = new Date();
-      const timePart = `T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
-      const fullDateTime = `${formData.date}${timePart}`;
+      const [y, m, d] = formData.date.split('-').map(Number);
+      // Create date object (Month is 0-indexed in JS)
+      const entryDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+      const isoTimestamp = entryDate.toISOString();
 
       const payload = {
         ...(editingSale || {}),
         businessId: formData.businessId,
-        date: fullDateTime,
+        date: isoTimestamp,
         salesAmount: salesVal,
         profitPercentage: profitPct,
         profitAmount: profitAmount,
@@ -216,7 +218,7 @@ export const Sales: React.FC = () => {
           await storage.saveReminder({
             businessId: formData.businessId,
             businessName: selectedBiz.name,
-            date: fullDateTime,
+            date: isoTimestamp,
             sentBy: user?.id || '',
             sentByUserName: user?.name || 'Staff Member',
             status: 'pending',

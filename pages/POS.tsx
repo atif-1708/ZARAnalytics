@@ -15,20 +15,18 @@ import {
   CheckCircle,
   Hash,
   RefreshCw,
-  AlertCircle,
   PackageSearch,
   Globe,
   Wallet,
   Building,
-  PlusCircle,
   Layers,
   Tag,
   Coins,
   Receipt,
-  Percent,
   X,
   Calendar,
-  Clock
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -196,9 +194,14 @@ export const POS: React.FC = () => {
     setIsProcessing(true);
     try {
       const biz = businesses.find(b => b.id === selectedBusinessId);
+      
+      // Capture SYSTEM TIME in ISO format.
+      // This ensures time is recorded exactly as it is on the device/server in UTC.
+      const timestamp = new Date().toISOString();
+
       await storage.saveSale({
         businessId: selectedBusinessId,
-        date: getLocalISOString(), // Use local time for transaction log
+        date: timestamp, 
         salesAmount: finalTotal,
         profitPercentage: finalTotal > 0 ? ((finalTotal - cartCost) / finalTotal) * 100 : 0,
         profitAmount: finalTotal - cartCost,
