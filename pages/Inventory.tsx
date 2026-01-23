@@ -16,8 +16,8 @@ import {
   PlusCircle,
   History,
   Info,
-  // Added Store icon to fix "Cannot find name 'Store'" error on line 179
-  Store
+  Store,
+  FileDown
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -98,6 +98,22 @@ export const Inventory: React.FC = () => {
     p.sku.toLowerCase().includes(search.toLowerCase()) ||
     p.description.toLowerCase().includes(search.toLowerCase())
   );
+
+  const downloadSampleCSV = () => {
+    const headers = "SKU,Name,Description,Category,Cost,Price,Stock\n";
+    const sampleRow = "PROD-001,Sample Product,A rich description for easy POS search,Beverages,8.50,15.00,100";
+    const csvContent = headers + sampleRow;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "zarlytics_inventory_sample.csv");
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleCSVImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -335,12 +351,28 @@ export const Inventory: React.FC = () => {
                 <FileSpreadsheet size={40} />
              </div>
              <h3 className="text-2xl font-black text-slate-900 tracking-tight mb-2">Bulk CSV Import</h3>
-             <p className="text-sm text-slate-500 font-medium mb-8 leading-relaxed">
-               Select a spreadsheet to ingest products. Ensure headers include:<br/>
-               <span className="font-bold">Code, Name, Description, Cost, Price, Stock, Category</span>
+             <p className="text-sm text-slate-500 font-medium mb-6 leading-relaxed">
+               Select a spreadsheet to ingest products.
              </p>
 
              <div className="space-y-4">
+                <button 
+                  onClick={downloadSampleCSV}
+                  className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100 transition-all group"
+                >
+                   <FileDown size={20} className="text-slate-400 group-hover:text-indigo-600" />
+                   <div className="text-left">
+                      <p className="text-xs font-black text-slate-800 uppercase tracking-widest">Download Sample CSV</p>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Use this as a template for your data</p>
+                   </div>
+                </button>
+
+                <div className="py-2 flex items-center gap-4">
+                  <div className="h-px bg-slate-100 flex-1"></div>
+                  <span className="text-[10px] font-black text-slate-300 uppercase">Then Upload</span>
+                  <div className="h-px bg-slate-100 flex-1"></div>
+                </div>
+
                 <button 
                   onClick={() => fileInputRef.current?.click()}
                   className="w-full flex items-center justify-center gap-3 px-6 py-8 border-2 border-dashed border-slate-200 rounded-3xl hover:border-indigo-400 hover:bg-indigo-50 transition-all group"
@@ -357,7 +389,7 @@ export const Inventory: React.FC = () => {
              <div className="mt-8 p-4 bg-amber-50 rounded-2xl text-left flex items-start gap-3">
                 <Info size={16} className="text-amber-500 shrink-0 mt-0.5" />
                 <p className="text-[10px] font-bold text-amber-800 uppercase tracking-tight">
-                  Note: Uploading a CSV with existing SKU codes will update the current stock and pricing for those items.
+                  Required Columns: SKU, Name, Description, Category, Cost, Price, Stock.
                 </p>
              </div>
 
