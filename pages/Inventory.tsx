@@ -26,7 +26,9 @@ import {
   Clock,
   LayoutList,
   Boxes,
-  Hash
+  Hash,
+  Upload,
+  FileText
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -166,6 +168,72 @@ export const Inventory: React.FC = () => {
     }
   };
 
+  // --- CSV IMPORT LOGIC ---
+  const triggerFilePicker = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedBusinessId) return;
+
+    setIsSaving(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 2) throw new Error("CSV file is empty or missing headers.");
+
+        const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+        const expected = ['sku', 'description', 'costprice', 'saleprice', 'currentstock'];
+        
+        // Simple validation
+        const missing = expected.filter(exp => !headers.includes(exp));
+        if (missing.length > 0) {
+          throw new Error(`Missing columns: ${missing.join(', ')}`);
+        }
+
+        const biz = businesses.find(b => b.id === selectedBusinessId);
+        const importedProducts: Partial<Product>[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          const values = lines[i].split(',').map(v => v.trim());
+          const p: any = {
+            businessId: selectedBusinessId,
+            orgId: biz?.orgId
+          };
+
+          headers.forEach((header, index) => {
+            if (header === 'sku') p.sku = values[index];
+            if (header === 'description') p.description = values[index];
+            if (header === 'costprice') p.costPrice = parseFloat(values[index]) || 0;
+            if (header === 'saleprice') p.salePrice = parseFloat(values[index]) || 0;
+            if (header === 'currentstock') p.currentStock = parseInt(values[index]) || 0;
+          });
+
+          if (p.sku) importedProducts.push(p);
+        }
+
+        if (importedProducts.length > 0) {
+          await storage.bulkUpsertProducts(importedProducts);
+          await loadProducts();
+          setIsImportModalOpen(false);
+          alert(`Successfully imported ${importedProducts.length} items.`);
+        }
+      } catch (err: any) {
+        alert("Import Error: " + err.message);
+      } finally {
+        setIsSaving(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
   const filteredProducts = products.filter(p => 
     p.sku.toLowerCase().includes(search.toLowerCase()) ||
     p.description.toLowerCase().includes(search.toLowerCase())
@@ -187,7 +255,10 @@ export const Inventory: React.FC = () => {
           <p className="text-slate-500">Record item arrivals, manage stock levels, and audit SKU movements</p>
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <button onClick={() => setIsImportModalOpen(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-600 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-50 transition-all">
+          <button 
+            onClick={() => setIsImportModalOpen(true)} 
+            className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-600 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-50 transition-all"
+          >
             <FileSpreadsheet size={18} /> Bulk CSV
           </button>
           <button onClick={() => { setEditingProduct(null); setFormData({ sku: '', description: '', costPrice: 0, salePrice: 0, currentStock: 0 }); setIsModalOpen(true); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition-all">
@@ -288,6 +359,76 @@ export const Inventory: React.FC = () => {
         </div>
       </div>
 
+      {/* CSV Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSaving && setIsImportModalOpen(false)} />
+          <div className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 relative shadow-2xl space-y-6 text-left border border-slate-100">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center shadow-inner">
+                 <FileSpreadsheet size={28} />
+              </div>
+              <div>
+                <h3 className="text-2xl font-black tracking-tight text-slate-900">Bulk SKU Import</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Upload inventory via CSV file</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 space-y-4">
+               <div className="flex items-start gap-3">
+                  <Info size={16} className="text-teal-600 shrink-0 mt-1" />
+                  <p className="text-xs font-bold text-slate-600 leading-relaxed">
+                    Your CSV must include these exact headers:
+                    <code className="block mt-2 bg-white p-2 border border-slate-200 rounded-lg text-teal-700 font-mono">
+                      sku, description, costPrice, salePrice, currentStock
+                    </code>
+                  </p>
+               </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+               <input 
+                 type="file" 
+                 ref={fileInputRef} 
+                 className="hidden" 
+                 accept=".csv" 
+                 onChange={handleFileUpload} 
+               />
+               <button 
+                 disabled={isSaving}
+                 onClick={triggerFilePicker}
+                 className="w-full py-10 border-2 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center gap-4 hover:border-teal-500 hover:bg-teal-50 transition-all group"
+               >
+                 {isSaving ? (
+                    <Loader2 className="animate-spin text-teal-600" size={32} />
+                 ) : (
+                    <>
+                      <div className="w-12 h-12 bg-white border border-slate-100 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+                        <Upload size={20} className="text-slate-400 group-hover:text-teal-600" />
+                      </div>
+                      <div className="text-center">
+                         <p className="text-sm font-black text-slate-700">Click to upload CSV</p>
+                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Max file size 5MB</p>
+                      </div>
+                    </>
+                 )}
+               </button>
+            </div>
+
+            <div className="flex justify-between items-center pt-4">
+               <button onClick={() => setIsImportModalOpen(false)} className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Cancel</button>
+               <a 
+                 href={`data:text/csv;charset=utf-8,${encodeURIComponent('sku,description,costPrice,salePrice,currentStock\nPRD-001,Example Item Description,100,250,50')}`}
+                 download="template.csv"
+                 className="flex items-center gap-2 text-[10px] font-black text-teal-600 uppercase tracking-widest hover:text-teal-700"
+               >
+                 <FileText size={14}/> Download Template
+               </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Adjustment Modal */}
       {isAdjustModalOpen && adjustingProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -340,7 +481,7 @@ export const Inventory: React.FC = () => {
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Audit trail for SKU: {historyProduct.sku}</p>
                  </div>
                </div>
-               <button onClick={() => setIsHistoryModalOpen(false)} className="p-2 text-slate-300 hover:text-slate-900"><X size={24}/></button>
+               <button onClick={() => setIsHistoryModalOpen(false)} className="p-2 text-slate-300 hover:text-slate-900 transition-colors"><X size={24}/></button>
             </div>
 
             <div className="flex-1 overflow-y-auto pr-2 space-y-4">
