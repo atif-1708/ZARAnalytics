@@ -267,7 +267,7 @@ export const storage = {
   },
 
   processRefund: async (saleId: string, refundItems?: { sku: string, quantity: number, price: number, productId: string }[]) => {
-    const { userName } = await getFilter();
+    const { userName, orgId: contextOrgId } = await getFilter();
     
     // 1. Fetch original sale
     const { data: originalDb, error: fetchError } = await supabase.from('sales').select('*').eq('id', saleId).single();
@@ -276,15 +276,19 @@ export const storage = {
     const original = mapFromDb(originalDb);
     if (original.isRefunded) throw new Error("Transaction has already been fully refunded.");
 
-    // Determine items to process: specific selection OR all original items
+    // Determine items to process
     const itemsToProcess = refundItems && refundItems.length > 0 ? refundItems : (original.items || []);
-    
     if (itemsToProcess.length === 0) throw new Error("No items found to refund.");
 
-    let totalRefundAmount = 0;
-    let totalRefundProfit = 0; // Approximate profit reversal based on original margin
+    // Validate if any items were actually part of the original sale (simple check)
+    if (original.items && original.items.length > 0) {
+        // Optional validation logic could go here
+    }
 
-    // 2. Inventory Restoration Loop
+    let totalRefundAmount = 0;
+    let totalRefundProfit = 0; 
+
+    // 2. Inventory Restoration
     for (const item of itemsToProcess) {
       try {
         const refundValue = item.price * item.quantity;
@@ -293,11 +297,11 @@ export const storage = {
         // Log return movement
         const movementPayload = mapToDb({
           productId: item.productId,
-          quantity: item.quantity, // Positive quantity for return
+          quantity: item.quantity, 
           type: 'return',
           reason: `Refund for Trans #${saleId.substring(0,8)} (SKU: ${item.sku})`,
           businessId: original.businessId,
-          orgId: original.orgId,
+          orgId: original.orgId || contextOrgId, // Fallback to current context if original missing
           userName: userName || 'System Refund'
         });
         await supabase.from('stock_movements').insert(movementPayload);
@@ -314,12 +318,10 @@ export const storage = {
     }
 
     // Calculate approximate profit reversal
-    // If original profit was 20%, we reverse 20% of the refunded revenue
     const margin = original.salesAmount > 0 ? (original.profitAmount / original.salesAmount) : 0;
     totalRefundProfit = totalRefundAmount * margin;
 
     // 3. Mark original as refunded IF it's a full refund
-    // Heuristic: If refunded amount equals original sales amount (within small tolerance)
     const isFullRefund = Math.abs(totalRefundAmount - original.salesAmount) < 0.01;
     
     if (isFullRefund) {
@@ -331,6 +333,10 @@ export const storage = {
     }
 
     // 4. Financial Adjustment (Negative Transaction)
+    // IMPORTANT: Ensure orgId is present. Use original or fallback to current user's org.
+    const finalOrgId = original.orgId || contextOrgId;
+    if (!finalOrgId) throw new Error("Organization ID missing. Cannot process refund adjustment.");
+
     const refundEntry = {
       businessId: original.businessId,
       date: new Date().toISOString(),
@@ -338,14 +344,18 @@ export const storage = {
       profitAmount: -Math.abs(totalRefundProfit),
       profitPercentage: 0, 
       paymentMethod: original.paymentMethod,
-      items: [], // Empty items to avoid double counting in stats, strictly financial
-      orgId: original.orgId,
-      isRefunded: false // This entry is the correction itself
+      items: [], // Empty items to avoid double counting in stats
+      orgId: finalOrgId,
+      isRefunded: false 
     };
 
     const payload = mapToDb(refundEntry);
     const { error: insertError } = await supabase.from('sales').insert(payload);
-    if (insertError) throw new Error("Failed to record financial adjustment.");
+    
+    if (insertError) {
+      console.error("Refund Adjustment Insert Failed:", insertError);
+      throw new Error(`Failed to record financial adjustment: ${insertError.message}`);
+    }
 
     return true;
   },
