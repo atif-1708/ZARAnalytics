@@ -134,12 +134,11 @@ export const Sales: React.FC = () => {
     const groups: Record<string, DailySale & { isComputed: boolean; txCount: number }> = {};
 
     sales.forEach(s => {
-      const itemDate = new Date(s.date);
-      // FIX: Convert UTC timestamp to LOCAL Date String before grouping
-      const d = new Date(s.date);
+      // Prioritize createdAt for accurate grouping if available
+      const d = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
       const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       
-      const inRange = itemDate >= startDate && itemDate <= endDate;
+      const inRange = d >= startDate && d <= endDate;
       const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(s.businessId);
       const matchesBiz = filters.businessId === 'all' || s.businessId === filters.businessId;
 
@@ -267,7 +266,8 @@ export const Sales: React.FC = () => {
     setSaveError(null);
     
     // When editing, convert ISO date back to local date YYYY-MM-DD for the input
-    const d = new Date(sale.date);
+    // Prefer createdAt if available to be consistent
+    const d = sale.createdAt ? new Date(sale.createdAt) : new Date(sale.date);
     const localYMD = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     
     setFormData({
@@ -323,6 +323,7 @@ export const Sales: React.FC = () => {
               <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Date</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Business Unit</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Context</th>
+              <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Daily Margin</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Day Revenue ({currency})</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Day Profit ({currency})</th>
               <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Actions</th>
@@ -330,7 +331,7 @@ export const Sales: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {aggregatedDailySales.length === 0 ? (
-              <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-400 italic text-sm">No sales records found for this period.</td></tr>
+              <tr><td colSpan={7} className="px-6 py-10 text-center text-slate-400 italic text-sm">No sales records found for this period.</td></tr>
             ) : (
               aggregatedDailySales.map((s: any, idx: number) => {
                 const b = businesses.find(bx => bx.id === s.businessId);
@@ -364,6 +365,11 @@ export const Sales: React.FC = () => {
                           <span>Adjustment</span>
                         )}
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-2 py-1 rounded-md text-[10px] font-bold border ${s.profitPercentage >= 30 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                        {s.profitPercentage}%
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-right font-black text-blue-600">{formatCurrency(convert(s.salesAmount), currency)}</td>
                     <td className="px-6 py-4 text-sm text-right font-black text-emerald-600">{formatCurrency(convert(s.profitAmount), currency)}</td>
