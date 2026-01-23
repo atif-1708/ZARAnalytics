@@ -70,12 +70,11 @@ export const POS: React.FC = () => {
     try {
       const allSales = await storage.getSales();
       
-      // FIX: Use local date comparison instead of UTC string comparison
       const todayKey = getLocalDayKey(new Date());
       
       const bizSalesToday = allSales.filter(s => {
-        // Convert the stored UTC/ISO string to a Date object, then extract LOCAL date components
-        const saleDate = new Date(s.date);
+        // Use createdAt if available as it is more reliable than potentially truncated user date
+        const saleDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
         const saleKey = getLocalDayKey(saleDate);
         return s.businessId === bizId && saleKey === todayKey;
       });
