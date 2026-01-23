@@ -234,16 +234,41 @@ export const storage = {
   },
 
   saveReminder: async (reminder: Partial<Reminder>) => {
-    const { orgId: contextOrgId } = await getFilter();
-    const finalOrgId = reminder.orgId || contextOrgId;
+    // Determine the orgId from payload directly, or fallback to authenticated context
+    let finalOrgId = reminder.orgId;
+    if (!finalOrgId) {
+       const filter = await getFilter();
+       finalOrgId = filter.orgId;
+    }
     
-    if (!finalOrgId) throw new Error("Organization ID is required to save a reminder.");
+    if (!finalOrgId) throw new Error("Organization context could not be determined for this alert.");
 
-    const payload = mapToDb({ ...reminder, org_id: finalOrgId });
-    const operation = payload.id ? supabase.from('reminders').upsert(payload) : supabase.from('reminders').insert(payload);
-    const { data, error } = await operation.select().single();
-    if (error) throw new Error(error.message);
-    return mapFromDb(data);
+    const payload = mapToDb({ ...reminder, orgId: finalOrgId });
+    
+    try {
+      // We try the insert/upsert. We don't use .single() immediately to avoid RLS read-permission failures
+      const operation = payload.id ? supabase.from('reminders').upsert(payload) : supabase.from('reminders').insert(payload);
+      const { data, error, status } = await operation.select();
+      
+      if (error) {
+        // If it's a "multiple or no rows" error but status is success (201/200), it means RLS blocked the SELECT but the INSERT worked.
+        if (error.code === 'PGRST116' && (status === 201 || status === 200)) {
+           return reminder as Reminder; 
+        }
+        throw error;
+      }
+      
+      return mapFromDb(data ? data[0] : null);
+    } catch (err: any) {
+      console.error("Detailed Save Reminder Error:", err);
+      
+      const msg = err.message || "";
+      if (msg.includes('org_id') || msg.includes('business_name') || msg.includes('sent_by_user_name')) {
+        throw new Error("DATABASE_MISMATCH: Your 'reminders' table is missing required columns. Please run the following SQL in Supabase Editor: \n\n ALTER TABLE reminders ADD COLUMN IF NOT EXISTS org_id uuid, ADD COLUMN IF NOT EXISTS business_name text, ADD COLUMN IF NOT EXISTS sent_by_user_name text;");
+      }
+      
+      throw new Error(err.message || "A network or permission error occurred while sending the request.");
+    }
   },
 
   deleteReminder: async (id: string) => {
@@ -281,6 +306,7 @@ export const storage = {
     if (!authData.user) throw new Error("User creation failed.");
     
     const { orgId: contextOrgId } = await getFilter();
+    // Fix: access userData.assignedBusinessIds correctly
     const profilePayload = { 
       id: authData.user.id, 
       name: userData.name, 

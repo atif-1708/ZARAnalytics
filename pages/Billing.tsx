@@ -92,7 +92,8 @@ export const Billing: React.FC = () => {
     setIsProcessing(requestedTier);
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Small artificial delay for visual feedback
+      await new Promise(resolve => setTimeout(resolve, 800));
       
       const isUpgrade = requestedTier !== org.tier;
       const actionLabel = isUpgrade ? `UPGRADE to ${requestedTier.toUpperCase()}` : 'RENEWAL';
@@ -109,8 +110,10 @@ export const Billing: React.FC = () => {
       });
       
       setRequestSent(requestedTier);
-    } catch (err) {
-      alert("Request failed. Please contact support@zarlytics.com");
+    } catch (err: any) {
+      console.error("Billing Request Error:", err);
+      const errorDetail = err.message || "An unexpected error occurred. Please contact support@zarlytics.com";
+      alert("Submission Failed\n\n" + errorDetail);
     } finally {
       setIsProcessing(null);
     }
