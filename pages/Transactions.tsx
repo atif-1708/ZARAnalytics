@@ -16,7 +16,11 @@ import {
   ShoppingCart,
   Calendar,
   RotateCcw,
-  AlertTriangle
+  AlertTriangle,
+  CheckSquare,
+  Square,
+  Minus,
+  Plus
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +41,10 @@ export const Transactions: React.FC = () => {
   const [methodFilter, setMethodFilter] = useState<string>('all');
   const [viewingSale, setViewingSale] = useState<DailySale | null>(null);
 
+  // Refund State
+  const [selectedItems, setSelectedItems] = useState<Record<number, boolean>>({});
+  const [refundQuantities, setRefundQuantities] = useState<Record<number, number>>({});
+
   const loadData = async () => {
     setIsLoading(true);
     try {
@@ -53,7 +61,6 @@ export const Transactions: React.FC = () => {
       );
 
       setBusinesses(filteredBiz);
-      // Filter sales based on individual transaction items existence (POS checkouts)
       setSales(sData.filter(s => s.items && s.items.length > 0));
     } finally { 
       setIsLoading(false); 
@@ -62,19 +69,89 @@ export const Transactions: React.FC = () => {
 
   useEffect(() => { loadData(); }, [user]);
 
+  // Reset refund state when opening a new receipt
+  useEffect(() => {
+    if (viewingSale) {
+      setSelectedItems({});
+      setRefundQuantities({});
+    }
+  }, [viewingSale]);
+
+  const toggleItemSelection = (index: number, maxQty: number) => {
+    setSelectedItems(prev => {
+      const newState = { ...prev, [index]: !prev[index] };
+      if (newState[index]) {
+        // If selecting, set default quantity to max
+        setRefundQuantities(q => ({ ...q, [index]: maxQty }));
+      } else {
+        // If deselecting, remove quantity
+        setRefundQuantities(q => {
+          const next = { ...q };
+          delete next[index];
+          return next;
+        });
+      }
+      return newState;
+    });
+  };
+
+  const updateRefundQty = (index: number, delta: number, max: number) => {
+    setRefundQuantities(prev => {
+      const current = prev[index] || 1;
+      const next = Math.min(Math.max(1, current + delta), max);
+      return { ...prev, [index]: next };
+    });
+  };
+
+  const calculateTotalRefund = () => {
+    if (!viewingSale || !viewingSale.items) return 0;
+    return viewingSale.items.reduce((total, item, idx) => {
+      if (selectedItems[idx]) {
+        const qty = refundQuantities[idx] || item.quantity;
+        return total + (item.priceAtSale * qty);
+      }
+      return total;
+    }, 0);
+  };
+
   const handleRefund = async () => {
     if (!viewingSale || isRefunding) return;
     
-    const confirmMsg = `Process FULL REFUND for Transaction #${viewingSale.id.substring(0,8)}?\n\n- Stock will be restored.\n- A negative sales entry will be created for today.\n- This cannot be undone.`;
+    // Construct refund payload
+    const itemsToRefund = viewingSale.items?.map((item, idx) => {
+      if (selectedItems[idx]) {
+        return {
+          sku: item.sku,
+          quantity: refundQuantities[idx] || item.quantity,
+          price: item.priceAtSale,
+          productId: item.productId
+        };
+      }
+      return null;
+    }).filter(Boolean) as { sku: string, quantity: number, price: number, productId: string }[];
+
+    if (!itemsToRefund || itemsToRefund.length === 0) {
+      alert("Please select at least one item to refund.");
+      return;
+    }
+
+    const totalRefund = calculateTotalRefund();
+    const isFullRefund = Math.abs(totalRefund - viewingSale.salesAmount) < 0.01;
+    const confirmMsg = `Confirm Refund of ${formatZAR(totalRefund)}?\n\n- ${itemsToRefund.length} item(s) will be returned to stock.\n- Financials will be adjusted.\n${isFullRefund ? '- Original transaction will be marked as fully refunded.' : '- Original transaction will remain partially valid.'}`;
+    
     if (!window.confirm(confirmMsg)) return;
 
     setIsRefunding(true);
     try {
-      await storage.processRefund(viewingSale.id);
-      await loadData(); // Refresh list to get updated status
+      await storage.processRefund(viewingSale.id, itemsToRefund);
+      await loadData();
       
-      // Update local view state to show refunded status immediately
-      setViewingSale(prev => prev ? { ...prev, isRefunded: true } : null);
+      if (isFullRefund) {
+        setViewingSale(prev => prev ? { ...prev, isRefunded: true } : null);
+      } else {
+        // Close modal for partial to refresh state cleanly
+        setViewingSale(null);
+      }
       
       alert("Refund processed successfully.");
     } catch (e: any) {
@@ -86,17 +163,10 @@ export const Transactions: React.FC = () => {
 
   const filteredTransactions = useMemo(() => {
     return sales.filter(s => {
-      // 1. Business Match
       const bizMatch = selectedBusinessId === 'all' || s.businessId === selectedBusinessId;
-      
-      // 2. Method Match
       const methodMatch = methodFilter === 'all' || s.paymentMethod === methodFilter;
-      
-      // 3. Date Match
       const transDate = s.date.split('T')[0];
       const dateMatch = !dateFilter || transDate === dateFilter;
-      
-      // 4. Advanced Search (Shop, Trans ID, or Product Details)
       const bizName = businesses.find(b => b.id === s.businessId)?.name.toLowerCase() || '';
       const searchTerm = search.toLowerCase();
       
@@ -104,7 +174,6 @@ export const Transactions: React.FC = () => {
         bizName.includes(searchTerm) || 
         s.id.toLowerCase().includes(searchTerm);
 
-      // Search inside items (SKU or Description)
       const itemSearchMatch = !search || (s.items?.some(item => 
         item.sku.toLowerCase().includes(searchTerm) || 
         (item.description && item.description.toLowerCase().includes(searchTerm))
@@ -123,6 +192,7 @@ export const Transactions: React.FC = () => {
         <p className="text-slate-500">Itemized audit of every digital checkout processed via POS</p>
       </div>
 
+      {/* Filter Bar (unchanged) */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
           <Store size={14} className="text-slate-400" />
@@ -135,7 +205,6 @@ export const Transactions: React.FC = () => {
             {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
-
         <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
           <Filter size={14} className="text-slate-400" />
           <select 
@@ -148,7 +217,6 @@ export const Transactions: React.FC = () => {
             <option value={PaymentMethod.CARD}>Online / Bank</option>
           </select>
         </div>
-
         <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-xl border border-slate-100">
           <Calendar size={14} className="text-slate-400" />
           <input 
@@ -158,7 +226,6 @@ export const Transactions: React.FC = () => {
             className="bg-transparent text-[11px] font-black text-slate-700 outline-none cursor-pointer w-full uppercase tracking-widest"
           />
         </div>
-
         <div className="relative md:col-span-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input 
@@ -272,31 +339,63 @@ export const Transactions: React.FC = () => {
                 </div>
              )}
 
-             <div className={`bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-4 ${viewingSale.isRefunded ? 'opacity-50 grayscale' : ''}`}>
-                <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200 pb-3">
+             <div className={`bg-slate-50 border border-slate-100 rounded-2xl p-6 space-y-2 ${viewingSale.isRefunded ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
+                <div className="flex justify-between items-center text-xs font-bold text-slate-500 uppercase tracking-widest border-b border-slate-200 pb-3 mb-2">
                    <span>Item Description</span>
-                   <div className="flex gap-10">
+                   <div className="flex gap-8">
                       <span>Qty</span>
-                      <span className="w-20 text-right">Price</span>
+                      <span className="w-16 text-right">Price</span>
                    </div>
                 </div>
                 {viewingSale.items?.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center">
-                    <div className="flex flex-col min-w-0 pr-4">
+                  <div key={idx} className="flex items-center py-2 group">
+                    {/* Checkbox for partial refund selection */}
+                    {!viewingSale.isRefunded && (
+                      <button 
+                        onClick={() => toggleItemSelection(idx, item.quantity)}
+                        className={`mr-3 transition-colors ${selectedItems[idx] ? 'text-rose-500' : 'text-slate-300 hover:text-rose-300'}`}
+                      >
+                        {selectedItems[idx] ? <CheckSquare size={18} /> : <Square size={18} />}
+                      </button>
+                    )}
+
+                    <div className="flex flex-col min-w-0 pr-4 flex-1">
                       <div className="flex items-center gap-2">
                         <Hash size={12} className="text-slate-300" />
                         <span className="text-sm font-black text-slate-800">{item.sku}</span>
                       </div>
                       <span className="text-[10px] font-bold text-slate-400 truncate">{item.description}</span>
                     </div>
-                    <div className="flex gap-10 shrink-0">
-                      <span className="text-sm font-bold text-slate-500">{item.quantity}</span>
-                      <span className="text-sm font-black text-teal-600 w-20 text-right">{formatZAR(item.priceAtSale * item.quantity)}</span>
+                    
+                    <div className="flex items-center gap-6 shrink-0">
+                      {/* Quantity Logic: If selected, show adjuster, else static */}
+                      {selectedItems[idx] && !viewingSale.isRefunded ? (
+                        <div className="flex items-center bg-white border border-rose-200 rounded-lg">
+                           <button 
+                             onClick={() => updateRefundQty(idx, -1, item.quantity)}
+                             className="p-1 text-slate-400 hover:text-rose-600"
+                           >
+                             <Minus size={10} />
+                           </button>
+                           <span className="w-6 text-center text-xs font-bold text-rose-600">{refundQuantities[idx] || item.quantity}</span>
+                           <button 
+                             onClick={() => updateRefundQty(idx, 1, item.quantity)}
+                             className="p-1 text-slate-400 hover:text-rose-600"
+                           >
+                             <Plus size={10} />
+                           </button>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-bold text-slate-500 w-8 text-center">{item.quantity}</span>
+                      )}
+                      
+                      <span className="text-sm font-black text-teal-600 w-16 text-right">{formatZAR(item.priceAtSale * item.quantity)}</span>
                     </div>
                   </div>
                 ))}
-                <div className="pt-4 border-t border-slate-200 flex justify-between items-center">
-                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Value</span>
+                
+                <div className="pt-4 mt-2 border-t border-slate-200 flex justify-between items-center">
+                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Transaction Value</span>
                    <span className="text-2xl font-black text-slate-900">{formatZAR(viewingSale.salesAmount)}</span>
                 </div>
              </div>
@@ -318,14 +417,21 @@ export const Transactions: React.FC = () => {
              {!viewingSale.isRefunded && (
                 <button 
                   onClick={handleRefund}
-                  disabled={isRefunding}
-                  className="w-full py-4 bg-slate-900 text-rose-400 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-rose-950 transition-all border border-rose-900/30 flex items-center justify-center gap-2"
+                  disabled={isRefunding || Object.keys(selectedItems).filter(k => selectedItems[parseInt(k)]).length === 0}
+                  className={`w-full py-4 rounded-2xl font-black uppercase text-xs tracking-widest transition-all border flex items-center justify-center gap-2 ${
+                    Object.keys(selectedItems).length > 0
+                      ? 'bg-rose-600 text-white hover:bg-rose-700 border-rose-600 shadow-xl shadow-rose-200' 
+                      : 'bg-slate-100 text-slate-400 border-slate-200'
+                  }`}
                 >
                   {isRefunding ? (
                     <Loader2 className="animate-spin" size={16} />
                   ) : (
                     <>
-                      <RotateCcw size={16} /> Process Refund
+                      <RotateCcw size={16} /> 
+                      {Object.keys(selectedItems).length > 0 
+                        ? `Refund Selected (${formatZAR(calculateTotalRefund())})` 
+                        : 'Select Items to Refund'}
                     </>
                   )}
                 </button>

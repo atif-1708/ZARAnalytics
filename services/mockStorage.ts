@@ -266,7 +266,7 @@ export const storage = {
     return mapFromDb(data);
   },
 
-  processRefund: async (saleId: string) => {
+  processRefund: async (saleId: string, refundItems?: { sku: string, quantity: number, price: number, productId: string }[]) => {
     const { userName } = await getFilter();
     
     // 1. Fetch original sale
@@ -274,52 +274,73 @@ export const storage = {
     if (fetchError || !originalDb) throw new Error("Original transaction not found.");
     
     const original = mapFromDb(originalDb);
-    if (original.isRefunded) throw new Error("Transaction has already been refunded.");
+    if (original.isRefunded) throw new Error("Transaction has already been fully refunded.");
 
-    // 2. Mark original as refunded
-    const { error: updateError } = await supabase.from('sales').update({ is_refunded: true }).eq('id', saleId);
-    if (updateError) throw new Error("Failed to update transaction status.");
+    // Determine items to process: specific selection OR all original items
+    const itemsToProcess = refundItems && refundItems.length > 0 ? refundItems : (original.items || []);
+    
+    if (itemsToProcess.length === 0) throw new Error("No items found to refund.");
 
-    // 3. Inventory Restoration
-    if (original.items && original.items.length > 0) {
-      for (const item of original.items) {
-        try {
-          // Log return movement
-          const movementPayload = mapToDb({
-            productId: item.productId,
-            quantity: item.quantity, // Positive quantity for return
-            type: 'return',
-            reason: `Refund for Trans #${saleId.substring(0,8)}`,
-            businessId: original.businessId,
-            orgId: original.orgId,
-            userName: userName || 'System Refund'
-          });
-          await supabase.from('stock_movements').insert(movementPayload);
+    let totalRefundAmount = 0;
+    let totalRefundProfit = 0; // Approximate profit reversal based on original margin
 
-          // Update product stock
-          const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
-          if (prod) {
-            const newStock = (prod.current_stock || 0) + item.quantity;
-            await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
-          }
-        } catch(e) {
-          console.error("Refund stock sync failed for item:", item.sku, e);
+    // 2. Inventory Restoration Loop
+    for (const item of itemsToProcess) {
+      try {
+        const refundValue = item.price * item.quantity;
+        totalRefundAmount += refundValue;
+        
+        // Log return movement
+        const movementPayload = mapToDb({
+          productId: item.productId,
+          quantity: item.quantity, // Positive quantity for return
+          type: 'return',
+          reason: `Refund for Trans #${saleId.substring(0,8)} (SKU: ${item.sku})`,
+          businessId: original.businessId,
+          orgId: original.orgId,
+          userName: userName || 'System Refund'
+        });
+        await supabase.from('stock_movements').insert(movementPayload);
+
+        // Update product stock
+        const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
+        if (prod) {
+          const newStock = (prod.current_stock || 0) + item.quantity;
+          await supabase.from('products').update({ current_stock: newStock }).eq('id', item.productId);
         }
+      } catch(e) {
+        console.error("Refund stock sync failed for item:", item.sku, e);
+      }
+    }
+
+    // Calculate approximate profit reversal
+    // If original profit was 20%, we reverse 20% of the refunded revenue
+    const margin = original.salesAmount > 0 ? (original.profitAmount / original.salesAmount) : 0;
+    totalRefundProfit = totalRefundAmount * margin;
+
+    // 3. Mark original as refunded IF it's a full refund
+    // Heuristic: If refunded amount equals original sales amount (within small tolerance)
+    const isFullRefund = Math.abs(totalRefundAmount - original.salesAmount) < 0.01;
+    
+    if (isFullRefund) {
+      try {
+        await supabase.from('sales').update({ is_refunded: true }).eq('id', saleId);
+      } catch (e) {
+        console.warn("Could not mark original as refunded (column might be missing), but continuing with financial adjustment.", e);
       }
     }
 
     // 4. Financial Adjustment (Negative Transaction)
-    // We create a new "Sale" entry but with negative values to balance the books for the current day.
     const refundEntry = {
       businessId: original.businessId,
-      date: new Date().toISOString(), // Refund happens NOW
-      salesAmount: -Math.abs(original.salesAmount),
-      profitAmount: -Math.abs(original.profitAmount),
-      profitPercentage: 0, // Not relevant for refund entry
+      date: new Date().toISOString(),
+      salesAmount: -Math.abs(totalRefundAmount),
+      profitAmount: -Math.abs(totalRefundProfit),
+      profitPercentage: 0, 
       paymentMethod: original.paymentMethod,
-      items: [], // We don't list items to avoid double-counting sold items in some analytics, just value adjustment
+      items: [], // Empty items to avoid double counting in stats, strictly financial
       orgId: original.orgId,
-      isRefunded: false // This entry itself is not refunded, it IS the refund
+      isRefunded: false // This entry is the correction itself
     };
 
     const payload = mapToDb(refundEntry);

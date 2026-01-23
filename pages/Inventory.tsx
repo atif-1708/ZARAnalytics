@@ -42,6 +42,7 @@ ALTER TABLE products DROP COLUMN IF EXISTS category;
 -- 2. ENSURE COLUMNS EXIST
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_refunded boolean DEFAULT false;
 
 -- 3. CREATE STOCK MOVEMENTS LEDGER IF MISSING
 CREATE TABLE IF NOT EXISTS stock_movements (
@@ -59,12 +60,15 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 -- 4. ENABLE RLS
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sales ENABLE ROW LEVEL SECURITY;
 
 -- 5. POLICIES
 DROP POLICY IF EXISTS "Allow all for authenticated" ON products;
 CREATE POLICY "Allow all for authenticated" ON products FOR ALL TO authenticated USING (true);
 DROP POLICY IF EXISTS "Allow all for authenticated movements" ON stock_movements;
-CREATE POLICY "Allow all for authenticated movements" ON stock_movements FOR ALL TO authenticated USING (true);`;
+CREATE POLICY "Allow all for authenticated movements" ON stock_movements FOR ALL TO authenticated USING (true);
+DROP POLICY IF EXISTS "Allow all for authenticated sales" ON sales;
+CREATE POLICY "Allow all for authenticated sales" ON sales FOR ALL TO authenticated USING (true);`;
 
 export const Inventory: React.FC = () => {
   const { user } = useAuth();
@@ -272,12 +276,17 @@ export const Inventory: React.FC = () => {
            <div className="flex-1 space-y-2">
               <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">Database Migration Required</h4>
               <p className="text-sm text-rose-600 font-medium leading-relaxed">
-                The database schema is out of sync. You need to remove the "NOT NULL" constraint on the "name" column. Click "Setup Database" to fix this.
+                The database schema needs an update to support refunds and flexible products. Copy the SQL script below and run it in your Supabase SQL Editor.
               </p>
            </div>
-           <button onClick={() => setIsSchemaNoticeOpen(true)} className="bg-rose-600 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest">
-             Setup Database
-           </button>
+           <div className="flex flex-col gap-2">
+             <button onClick={copySql} className="bg-white text-rose-600 border border-rose-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-rose-50 transition-colors">
+                {copied ? 'Copied to Clipboard' : 'Copy Script'}
+             </button>
+             <button onClick={() => setIsSchemaNoticeOpen(false)} className="text-rose-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
+               Dismiss Notice
+             </button>
+           </div>
         </div>
       )}
 
@@ -508,29 +517,6 @@ export const Inventory: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Schema Helper */}
-      {isSchemaNoticeOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md" onClick={() => setIsSchemaNoticeOpen(false)} />
-          <div className="bg-slate-900 border border-white/10 rounded-[2.5rem] w-full max-w-2xl p-10 relative shadow-2xl space-y-6 text-left">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-lg"><Terminal size={24} /></div>
-              <h3 className="text-xl font-black text-white uppercase">Database Migration</h3>
-            </div>
-            <p className="text-sm text-slate-400">Run this SQL in your Supabase SQL Editor to update the inventory structure and remove old constraints.</p>
-            <div className="relative group">
-               <pre className="bg-slate-950 p-6 rounded-2xl border border-white/5 text-[11px] font-mono text-indigo-300 overflow-x-auto max-h-[300px]">
-                 {MISSING_SCHEMA_SQL}
-               </pre>
-               <button onClick={copySql} className="absolute top-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest">
-                 {copied ? 'Copied' : 'Copy SQL'}
-               </button>
-            </div>
-            <button onClick={() => setIsSchemaNoticeOpen(false)} className="w-full py-4 bg-white text-slate-900 rounded-2xl font-black uppercase text-[10px] tracking-widest">Close Notice</button>
           </div>
         </div>
       )}
