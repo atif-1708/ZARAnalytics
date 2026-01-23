@@ -31,7 +31,7 @@ import {
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Product, Business, SaleItem, PaymentMethod, UserRole } from '../types';
-import { formatZAR } from '../utils/formatters';
+import { formatZAR, getLocalISOString } from '../utils/formatters';
 
 export const POS: React.FC = () => {
   const { user, isSuspended } = useAuth();
@@ -56,7 +56,7 @@ export const POS: React.FC = () => {
     if (!bizId) return;
     try {
       const allSales = await storage.getSales();
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalISOString().split('T')[0];
       
       const bizSalesToday = allSales.filter(s => 
         s.businessId === bizId && 
@@ -187,7 +187,7 @@ export const POS: React.FC = () => {
       const biz = businesses.find(b => b.id === selectedBusinessId);
       await storage.saveSale({
         businessId: selectedBusinessId,
-        date: new Date().toISOString(),
+        date: getLocalISOString(), // Use local time for transaction log
         salesAmount: finalTotal,
         profitPercentage: finalTotal > 0 ? ((finalTotal - cartCost) / finalTotal) * 100 : 0,
         profitAmount: finalTotal - cartCost,

@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement, SaleItem } from '../types';
+import { getLocalISOString } from '../utils/formatters';
 
 const mapToDb = (obj: any) => {
   if (!obj) return null;
@@ -258,6 +259,9 @@ export const storage = {
 
     const payload = mapToDb({ ...sale, org_id: finalOrgId });
     if (payload.user_id) delete payload.user_id;
+    // Ensure we use Local Time if not provided
+    if (!payload.date) payload.date = getLocalISOString();
+    
     const operation = payload.id ? supabase.from('sales').upsert(payload) : supabase.from('sales').insert(payload);
     const { data, error } = await operation.select().single();
     if (error) throw new Error(error.message);
@@ -267,7 +271,7 @@ export const storage = {
   processRefund: async (saleId: string, refundItems?: { sku: string, quantity: number, price: number, productId: string }[]) => {
     const { userName, orgId: contextOrgId } = await getFilter();
     
-    // 1. Fetch original sale
+    // 1. FRESH FETCH: Fetch original sale FRESH from DB to prevent stale UI state double-refunds
     const { data: originalDb, error: fetchError } = await supabase.from('sales').select('*').eq('id', saleId).single();
     if (fetchError || !originalDb) throw new Error("Original transaction not found.");
     
@@ -292,7 +296,7 @@ export const storage = {
             const remainingQty = item.quantity - previouslyRefunded;
 
             if (requestedRefundQty > remainingQty) {
-                throw new Error(`Cannot refund ${requestedRefundQty} units of ${item.sku}. Only ${remainingQty} remain refundable.`);
+                throw new Error(`Invalid Refund: ${item.sku} has ${remainingQty} left. You requested ${requestedRefundQty}.`);
             }
 
             // Calculate financials for THIS refund action
@@ -335,37 +339,32 @@ export const storage = {
     const isFullyRefundedNow = updatedItems.every((item: SaleItem) => (item.refundedQuantity || 0) >= item.quantity);
     
     try {
-        // Attempt full update first
         const { error: fullUpdateError } = await supabase.from('sales').update({ 
             items: updatedItems, 
             is_refunded: isFullyRefundedNow 
         }).eq('id', saleId);
 
         if (fullUpdateError) {
-            // Fallback: If 'is_refunded' column is missing, just update 'items' to ensure quantities persist
             if (fullUpdateError.message.includes('is_refunded')) {
-                console.warn("Schema issue detected: 'is_refunded' column missing. Fallback to item-only update.");
                 const { error: fallbackError } = await supabase.from('sales').update({ 
                     items: updatedItems 
                 }).eq('id', saleId);
-                
                 if (fallbackError) throw fallbackError;
             } else {
                 throw fullUpdateError;
             }
         }
     } catch (e: any) {
-        console.warn("Failed to update original transaction state.", e);
-        throw new Error(`Failed to update transaction record: ${e.message}. Stock was restored but log may be out of sync.`);
+        throw new Error(`Failed to update transaction record: ${e.message}`);
     }
 
-    // 5. Financial Adjustment
+    // 5. Financial Adjustment (Use Local Time for the refund log)
     const finalOrgId = original.orgId || contextOrgId;
     if (!finalOrgId) throw new Error("Organization ID missing. Cannot process refund adjustment.");
 
     const refundEntry = {
       businessId: original.businessId,
-      date: new Date().toISOString(),
+      date: getLocalISOString(), // USE LOCAL TIME
       salesAmount: -Math.abs(totalRefundAmount),
       profitAmount: -Math.abs(totalRefundProfit),
       profitPercentage: 0, 

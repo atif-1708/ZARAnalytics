@@ -4,7 +4,7 @@ import { Plus, Trash2, Edit3, TrendingUp, Loader2, Lock, AlertCircle, Calculator
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { DailySale, UserRole, Business, Filters } from '../types';
-import { formatCurrency, formatDate } from '../utils/formatters';
+import { formatCurrency, formatDate, getLocalISOString } from '../utils/formatters';
 import { FilterPanel } from '../components/FilterPanel';
 
 export const Sales: React.FC = () => {
@@ -53,7 +53,7 @@ export const Sales: React.FC = () => {
   
   const [formData, setFormData] = useState({
     businessId: '', 
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalISOString().split('T')[0], // Use local date, not UTC
     salesAmount: 0, 
     profitPercentage: 0
   });
@@ -244,7 +244,7 @@ export const Sales: React.FC = () => {
 
     setFormData({
       businessId: initialBiz?.id || '',
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalISOString().split('T')[0], // Use local date
       salesAmount: 0,
       profitPercentage: 0
     });

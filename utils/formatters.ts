@@ -33,3 +33,14 @@ export const formatMonth = (monthString: string): string => {
   const date = new Date(parseInt(year), parseInt(month) - 1);
   return date.toLocaleDateString('en-ZA', { year: 'numeric', month: 'long' });
 };
+
+/**
+ * Returns a timestamp string (ISO format) relative to the user's local timezone.
+ * Used to ensure transactions are logged at "Wall Clock" time, not UTC.
+ */
+export const getLocalISOString = (): string => {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+  const localTime = new Date(now.getTime() - offsetMs);
+  return localTime.toISOString().slice(0, -1); // Removes the 'Z' to indicate local time context
+};
