@@ -156,6 +156,18 @@ export const Inventory: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Strict validation of context before proceeding
+    if (!selectedBusinessId || selectedBusinessId === "") {
+      alert("Please select a valid Business Unit before importing.");
+      return;
+    }
+
+    const biz = businesses.find(b => b.id === selectedBusinessId);
+    if (!biz || !biz.orgId) {
+      alert("Organizational context for this business could not be determined.");
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target?.result as string;
@@ -163,23 +175,32 @@ export const Inventory: React.FC = () => {
       const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
       
       const importedProducts: Partial<Product>[] = [];
-      const biz = businesses.find(b => b.id === selectedBusinessId);
 
       for (let i = 1; i < rows.length; i++) {
         const values = rows[i].split(',').map(v => v.trim());
-        const prod: any = { businessId: selectedBusinessId, orgId: biz?.orgId };
+        
+        // Initialize with validated UUIDs only
+        const prod: any = { 
+          businessId: selectedBusinessId, 
+          orgId: biz.orgId 
+        };
         
         headers.forEach((h, idx) => {
-          if (h === 'sku' || h === 'code') prod.sku = values[idx];
-          else if (h === 'name') prod.name = values[idx];
-          else if (h === 'description') prod.description = values[idx];
-          else if (h === 'cost' || h === 'cost_price') prod.costPrice = parseFloat(values[idx]) || 0;
-          else if (h === 'price' || h === 'sale_price') prod.salePrice = parseFloat(values[idx]) || 0;
-          else if (h === 'stock' || h === 'quantity') prod.currentStock = parseInt(values[idx]) || 0;
-          else if (h === 'category') prod.category = values[idx];
+          const rawValue = values[idx];
+          if (!rawValue) return;
+
+          if (h === 'sku' || h === 'code') prod.sku = rawValue;
+          else if (h === 'name') prod.name = rawValue;
+          else if (h === 'description') prod.description = rawValue;
+          else if (h === 'cost' || h === 'cost_price') prod.costPrice = parseFloat(rawValue) || 0;
+          else if (h === 'price' || h === 'sale_price') prod.salePrice = parseFloat(rawValue) || 0;
+          else if (h === 'stock' || h === 'quantity') prod.currentStock = parseInt(rawValue) || 0;
+          else if (h === 'category') prod.category = rawValue;
         });
 
-        if (prod.name) importedProducts.push(prod);
+        if (prod.name) {
+          importedProducts.push(prod);
+        }
       }
 
       if (importedProducts.length > 0) {
@@ -193,6 +214,7 @@ export const Inventory: React.FC = () => {
           if (err.message?.includes('SCHEMA_MISSING')) {
             setIsSchemaNoticeOpen(true);
           } else {
+            console.error("Import Error Detail:", err);
             alert("Import failed: " + err.message);
           }
         } finally {

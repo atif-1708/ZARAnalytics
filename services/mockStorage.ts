@@ -8,7 +8,15 @@ const mapToDb = (obj: any) => {
   const mapped: any = {};
   for (const key in obj) {
     const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-    mapped[snakeKey] = obj[key];
+    const value = obj[key];
+    
+    // Safety: Supabase UUID columns fail on empty strings (""). 
+    // We convert empty strings for ID-like fields to null or skip them.
+    if (typeof value === 'string' && value.trim() === '' && (snakeKey.endsWith('_id') || snakeKey === 'id')) {
+      continue; 
+    }
+    
+    mapped[snakeKey] = value;
   }
   return mapped;
 };
@@ -176,7 +184,12 @@ export const storage = {
 
   bulkUpsertProducts: async (products: Partial<Product>[]) => {
     const { orgId: contextOrgId } = await getFilter();
-    const payloads = products.map(p => mapToDb({ ...p, org_id: p.orgId || contextOrgId }));
+    const payloads = products.map(p => {
+      // Ensure we merge with context but prioritize provided values
+      const merged = { ...p, orgId: p.orgId || contextOrgId };
+      return mapToDb(merged);
+    });
+    
     const { data, error } = await supabase.from('products').upsert(payloads).select();
     if (error) {
       if (error.code === '42P01') throw new Error("SCHEMA_MISSING: 'products' table does not exist.");
