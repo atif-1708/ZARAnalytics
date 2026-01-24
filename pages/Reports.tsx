@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, TrendingUp, Briefcase, Loader2, 
@@ -202,7 +201,7 @@ export const Reports: React.FC = () => {
         salesAmount: number;
         profitAmount: number;
         transactionCount: number;
-      }>)).sort((a, b) => b.date.localeCompare(a.date));
+      }>)).sort((a: any, b: any) => b.date.localeCompare(a.date));
 
       const fExpenses = expenses.filter(item => {
         // Robust Date Parsing: Handle YYYY-MM (legacy) and YYYY-MM-DD (new)

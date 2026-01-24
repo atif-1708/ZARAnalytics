@@ -210,13 +210,14 @@ export const Expenses: React.FC = () => {
             <tr>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Date</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business Unit</th>
+              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Description</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Amount ({currency})</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredExpenses.length === 0 ? (
-               <tr><td colSpan={4} className="px-6 py-10 text-center text-slate-400 italic text-sm">No expenses found for the current period and filters.</td></tr>
+               <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No expenses found for the current period and filters.</td></tr>
             ) : (
               filteredExpenses.map(ex => {
                 const b = businesses.find(bx => bx.id === ex.businessId);
@@ -237,6 +238,9 @@ export const Expenses: React.FC = () => {
                           {b.location}
                         </div>
                       )}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-medium text-slate-600 truncate max-w-xs" title={ex.description}>
+                      {ex.description || '-'}
                     </td>
                     <td className="px-6 py-4 text-sm text-right font-bold text-rose-600">{formatCurrency(convert(ex.amount), currency)}</td>
                     <td className="px-6 py-4 text-right">
