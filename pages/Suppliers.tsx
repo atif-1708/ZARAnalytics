@@ -9,16 +9,13 @@ import {
   Trash2, 
   Phone, 
   Mail, 
-  FileText,
   Truck,
-  Building2,
   Database,
-  LayoutDashboard,
   Wallet,
-  ArrowUpRight,
   TrendingUp,
   PackageCheck,
-  X
+  X,
+  FileText
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { Supplier, UserRole, PurchaseOrder } from '../types';
@@ -65,7 +62,7 @@ export const Suppliers: React.FC = () => {
       setPurchaseOrders(pData);
       setSchemaError(false);
     } catch (e: any) {
-      if (e.message?.includes('SCHEMA_MISSING') || e.code === '42P01' || e.message?.includes('Could not find the table')) {
+      if (e.message?.includes('SCHEMA_MISSING') || e.code === '42P01' || e.message?.includes('Could not find the table') || e.message?.includes('relation "suppliers" does not exist')) {
         setSchemaError(true);
       } else {
         console.error(e);
@@ -157,6 +154,7 @@ export const Suppliers: React.FC = () => {
   );
 
   const MISSING_TABLE_SQL = `
+-- 1. Suppliers Table
 CREATE TABLE IF NOT EXISTS suppliers (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   name text NOT NULL,
@@ -168,6 +166,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
   created_at timestamptz DEFAULT now()
 );
 
+-- 2. Purchase Orders Table
 CREATE TABLE IF NOT EXISTS purchase_orders (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   supplier_id uuid REFERENCES suppliers(id),
@@ -182,6 +181,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   created_at timestamptz DEFAULT now()
 );
 
+-- 3. Security Policies
 ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE purchase_orders ENABLE ROW LEVEL SECURITY;
 
@@ -207,8 +207,8 @@ NOTIFY pgrst, 'reload config';
       {/* Header & Tabs */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="text-left">
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Procurement Hub</h2>
-          <p className="text-slate-500">Vendor management and purchasing analytics</p>
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Vendor Management</h2>
+          <p className="text-slate-500">Manage supplier directory and purchasing history</p>
         </div>
         
         <div className="flex items-center gap-4">
@@ -232,7 +232,7 @@ NOTIFY pgrst, 'reload config';
                onClick={openAdd}
                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 bg-slate-900 text-white shadow-lg hover:bg-slate-800"
              >
-               <Plus size={14} /> Register Vendor
+               <Plus size={14} /> New Vendor
              </button>
            )}
         </div>
@@ -244,14 +244,14 @@ NOTIFY pgrst, 'reload config';
              <Database size={32} />
            </div>
            <div className="flex-1 space-y-2">
-              <h4 className="text-lg font-black text-amber-800 uppercase tracking-tight">Procurement Module Setup</h4>
+              <h4 className="text-lg font-black text-amber-800 uppercase tracking-tight">Database Setup Required</h4>
               <p className="text-sm text-amber-700 font-medium leading-relaxed">
-                To use the Supplier and Invoice features, your database needs new tables. Please run this script in your Supabase SQL Editor.
+                The 'suppliers' table is missing. Run this SQL script in your Supabase SQL Editor to enable the Vendor Management module.
               </p>
            </div>
            <div className="flex flex-col gap-2">
              <button onClick={copySql} className="bg-white text-amber-600 border border-amber-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-50 transition-colors">
-                {copied ? 'Copied to Clipboard' : 'Copy SQL Script'}
+                {copied ? 'Copied Script' : 'Copy SQL Script'}
              </button>
              <button onClick={() => setSchemaError(false)} className="text-amber-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
                Dismiss
@@ -270,7 +270,7 @@ NOTIFY pgrst, 'reload config';
                     <Wallet size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Procurement</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Spend</p>
                     <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.totalSpend)}</h3>
                  </div>
               </div>
@@ -279,7 +279,7 @@ NOTIFY pgrst, 'reload config';
                     <PackageCheck size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Orders Processed</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Orders</p>
                     <h3 className="text-2xl font-black text-slate-900">{dashboardStats.totalPos}</h3>
                  </div>
               </div>
@@ -348,24 +348,29 @@ NOTIFY pgrst, 'reload config';
                   </div>
                   <div className="relative z-10">
                     <h3 className="text-lg font-black text-slate-900 leading-tight">{s.name}</h3>
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mt-1">{s.contactPerson || 'No Contact'}</p>
+                    {s.contactPerson && <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mt-1">{s.contactPerson}</p>}
                   </div>
                   
                   <div className="bg-slate-50 p-3 rounded-xl relative z-10">
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Lifetime Purchases</p>
+                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Lifetime Spend</p>
                      <p className="text-lg font-black text-slate-800">{formatZAR(lifetimeSpend)}</p>
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-slate-50 relative z-10">
-                    {s.phone && (
+                    {s.phone ? (
                       <div className="flex items-center gap-2 text-slate-600 text-sm">
                         <Phone size={14} className="text-slate-300" /> {s.phone}
                       </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-slate-300 text-sm italic"><Phone size={14} /> No phone</div>
                     )}
-                    {s.email && (
+                    
+                    {s.email ? (
                       <div className="flex items-center gap-2 text-slate-600 text-sm">
                         <Mail size={14} className="text-slate-300" /> {s.email}
                       </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-slate-300 text-sm italic"><Mail size={14} /> No email</div>
                     )}
                   </div>
                 </div>
@@ -381,44 +386,38 @@ NOTIFY pgrst, 'reload config';
         </div>
       )}
 
-      {/* Unified Add/Edit Modal */}
+      {/* Unified Add/Edit Modal - SIMPLIFIED */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSaving && setIsModalOpen(false)} />
-          <form onSubmit={handleSave} className="bg-white rounded-[2.5rem] w-full max-w-md p-10 relative shadow-2xl space-y-5 text-left">
+          <form onSubmit={handleSave} className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 relative shadow-2xl space-y-6 text-left">
             <div className="flex items-center justify-between mb-2">
-               <h3 className="text-2xl font-black tracking-tight text-slate-900">{editingSupplier ? 'Edit Details' : 'New Vendor'}</h3>
-               <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+               <h3 className="text-xl font-black tracking-tight text-slate-900">{editingSupplier ? 'Edit Vendor' : 'New Vendor'}</h3>
+               <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             
+            {/* Primary Field - Company Name */}
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Company Name</label>
-              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} placeholder="e.g. Acme Wholesalers" />
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block ml-1">Company Name <span className="text-rose-500">*</span></label>
+              <input required autoFocus className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all text-sm" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} placeholder="e.g. Acme Wholesalers" />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Contact Person</label>
-                <input className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.contactPerson} onChange={e=>setFormData({...formData, contactPerson: e.target.value})} />
-              </div>
-              <div>
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">VAT / Tax ID</label>
-                <input className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.taxId} onChange={e=>setFormData({...formData, taxId: e.target.value})} />
-              </div>
+            {/* Optional Fields - Compact */}
+            <div className="space-y-3 pt-2">
+               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Additional Details (Optional)</p>
+               
+               <div className="grid grid-cols-2 gap-3">
+                  <input className="w-full px-3 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white focus:border-teal-500 transition-all" value={formData.contactPerson} onChange={e=>setFormData({...formData, contactPerson: e.target.value})} placeholder="Contact Person" />
+                  <input className="w-full px-3 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white focus:border-teal-500 transition-all" value={formData.phone} onChange={e=>setFormData({...formData, phone: e.target.value})} placeholder="Phone Number" />
+               </div>
+               
+               <input className="w-full px-3 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white focus:border-teal-500 transition-all" value={formData.email} onChange={e=>setFormData({...formData, email: e.target.value})} placeholder="Email Address" type="email" />
+               
+               <input className="w-full px-3 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none focus:bg-white focus:border-teal-500 transition-all" value={formData.taxId} onChange={e=>setFormData({...formData, taxId: e.target.value})} placeholder="VAT / Tax ID" />
             </div>
 
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Phone Number</label>
-              <input className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.phone} onChange={e=>setFormData({...formData, phone: e.target.value})} />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Email Address</label>
-              <input type="email" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.email} onChange={e=>setFormData({...formData, email: e.target.value})} />
-            </div>
-
-            <button disabled={isSaving} type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl mt-2 hover:bg-teal-600 transition-all">
-              {isSaving ? <Loader2 className="animate-spin mx-auto"/> : (editingSupplier ? 'Save Changes' : 'Create Vendor Profile')}
+            <button disabled={isSaving} type="submit" className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-xl mt-2 hover:bg-slate-800 transition-all">
+              {isSaving ? <Loader2 className="animate-spin mx-auto"/> : (editingSupplier ? 'Save Changes' : 'Create Vendor')}
             </button>
           </form>
         </div>
