@@ -26,7 +26,8 @@ import {
   Download,
   Building2,
   PieChart,
-  Receipt
+  Receipt,
+  Printer
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -44,6 +45,7 @@ import { storage } from '../services/mockStorage';
 import { Supplier, UserRole, PurchaseOrder } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatZAR, formatDate } from '../utils/formatters';
+import { PdfService } from '../services/pdf';
 
 export const Suppliers: React.FC = () => {
   const { user } = useAuth();
@@ -228,6 +230,30 @@ export const Suppliers: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportPdf = () => {
+    const supplierName = selectedSupplierId === 'all' 
+      ? 'All Suppliers' 
+      : (suppliers.find(s => s.id === selectedSupplierId)?.name || 'Unknown');
+
+    const doc = PdfService.createDoc(
+      'Procurement Report',
+      `Period: ${dateRange.start} to ${dateRange.end} | Supplier: ${supplierName}`,
+      user?.name,
+      'Procurement Ledger'
+    );
+
+    const data = dashboardStats.csvData.map(po => [
+      po.date.split('T')[0],
+      po.invoiceNumber,
+      po.supplierName,
+      (po.items?.length || 0).toString(),
+      formatZAR(po.totalAmount)
+    ]);
+
+    PdfService.generateTable(doc, ['Date', 'Invoice #', 'Supplier', 'Items', 'Total'], data);
+    PdfService.save(doc, 'procurement_report');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -426,12 +452,20 @@ NOTIFY pgrst, 'reload config';`;
                  />
               </div>
               
-              <button 
-                onClick={handleExport}
-                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 ml-auto"
-              >
-                <Download size={14} /> Report
-              </button>
+              <div className="flex items-center gap-2 ml-auto">
+                <button 
+                  onClick={handleExportPdf}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2"
+                >
+                  <Printer size={14} /> PDF
+                </button>
+                <button 
+                  onClick={handleExport}
+                  className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center gap-2"
+                >
+                  <Download size={14} /> CSV
+                </button>
+              </div>
            </div>
 
            {/* Row 1: High Level KPIs */}

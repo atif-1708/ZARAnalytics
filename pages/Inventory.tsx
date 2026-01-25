@@ -274,12 +274,17 @@ export const Inventory: React.FC = () => {
     p.description.toLowerCase().includes(search.toLowerCase())
   );
 
+  // For Valuation: Sort by Stock Quantity Descending
+  const valuationProducts = useMemo(() => {
+    return [...filteredProducts].sort((a, b) => (b.currentStock || 0) - (a.currentStock || 0));
+  }, [filteredProducts]);
+
   const valuationStats = useMemo(() => {
     let totalItems = 0;
     let totalCostValue = 0;
     let totalRetailValue = 0;
 
-    filteredProducts.forEach(p => {
+    valuationProducts.forEach(p => {
       const stock = Math.max(0, p.currentStock || 0);
       totalItems += stock;
       totalCostValue += stock * (p.costPrice || 0);
@@ -290,7 +295,7 @@ export const Inventory: React.FC = () => {
     const margin = totalRetailValue > 0 ? (potentialProfit / totalRetailValue) * 100 : 0;
 
     return { totalItems, totalCostValue, totalRetailValue, potentialProfit, margin };
-  }, [filteredProducts]);
+  }, [valuationProducts]);
 
   const copySql = () => {
     navigator.clipboard.writeText(MISSING_SCHEMA_SQL);
@@ -301,7 +306,7 @@ export const Inventory: React.FC = () => {
   const handleExportPdf = () => {
     const biz = businesses.find(b => b.id === selectedBusinessId);
     const businessName = biz?.name || 'ZARlytics';
-    const doc = PdfService.createDoc('Inventory Valuation Report', `Business Unit: ${biz?.name || 'All'} | Items: ${filteredProducts.length}`, user?.name, businessName);
+    const doc = PdfService.createDoc('Inventory Valuation Report', `Business Unit: ${biz?.name || 'All'} | Items: ${valuationProducts.length}`, user?.name, businessName);
     
     // Add Totals Summary
     doc.setFontSize(10);
@@ -310,7 +315,7 @@ export const Inventory: React.FC = () => {
     doc.text(`Total Retail Value: ${formatZAR(valuationStats.totalRetailValue)}`, 14, 60);
     doc.text(`Potential Profit: ${formatZAR(valuationStats.potentialProfit)}`, 14, 65);
 
-    const data = filteredProducts.map(p => {
+    const data = valuationProducts.map(p => {
       const stock = Math.max(0, p.currentStock || 0);
       return [
         p.sku,
@@ -537,7 +542,7 @@ export const Inventory: React.FC = () => {
                        </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                       {filteredProducts.map(p => {
+                       {valuationProducts.map(p => {
                           const stock = Math.max(0, p.currentStock || 0);
                           const totalCost = stock * p.costPrice;
                           const totalRetail = stock * p.salePrice;
