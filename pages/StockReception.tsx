@@ -750,20 +750,4 @@ NOTIFY pgrst, 'reload config';`;
                              </td>
                              <td className="px-4 py-3 text-center font-bold text-slate-600">{item.quantity}</td>
                              <td className="px-4 py-3 text-right text-slate-500">{formatZAR(item.unitCost)}</td>
-                             <td className="px-4 py-3 text-right font-bold text-slate-800">{formatZAR(item.totalCost)}</td>
-                          </tr>
-                       ))}
-                    </tbody>
-                 </table>
-              </div>
-
-              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-                 <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Invoice Value</span>
-                 <span className="text-2xl font-black text-teal-600">{formatZAR(viewingOrder.totalAmount)}</span>
-              </div>
-           </div>
-        </div>
-      )}
-    </div>
-  );
-};
+                             <td className="px-4 py-3 text-right font-bold text-slate-800">{formatZAR(item.totalCost)}
