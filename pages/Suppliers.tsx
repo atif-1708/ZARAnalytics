@@ -20,7 +20,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   BarChart3,
-  Clock
+  Clock,
+  Filter,
+  ArrowRight
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -35,7 +37,7 @@ import {
 import { storage } from '../services/mockStorage';
 import { Supplier, UserRole, PurchaseOrder } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { formatZAR, formatDate } from '../utils/formatters';
+import { formatZAR, formatDate, getLocalISOString } from '../utils/formatters';
 
 export const Suppliers: React.FC = () => {
   const { user } = useAuth();
@@ -45,8 +47,15 @@ export const Suppliers: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Chart Toggle State
-  const [chartView, setChartView] = useState<'daily' | 'monthly'>('monthly');
+  // Dashboard Filters
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  const endOfDay = now.toISOString().split('T')[0];
+
+  const [dateRange, setDateRange] = useState({
+    start: startOfMonth,
+    end: endOfDay
+  });
   
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -93,92 +102,94 @@ export const Suppliers: React.FC = () => {
   useEffect(() => { loadData(); }, [user]);
 
   const dashboardStats = useMemo(() => {
-    const now = new Date();
-    const currentMonthPrefix = now.toISOString().slice(0, 7); // YYYY-MM
-    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthPrefix = lastMonthDate.toISOString().slice(0, 7);
-
-    const totalSpend = purchaseOrders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
-    const totalPos = purchaseOrders.length;
-    
-    // Monthly metrics
-    const thisMonthSpend = purchaseOrders
-      .filter(po => po.date.startsWith(currentMonthPrefix))
-      .reduce((sum, po) => sum + Number(po.totalAmount), 0);
-
-    const lastMonthSpend = purchaseOrders
-      .filter(po => po.date.startsWith(lastMonthPrefix))
-      .reduce((sum, po) => sum + Number(po.totalAmount), 0);
-
-    const trend = lastMonthSpend > 0 
-      ? ((thisMonthSpend - lastMonthSpend) / lastMonthSpend) * 100 
-      : 0;
-
-    // Spend by Supplier
-    const supplierSpend = new Map<string, number>();
-    purchaseOrders.forEach(po => {
-      const current = supplierSpend.get(po.supplierId) || 0;
-      supplierSpend.set(po.supplierId, current + Number(po.totalAmount));
+    // 1. Filter POs by Date Range
+    const filteredPOs = purchaseOrders.filter(po => {
+      const poDate = po.date.split('T')[0];
+      return poDate >= dateRange.start && poDate <= dateRange.end;
     });
 
-    const topSuppliers = Array.from(supplierSpend.entries())
+    const totalSpend = filteredPOs.reduce((sum, po) => sum + Number(po.totalAmount), 0);
+    const totalPos = filteredPOs.length;
+    
+    // 2. Spend by Supplier (Ranked High to Low)
+    const supplierSpendMap = new Map<string, number>();
+    const activeSupplierIds = new Set<string>();
+
+    filteredPOs.forEach(po => {
+      const current = supplierSpendMap.get(po.supplierId) || 0;
+      supplierSpendMap.set(po.supplierId, current + Number(po.totalAmount));
+      activeSupplierIds.add(po.supplierId);
+    });
+
+    const rankedSuppliers = Array.from(supplierSpendMap.entries())
       .map(([id, amount]) => {
         const s = suppliers.find(sup => sup.id === id);
-        return { id, name: s?.name || 'Unknown', amount };
+        return { id, name: s?.name || 'Unknown', amount, contact: s?.contactPerson };
       })
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount); // Top to Low
 
-    // Recent Arrivals (Last 5)
-    const recentArrivals = [...purchaseOrders]
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 5)
-      .map(po => ({
-        ...po,
-        supplierName: suppliers.find(s => s.id === po.supplierId)?.name || po.supplierName || 'Unknown'
-      }));
+    // 3. Chart Data (Daily Aggregation within range)
+    // If range > 32 days, aggregate by Month, else by Day
+    const start = new Date(dateRange.start);
+    const end = new Date(dateRange.end);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    const chartData = [];
+    const isMonthlyView = diffDays > 32;
 
-    // Chart Data Generation
-    let chartData = [];
-    if (chartView === 'monthly') {
-      // Last 12 Months
-      for (let i = 11; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const yyyymm = d.toISOString().slice(0, 7);
-        const label = d.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' });
-        
-        const total = purchaseOrders
-          .filter(po => po.date.startsWith(yyyymm))
-          .reduce((sum, po) => sum + Number(po.totalAmount), 0);
-          
-        chartData.push({ name: label, value: total });
-      }
+    if (isMonthlyView) {
+       const monthMap = new Map<string, number>();
+       filteredPOs.forEach(po => {
+          const monthKey = po.date.slice(0, 7); // YYYY-MM
+          const curr = monthMap.get(monthKey) || 0;
+          monthMap.set(monthKey, curr + Number(po.totalAmount));
+       });
+       
+       // Fill gaps logic omitted for brevity in this specific snippet, simple sort map
+       Array.from(monthMap.entries()).sort().forEach(([key, val]) => {
+          const dateObj = new Date(key + '-01');
+          chartData.push({
+             name: dateObj.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' }),
+             value: val,
+             raw: key
+          });
+       });
     } else {
-      // Last 30 Days
-      for (let i = 29; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const yyyymmdd = d.toISOString().slice(0, 10);
-        const label = d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
-        
-        const total = purchaseOrders
-          .filter(po => po.date.startsWith(yyyymmdd))
-          .reduce((sum, po) => sum + Number(po.totalAmount), 0);
-          
-        chartData.push({ name: label, value: total });
-      }
+       const dayMap = new Map<string, number>();
+       filteredPOs.forEach(po => {
+          const dayKey = po.date.split('T')[0];
+          const curr = dayMap.get(dayKey) || 0;
+          dayMap.set(dayKey, curr + Number(po.totalAmount));
+       });
+
+       // Fill in empty days for smoother chart
+       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const iso = d.toISOString().split('T')[0];
+          const label = d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+          chartData.push({
+             name: label,
+             value: dayMap.get(iso) || 0,
+             raw: iso
+          });
+       }
     }
+
+    // 4. Recent Arrivals (Filtered)
+    const recentArrivals = [...filteredPOs]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10);
 
     return { 
       totalSpend, 
       totalPos, 
-      topSuppliers, 
-      supplierSpend, 
-      thisMonthSpend,
-      trend,
+      activeCount: activeSupplierIds.size,
+      rankedSuppliers, 
       recentArrivals,
-      chartData
+      chartData,
+      isMonthlyView
     };
-  }, [suppliers, purchaseOrders, chartView]);
+  }, [suppliers, purchaseOrders, dateRange]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -293,7 +304,7 @@ NOTIFY pgrst, 'reload config';
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="text-left">
           <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Vendor Management</h2>
-          <p className="text-slate-500">Manage supplier directory and purchasing history</p>
+          <p className="text-slate-500">Analyze procurement costs and manage supplier relationships</p>
         </div>
         
         <div className="flex items-center gap-4">
@@ -302,7 +313,7 @@ NOTIFY pgrst, 'reload config';
                onClick={() => setActiveTab('overview')}
                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
              >
-               Overview
+               Dashboard
              </button>
              <button 
                onClick={() => setActiveTab('directory')}
@@ -348,6 +359,33 @@ NOTIFY pgrst, 'reload config';
       {/* VIEW: OVERVIEW DASHBOARD */}
       {activeTab === 'overview' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+           
+           {/* Date Range Filter Bar */}
+           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-4">
+              <div className="flex items-center gap-2 text-slate-500 text-sm font-bold">
+                 <Filter size={16} />
+                 <span>Analysis Period:</span>
+              </div>
+              <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex-1 w-full md:w-auto">
+                 <input 
+                   type="date" 
+                   value={dateRange.start}
+                   onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                   className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full"
+                 />
+                 <ArrowRight size={14} className="text-slate-400" />
+                 <input 
+                   type="date" 
+                   value={dateRange.end}
+                   onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                   className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full text-right"
+                 />
+              </div>
+              <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-2">
+                 {dashboardStats.totalPos} Invoices Found
+              </div>
+           </div>
+
            {/* Row 1: High Level KPIs */}
            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
@@ -355,24 +393,18 @@ NOTIFY pgrst, 'reload config';
                     <Wallet size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Lifetime Spend</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Spend (Selected)</p>
                     <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.totalSpend)}</h3>
                  </div>
               </div>
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
                  <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center">
-                    <BarChart3 size={32} />
+                    <FileText size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">This Month</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Invoices Processed</p>
                     <div className="flex items-center gap-2">
-                       <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.thisMonthSpend)}</h3>
-                       {dashboardStats.trend !== 0 && (
-                         <div className={`px-2 py-0.5 rounded-full text-[9px] font-black flex items-center gap-0.5 ${dashboardStats.trend > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                            {dashboardStats.trend > 0 ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
-                            {Math.abs(dashboardStats.trend).toFixed(0)}%
-                         </div>
-                       )}
+                       <h3 className="text-2xl font-black text-slate-900">{dashboardStats.totalPos}</h3>
                     </div>
                  </div>
               </div>
@@ -382,7 +414,7 @@ NOTIFY pgrst, 'reload config';
                  </div>
                  <div className="text-left">
                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Active Vendors</p>
-                    <h3 className="text-2xl font-black text-slate-900">{suppliers.length}</h3>
+                    <h3 className="text-2xl font-black text-slate-900">{dashboardStats.activeCount}</h3>
                  </div>
               </div>
            </div>
@@ -394,11 +426,12 @@ NOTIFY pgrst, 'reload config';
                  <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp size={20} /></div>
-                       <h3 className="text-lg font-black text-slate-800">Procurement Trends</h3>
-                    </div>
-                    <div className="flex bg-slate-50 p-1 rounded-xl">
-                       <button onClick={() => setChartView('daily')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${chartView === 'daily' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Daily</button>
-                       <button onClick={() => setChartView('monthly')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${chartView === 'monthly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Monthly</button>
+                       <div>
+                          <h3 className="text-lg font-black text-slate-800">Spend Analysis</h3>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                             {dashboardStats.isMonthlyView ? 'Monthly Aggregation' : 'Daily Trend'}
+                          </p>
+                       </div>
                     </div>
                  </div>
                  <div className="flex-1 min-h-[300px]">
@@ -418,23 +451,26 @@ NOTIFY pgrst, 'reload config';
                  </div>
               </div>
 
-              {/* Right: Top Suppliers */}
+              {/* Right: Top Suppliers Leaderboard */}
               <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 flex flex-col">
-                 <h3 className="text-lg font-black text-slate-800 mb-6 text-left">Top Partners</h3>
+                 <h3 className="text-lg font-black text-slate-800 mb-6 text-left">Top Partners (High to Low)</h3>
                  <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-                    {dashboardStats.topSuppliers.length === 0 ? (
-                       <div className="text-center py-10 text-slate-400 italic text-xs uppercase tracking-widest">No data available</div>
+                    {dashboardStats.rankedSuppliers.length === 0 ? (
+                       <div className="text-center py-10 text-slate-400 italic text-xs uppercase tracking-widest">No data for period</div>
                     ) : (
-                       dashboardStats.topSuppliers.slice(0, 5).map((s, idx) => (
+                       dashboardStats.rankedSuppliers.slice(0, 8).map((s, idx) => (
                           <div key={s.id} className="relative">
-                             <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
-                                <span>{idx + 1}. {s.name}</span>
-                                <span>{formatZAR(s.amount)}</span>
+                             <div className="flex justify-between items-center text-xs font-bold text-slate-700 mb-1.5">
+                                <div className="flex items-center gap-2">
+                                   <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center text-[9px] font-black">{idx + 1}</span>
+                                   <span className="truncate max-w-[120px]">{s.name}</span>
+                                </div>
+                                <span className="font-black text-slate-900">{formatZAR(s.amount)}</span>
                              </div>
-                             <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                             <div className="w-full bg-slate-50 rounded-full h-2 overflow-hidden">
                                 <div 
                                   className="h-full bg-teal-500 rounded-full" 
-                                  style={{ width: `${(s.amount / dashboardStats.totalSpend) * 100}%` }} 
+                                  style={{ width: `${(s.amount / (dashboardStats.totalSpend || 1)) * 100}%` }} 
                                 />
                              </div>
                           </div>
@@ -448,7 +484,7 @@ NOTIFY pgrst, 'reload config';
            <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100 bg-slate-50/50 text-left flex items-center gap-3">
                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><PackageCheck size={20} /></div>
-                 <h3 className="text-lg font-black text-slate-800">Recent Stock Arrivals</h3>
+                 <h3 className="text-lg font-black text-slate-800">Recent Stock Arrivals (Filtered Range)</h3>
               </div>
               <div className="overflow-x-auto">
                  <table className="w-full text-left">
@@ -463,7 +499,7 @@ NOTIFY pgrst, 'reload config';
                     </thead>
                     <tbody className="divide-y divide-slate-50">
                        {dashboardStats.recentArrivals.length === 0 ? (
-                          <tr><td colSpan={5} className="py-10 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No recent stock arrivals</td></tr>
+                          <tr><td colSpan={5} className="py-10 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No stock arrivals in this period</td></tr>
                        ) : (
                           dashboardStats.recentArrivals.map(po => (
                              <tr key={po.id} className="hover:bg-slate-50/50 transition-colors">
@@ -499,7 +535,11 @@ NOTIFY pgrst, 'reload config';
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filtered.map(s => {
-              const lifetimeSpend = dashboardStats.supplierSpend.get(s.id) || 0;
+              // Note: Lifetime Spend is calculated from ALL POs, ignoring the date filter for Directory view
+              const lifetimeSpend = purchaseOrders
+                .filter(po => po.supplierId === s.id)
+                .reduce((sum, po) => sum + Number(po.totalAmount), 0);
+
               return (
                 <div key={s.id} className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col gap-4 group hover:border-teal-300 transition-all text-left relative overflow-hidden">
                   <div className="flex justify-between items-start relative z-10">
