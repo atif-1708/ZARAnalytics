@@ -15,12 +15,27 @@ import {
   TrendingUp,
   PackageCheck,
   X,
-  FileText
+  FileText,
+  Calendar,
+  ArrowUpRight,
+  ArrowDownRight,
+  BarChart3,
+  Clock
 } from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import { storage } from '../services/mockStorage';
 import { Supplier, UserRole, PurchaseOrder } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { formatZAR } from '../utils/formatters';
+import { formatZAR, formatDate } from '../utils/formatters';
 
 export const Suppliers: React.FC = () => {
   const { user } = useAuth();
@@ -29,6 +44,9 @@ export const Suppliers: React.FC = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Chart Toggle State
+  const [chartView, setChartView] = useState<'daily' | 'monthly'>('monthly');
   
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -75,9 +93,27 @@ export const Suppliers: React.FC = () => {
   useEffect(() => { loadData(); }, [user]);
 
   const dashboardStats = useMemo(() => {
+    const now = new Date();
+    const currentMonthPrefix = now.toISOString().slice(0, 7); // YYYY-MM
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthPrefix = lastMonthDate.toISOString().slice(0, 7);
+
     const totalSpend = purchaseOrders.reduce((sum, po) => sum + Number(po.totalAmount), 0);
     const totalPos = purchaseOrders.length;
     
+    // Monthly metrics
+    const thisMonthSpend = purchaseOrders
+      .filter(po => po.date.startsWith(currentMonthPrefix))
+      .reduce((sum, po) => sum + Number(po.totalAmount), 0);
+
+    const lastMonthSpend = purchaseOrders
+      .filter(po => po.date.startsWith(lastMonthPrefix))
+      .reduce((sum, po) => sum + Number(po.totalAmount), 0);
+
+    const trend = lastMonthSpend > 0 
+      ? ((thisMonthSpend - lastMonthSpend) / lastMonthSpend) * 100 
+      : 0;
+
     // Spend by Supplier
     const supplierSpend = new Map<string, number>();
     purchaseOrders.forEach(po => {
@@ -92,8 +128,57 @@ export const Suppliers: React.FC = () => {
       })
       .sort((a, b) => b.amount - a.amount);
 
-    return { totalSpend, totalPos, topSuppliers, supplierSpend };
-  }, [suppliers, purchaseOrders]);
+    // Recent Arrivals (Last 5)
+    const recentArrivals = [...purchaseOrders]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 5)
+      .map(po => ({
+        ...po,
+        supplierName: suppliers.find(s => s.id === po.supplierId)?.name || po.supplierName || 'Unknown'
+      }));
+
+    // Chart Data Generation
+    let chartData = [];
+    if (chartView === 'monthly') {
+      // Last 12 Months
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const yyyymm = d.toISOString().slice(0, 7);
+        const label = d.toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' });
+        
+        const total = purchaseOrders
+          .filter(po => po.date.startsWith(yyyymm))
+          .reduce((sum, po) => sum + Number(po.totalAmount), 0);
+          
+        chartData.push({ name: label, value: total });
+      }
+    } else {
+      // Last 30 Days
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const yyyymmdd = d.toISOString().slice(0, 10);
+        const label = d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+        
+        const total = purchaseOrders
+          .filter(po => po.date.startsWith(yyyymmdd))
+          .reduce((sum, po) => sum + Number(po.totalAmount), 0);
+          
+        chartData.push({ name: label, value: total });
+      }
+    }
+
+    return { 
+      totalSpend, 
+      totalPos, 
+      topSuppliers, 
+      supplierSpend, 
+      thisMonthSpend,
+      trend,
+      recentArrivals,
+      chartData
+    };
+  }, [suppliers, purchaseOrders, chartView]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,7 +336,7 @@ NOTIFY pgrst, 'reload config';
            </div>
            <div className="flex flex-col gap-2">
              <button onClick={copySql} className="bg-white text-amber-600 border border-amber-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-50 transition-colors">
-                {copied ? 'Copied Script' : 'Copy SQL Script'}
+                {copied ? 'Copied' : 'Copy SQL Script'}
              </button>
              <button onClick={() => setSchemaError(false)} className="text-amber-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
                Dismiss
@@ -263,24 +348,32 @@ NOTIFY pgrst, 'reload config';
       {/* VIEW: OVERVIEW DASHBOARD */}
       {activeTab === 'overview' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-           {/* Stat Cards */}
+           {/* Row 1: High Level KPIs */}
            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
                  <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-3xl flex items-center justify-center">
                     <Wallet size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Spend</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Lifetime Spend</p>
                     <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.totalSpend)}</h3>
                  </div>
               </div>
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
                  <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center">
-                    <PackageCheck size={32} />
+                    <BarChart3 size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Orders</p>
-                    <h3 className="text-2xl font-black text-slate-900">{dashboardStats.totalPos}</h3>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">This Month</p>
+                    <div className="flex items-center gap-2">
+                       <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.thisMonthSpend)}</h3>
+                       {dashboardStats.trend !== 0 && (
+                         <div className={`px-2 py-0.5 rounded-full text-[9px] font-black flex items-center gap-0.5 ${dashboardStats.trend > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                            {dashboardStats.trend > 0 ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                            {Math.abs(dashboardStats.trend).toFixed(0)}%
+                         </div>
+                       )}
+                    </div>
                  </div>
               </div>
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
@@ -294,27 +387,101 @@ NOTIFY pgrst, 'reload config';
               </div>
            </div>
 
-           {/* Top Suppliers List */}
-           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 text-left">
-              <div className="flex items-center gap-3 mb-6">
-                 <div className="p-2 bg-slate-100 rounded-lg text-slate-500"><TrendingUp size={20} /></div>
-                 <h3 className="text-lg font-black text-slate-800">Top Suppliers by Volume</h3>
+           {/* Row 2: Charts & Top List */}
+           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left: Procurement Chart */}
+              <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 flex flex-col">
+                 <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                       <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp size={20} /></div>
+                       <h3 className="text-lg font-black text-slate-800">Procurement Trends</h3>
+                    </div>
+                    <div className="flex bg-slate-50 p-1 rounded-xl">
+                       <button onClick={() => setChartView('daily')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${chartView === 'daily' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Daily</button>
+                       <button onClick={() => setChartView('monthly')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${chartView === 'monthly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}>Monthly</button>
+                    </div>
+                 </div>
+                 <div className="flex-1 min-h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                       <BarChart data={dashboardStats.chartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} dy={10} />
+                          <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val} />
+                          <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', padding: '12px' }} labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '4px' }} itemStyle={{ fontSize: '12px', fontWeight: 600, color: '#4f46e5' }} formatter={(value: number) => [formatZAR(value), 'Spend']} />
+                          <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                             {dashboardStats.chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.value > 0 ? '#6366f1' : '#e2e8f0'} />
+                             ))}
+                          </Bar>
+                       </BarChart>
+                    </ResponsiveContainer>
+                 </div>
               </div>
-              
-              <div className="space-y-4">
-                 {dashboardStats.topSuppliers.length === 0 ? (
-                    <div className="text-center py-10 text-slate-400 italic text-sm">No purchase data available yet.</div>
-                 ) : (
-                    dashboardStats.topSuppliers.slice(0, 5).map((s, idx) => (
-                       <div key={s.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl group hover:bg-teal-50 transition-colors">
-                          <div className="flex items-center gap-4">
-                             <span className="w-8 h-8 flex items-center justify-center bg-white rounded-xl text-xs font-black text-slate-400 shadow-sm group-hover:text-teal-600">#{idx + 1}</span>
-                             <span className="font-bold text-slate-700 group-hover:text-teal-800">{s.name}</span>
+
+              {/* Right: Top Suppliers */}
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 flex flex-col">
+                 <h3 className="text-lg font-black text-slate-800 mb-6 text-left">Top Partners</h3>
+                 <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+                    {dashboardStats.topSuppliers.length === 0 ? (
+                       <div className="text-center py-10 text-slate-400 italic text-xs uppercase tracking-widest">No data available</div>
+                    ) : (
+                       dashboardStats.topSuppliers.slice(0, 5).map((s, idx) => (
+                          <div key={s.id} className="relative">
+                             <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
+                                <span>{idx + 1}. {s.name}</span>
+                                <span>{formatZAR(s.amount)}</span>
+                             </div>
+                             <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                <div 
+                                  className="h-full bg-teal-500 rounded-full" 
+                                  style={{ width: `${(s.amount / dashboardStats.totalSpend) * 100}%` }} 
+                                />
+                             </div>
                           </div>
-                          <span className="font-black text-slate-900 group-hover:text-teal-600">{formatZAR(s.amount)}</span>
-                       </div>
-                    ))
-                 )}
+                       ))
+                    )}
+                 </div>
+              </div>
+           </div>
+
+           {/* Row 3: Recent Arrivals Table */}
+           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 bg-slate-50/50 text-left flex items-center gap-3">
+                 <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><PackageCheck size={20} /></div>
+                 <h3 className="text-lg font-black text-slate-800">Recent Stock Arrivals</h3>
+              </div>
+              <div className="overflow-x-auto">
+                 <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                       <tr>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4">Ref #</th>
+                          <th className="px-6 py-4">Supplier</th>
+                          <th className="px-6 py-4 text-center">Items</th>
+                          <th className="px-6 py-4 text-right">Total Value</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                       {dashboardStats.recentArrivals.length === 0 ? (
+                          <tr><td colSpan={5} className="py-10 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No recent stock arrivals</td></tr>
+                       ) : (
+                          dashboardStats.recentArrivals.map(po => (
+                             <tr key={po.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-6 py-4">
+                                   <div className="flex items-center gap-2 text-slate-600 font-bold text-xs">
+                                      <Clock size={12} className="text-slate-400" />
+                                      {formatDate(po.date)}
+                                   </div>
+                                </td>
+                                <td className="px-6 py-4"><span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-1 rounded">{po.invoiceNumber}</span></td>
+                                <td className="px-6 py-4 text-sm font-bold text-slate-700">{po.supplierName}</td>
+                                <td className="px-6 py-4 text-center text-xs font-bold text-slate-500">{po.items?.length || 0}</td>
+                                <td className="px-6 py-4 text-right text-sm font-black text-teal-600">{formatZAR(po.totalAmount)}</td>
+                             </tr>
+                          ))
+                       )}
+                    </tbody>
+                 </table>
               </div>
            </div>
         </div>
