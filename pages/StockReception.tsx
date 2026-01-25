@@ -21,7 +21,8 @@ import {
   History, 
   Eye, 
   Filter, 
-  Clock 
+  Clock,
+  ArrowRight
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -65,7 +66,9 @@ export const StockReception: React.FC = () => {
 
   // Log Filters
   const [logSearch, setLogSearch] = useState('');
-  const [logDate, setLogDate] = useState('');
+  const [logStartDate, setLogStartDate] = useState('');
+  const [logEndDate, setLogEndDate] = useState('');
+  const [logSupplierId, setLogSupplierId] = useState('');
 
   // Initial Load
   useEffect(() => {
@@ -144,15 +147,20 @@ export const StockReception: React.FC = () => {
   const filteredHistory = useMemo(() => {
     return purchaseHistory.filter(po => {
       const searchLower = logSearch.toLowerCase();
+      const poDate = po.date.split('T')[0]; // Compare using YYYY-MM-DD
       
-      // Check Invoice Number, Supplier Name, OR any Product Description in the items list
+      // Text Search: Invoice Number OR Product Description
       const matchesSearch = 
         !logSearch || 
         po.invoiceNumber.toLowerCase().includes(searchLower) || 
-        po.supplierName.toLowerCase().includes(searchLower) ||
         po.items?.some(item => item.description.toLowerCase().includes(searchLower));
         
-      const matchesDate = !logDate || po.date.startsWith(logDate);
+      // Supplier Filter
+      const matchesSupplier = !logSupplierId || po.supplierId === logSupplierId;
+
+      // Date Range Filter
+      const matchesStart = !logStartDate || poDate >= logStartDate;
+      const matchesEnd = !logEndDate || poDate <= logEndDate;
       
       // Filter by user assignment
       const userHasAccess = 
@@ -161,9 +169,9 @@ export const StockReception: React.FC = () => {
         user?.role === UserRole.ADMIN || 
         user?.assignedBusinessIds?.includes(po.businessId);
 
-      return matchesSearch && matchesDate && userHasAccess;
+      return matchesSearch && matchesSupplier && matchesStart && matchesEnd && userHasAccess;
     });
-  }, [purchaseHistory, logSearch, logDate, user]);
+  }, [purchaseHistory, logSearch, logStartDate, logEndDate, logSupplierId, user]);
 
   const addItem = (p: Product) => {
     setBasket(prev => {
@@ -565,24 +573,52 @@ NOTIFY pgrst, 'reload config';`;
       {activeTab === 'log' && (
         <div className="flex flex-col flex-1 min-h-0 bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4">
            {/* Log Toolbar */}
-           <div className="p-4 border-b border-slate-100 flex flex-col md:flex-row items-center gap-4">
+           <div className="p-4 border-b border-slate-100 flex flex-col xl:flex-row items-center gap-4">
               <div className="relative flex-1 w-full">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                  <input 
-                   placeholder="Search Invoice #, Supplier or Product..." 
+                   placeholder="Search Invoice # or Product..." 
                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium"
                    value={logSearch}
                    onChange={e => setLogSearch(e.target.value)}
                  />
               </div>
-              <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
-                 <Filter size={14} className="text-slate-400" />
-                 <input 
-                   type="date" 
-                   className="bg-transparent text-sm font-medium text-slate-600 outline-none"
-                   value={logDate}
-                   onChange={e => setLogDate(e.target.value)}
-                 />
+              
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto">
+                 {/* Supplier Dropdown */}
+                 <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 w-full sm:w-auto">
+                    <Truck size={14} className="text-slate-400" />
+                    <select 
+                      value={logSupplierId}
+                      onChange={e => setLogSupplierId(e.target.value)}
+                      className="bg-transparent text-sm font-medium text-slate-600 outline-none w-full sm:w-40 cursor-pointer"
+                    >
+                       <option value="">All Suppliers</option>
+                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                 </div>
+
+                 {/* Date Range */}
+                 <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 w-full sm:w-auto">
+                    <Filter size={14} className="text-slate-400" />
+                    <div className="flex items-center gap-2">
+                       <input 
+                         type="date" 
+                         className="bg-transparent text-sm font-medium text-slate-600 outline-none"
+                         value={logStartDate}
+                         onChange={e => setLogStartDate(e.target.value)}
+                         placeholder="From"
+                       />
+                       <ArrowRight size={12} className="text-slate-300" />
+                       <input 
+                         type="date" 
+                         className="bg-transparent text-sm font-medium text-slate-600 outline-none"
+                         value={logEndDate}
+                         onChange={e => setLogEndDate(e.target.value)}
+                         placeholder="To"
+                       />
+                    </div>
+                 </div>
               </div>
            </div>
 
@@ -622,7 +658,7 @@ NOTIFY pgrst, 'reload config';`;
                        </tr>
                     ))}
                     {filteredHistory.length === 0 && (
-                       <tr><td colSpan={6} className="py-20 text-center text-slate-400 italic text-sm">No invoice records found</td></tr>
+                       <tr><td colSpan={6} className="py-20 text-center text-slate-400 italic text-sm">No invoice records found matching your filters</td></tr>
                     )}
                  </tbody>
               </table>
