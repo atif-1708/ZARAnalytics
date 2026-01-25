@@ -29,12 +29,14 @@ import {
   AlertCircle,
   ScanBarcode,
   FileText,
-  Printer
+  Printer,
+  List
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Product, Business, SaleItem, PaymentMethod, UserRole, DailySale } from '../types';
 import { formatZAR, getLocalISOString } from '../utils/formatters';
+import { PdfService } from '../services/pdf';
 
 export const POS: React.FC = () => {
   const { user, isSuspended } = useAuth();
@@ -62,6 +64,10 @@ export const POS: React.FC = () => {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
   const [todayTotals, setTodayTotals] = useState({ cash: 0, bank: 0 });
   const [lastCompletedSale, setLastCompletedSale] = useState<DailySale | null>(null);
+
+  // Summary Modal State
+  const [isSummaryOpen, setIsSummaryOpen] = useState(false);
+  const [summaryData, setSummaryData] = useState<{ name: string; sku: string; qty: number; total: number; profit: number }[]>([]);
 
   // Live Clock Effect
   useEffect(() => {
@@ -96,6 +102,87 @@ export const POS: React.FC = () => {
     } catch (e) {
       console.error("Failed to fetch reconciliation totals", e);
     }
+  };
+
+  const loadDailyStats = async () => {
+    if (!selectedBusinessId) return;
+    setIsProcessing(true);
+    try {
+        const allSales = await storage.getSales();
+        const todayKey = getLocalDayKey(new Date());
+        
+        const todaysSales = allSales.filter(s => {
+            const d = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
+            return s.businessId === selectedBusinessId && getLocalDayKey(d) === todayKey && s.salesAmount > 0;
+        });
+
+        const itemMap = new Map<string, { name: string; sku: string; qty: number; total: number; profit: number }>();
+
+        todaysSales.forEach(sale => {
+            if (sale.items) {
+                sale.items.forEach(item => {
+                    const key = item.productId || item.sku;
+                    const existing = itemMap.get(key);
+                    const itemTotal = (item.priceAtSale * item.quantity) - (item.discount || 0);
+                    const itemCost = (item.costAtSale || 0) * item.quantity;
+                    const itemProfit = itemTotal - itemCost;
+                    
+                    if (existing) {
+                        existing.qty += item.quantity;
+                        existing.total += itemTotal;
+                        existing.profit += itemProfit;
+                    } else {
+                        itemMap.set(key, {
+                            name: item.description || 'Unknown Item',
+                            sku: item.sku,
+                            qty: item.quantity,
+                            total: itemTotal,
+                            profit: itemProfit
+                        });
+                    }
+                });
+            }
+        });
+
+        setSummaryData(Array.from(itemMap.values()).sort((a,b) => b.total - a.total));
+        setIsSummaryOpen(true);
+    } catch(e) {
+        console.error(e);
+        alert("Failed to load summary.");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleExportSummaryPdf = () => {
+    const biz = businesses.find(b => b.id === selectedBusinessId);
+    const doc = PdfService.createDoc(
+        'Daily Sales Summary', 
+        `Date: ${new Date().toLocaleDateString()} | Unit: ${biz?.name || 'Unknown'}`,
+        user?.name,
+        biz?.name
+    );
+    
+    // Add Totals Header in PDF
+    const grandTotal = summaryData.reduce((acc, curr) => acc + curr.total, 0);
+    const grandProfit = summaryData.reduce((acc, curr) => acc + curr.profit, 0);
+    const totalQty = summaryData.reduce((acc, curr) => acc + curr.qty, 0);
+    
+    doc.setFontSize(10);
+    doc.text(`Total Items Sold: ${totalQty}`, 14, 55);
+    doc.text(`Total Revenue: ${formatZAR(grandTotal)}`, 14, 60);
+    doc.text(`Total Profit: ${formatZAR(grandProfit)}`, 14, 65);
+
+    const rows = summaryData.map(i => [
+        i.name,
+        i.sku,
+        i.qty.toString(),
+        formatZAR(i.total),
+        formatZAR(i.profit)
+    ]);
+    
+    PdfService.generateTable(doc, ['Item Name', 'SKU', 'Qty Sold', 'Revenue', 'Profit'], rows, 75);
+    PdfService.save(doc, `daily_sales_summary_${new Date().toISOString().split('T')[0]}`);
   };
 
   const loadData = async () => {
@@ -319,7 +406,8 @@ export const POS: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-140px)]">
+    // Height adjusted to 100vh - 90px to provide more vertical space for the basket
+    <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-90px)]">
       {/* Left: Product Selection */}
       <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm text-left">
         
@@ -457,7 +545,7 @@ export const POS: React.FC = () => {
 
       {/* Right: Digital Basket */}
       <div className="w-full xl:w-[420px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left shrink-0">
-        <div className="p-5 border-b border-slate-100">
+        <div className="p-4 border-b border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <ShoppingCart size={18} className="text-slate-400" />
@@ -499,6 +587,14 @@ export const POS: React.FC = () => {
                 <span className="text-sm font-black text-blue-700">{formatZAR(todayTotals.bank)}</span>
              </div>
           </div>
+          
+          <button 
+            onClick={loadDailyStats}
+            className="w-full mt-2 py-2 bg-slate-50 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"
+          >
+            {isProcessing ? <Loader2 size={12} className="animate-spin" /> : <List size={12} />}
+            View Daily Summary
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-slate-50/30">
@@ -766,6 +862,76 @@ export const POS: React.FC = () => {
                      <p className="text-lg font-black uppercase tracking-widest">Waiting for method...</p>
                   </div>
                 )}
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* DAILY SUMMARY MODAL */}
+      {isSummaryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsSummaryOpen(false)} />
+          <div className="bg-white rounded-[2.5rem] w-full max-w-3xl p-10 relative shadow-2xl flex flex-col max-h-[85vh]">
+             <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                   <div className="p-3 bg-teal-50 text-teal-600 rounded-2xl"><List size={24}/></div>
+                   <div>
+                      <h3 className="text-xl font-black text-slate-900 tracking-tight">Daily Sales Register</h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consolidated items for {new Date().toLocaleDateString()}</p>
+                   </div>
+                </div>
+                <button onClick={() => setIsSummaryOpen(false)} className="p-2 text-slate-300 hover:text-slate-600"><X size={24}/></button>
+             </div>
+
+             <div className="flex-1 overflow-auto border rounded-xl border-slate-100">
+                <table className="w-full text-left">
+                   <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest sticky top-0">
+                      <tr>
+                         <th className="px-6 py-4">Item Name</th>
+                         <th className="px-6 py-4">SKU</th>
+                         <th className="px-6 py-4 text-center">Qty Sold</th>
+                         <th className="px-6 py-4 text-right">Revenue</th>
+                         <th className="px-6 py-4 text-right">Profit</th>
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y divide-slate-50 text-sm">
+                      {summaryData.length === 0 ? (
+                         <tr><td colSpan={5} className="py-20 text-center text-slate-400 italic font-bold">No sales recorded today</td></tr>
+                      ) : (
+                         summaryData.map((item, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50">
+                               <td className="px-6 py-3 font-bold text-slate-700">{item.name}</td>
+                               <td className="px-6 py-3 font-mono text-slate-500 text-xs">{item.sku}</td>
+                               <td className="px-6 py-3 text-center font-bold text-slate-800">{item.qty}</td>
+                               <td className="px-6 py-3 text-right font-black text-teal-600">{formatZAR(item.total)}</td>
+                               <td className="px-6 py-3 text-right font-black text-emerald-600">{formatZAR(item.profit)}</td>
+                            </tr>
+                         ))
+                      )}
+                   </tbody>
+                </table>
+             </div>
+
+             <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div className="flex items-center gap-6 bg-slate-50 px-6 py-3 rounded-2xl border border-slate-100">
+                   <div>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Revenue</p>
+                      <p className="text-lg font-black text-teal-600">{formatZAR(summaryData.reduce((a,c) => a + c.total, 0))}</p>
+                   </div>
+                   <div className="w-px h-8 bg-slate-200"></div>
+                   <div>
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Profit</p>
+                      <p className="text-lg font-black text-emerald-600">{formatZAR(summaryData.reduce((a,c) => a + c.profit, 0))}</p>
+                   </div>
+                </div>
+
+                <button 
+                  onClick={handleExportSummaryPdf}
+                  disabled={summaryData.length === 0}
+                  className="flex items-center gap-2 px-6 py-4 bg-slate-900 text-white rounded-xl font-black uppercase text-xs tracking-widest hover:bg-slate-800 shadow-lg transition-all disabled:opacity-50"
+                >
+                   <Printer size={16} /> Download Report
+                </button>
              </div>
           </div>
         </div>
