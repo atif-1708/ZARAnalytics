@@ -30,14 +30,15 @@ import {
   History,
   ClipboardList,
   Truck,
-  PackageCheck
+  PackageCheck,
+  ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Organization } from '../types';
 import { storage } from '../services/mockStorage';
 
 interface SidebarItemProps {
-  to: string;
+  to?: string;
   icon: React.ReactNode;
   label: string;
   active: boolean;
@@ -46,9 +47,14 @@ interface SidebarItemProps {
   hasNew?: boolean;
   badgeColor?: 'rose' | 'teal' | 'indigo';
   theme: 'standard' | 'admin';
+  expanded?: boolean;
+  onToggle?: () => void;
+  hasChildren?: boolean;
 }
 
-const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onClick, badge, hasNew, badgeColor = 'rose', theme }) => {
+const SidebarItem: React.FC<SidebarItemProps> = ({ 
+  to, icon, label, active, onClick, badge, hasNew, badgeColor = 'rose', theme, expanded, onToggle, hasChildren 
+}) => {
   const activeClasses = theme === 'admin' 
     ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40' 
     : 'bg-teal-600 text-white shadow-lg shadow-teal-900/20';
@@ -59,16 +65,10 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
 
   const badgeBg = badgeColor === 'rose' ? 'bg-rose-600' : badgeColor === 'indigo' ? 'bg-indigo-500' : 'bg-teal-500';
 
-  return (
-    <Link
-      to={to}
-      onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 relative group ${
-        active ? activeClasses : hoverClasses
-      }`}
-    >
-      {icon}
-      <span className="font-medium text-sm">{label}</span>
+  const content = (
+    <>
+      <div className={`shrink-0 ${active && !hasChildren ? 'text-white' : (theme === 'admin' ? 'text-indigo-400' : 'text-slate-500')}`}>{icon}</div>
+      <span className="font-medium text-sm flex-1 text-left">{label}</span>
       {hasNew && !active && (
         <span className="ml-auto flex items-center gap-1 bg-blue-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md animate-bounce">
           <Sparkles size={8} /> NEW
@@ -78,7 +78,27 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ to, icon, label, active, onCl
         <span className={`ml-auto text-white text-[10px] font-black px-2 py-0.5 rounded-full ring-2 ring-slate-900 ${badgeBg}`}>
           {badge}
         </span>
-      ) : (active && !hasNew) && <ChevronRight className="ml-auto w-4 h-4" />}
+      ) : (hasChildren ? (
+        <ChevronDown className={`ml-auto w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      ) : (active && !hasNew ? <ChevronRight className="ml-auto w-4 h-4" /> : null))}
+    </>
+  );
+
+  const wrapperClasses = `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 relative group cursor-pointer w-full ${
+    active ? activeClasses : hoverClasses
+  }`;
+
+  if (hasChildren) {
+    return (
+      <div onClick={onToggle} className={wrapperClasses}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <Link to={to!} onClick={onClick} className={wrapperClasses}>
+      {content}
     </Link>
   );
 };
@@ -92,6 +112,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const [subRequestsCount, setSubRequestsCount] = useState(0);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   
+  // State for collapsible menus
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+    'Inventory Management': true,
+    'Financials': true,
+    'Administration': false
+  });
+
+  const toggleMenu = (label: string) => {
+    setExpandedMenus(prev => ({ ...prev, [label]: !prev[label] }));
+  };
+  
   const isSuperAdmin = user?.role === UserRole.SUPER_ADMIN;
   const isGlobalKernelMode = isSuperAdmin && !selectedOrgId;
   const currentTheme = isGlobalKernelMode ? 'admin' : 'standard';
@@ -102,34 +133,58 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     }
   }, [isSuperAdmin]);
 
-  const menuItems: any[] = [
-    { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
-    { to: '/pos', label: 'POS Terminal', icon: <ShoppingCart size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
-    { to: '/inventory', label: 'Inventory', icon: <Package size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
-    { to: '/stock-reception', label: 'Stock Reception', icon: <PackageCheck size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
-    { to: '/suppliers', label: 'Suppliers', icon: <Truck size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
-    { to: '/movements', label: 'Movement Ledger', icon: <History size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
-    { to: '/transactions', label: 'Transaction Log', icon: <ClipboardList size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
-    { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
-    { to: '/subscription-requests', label: 'Sub Requests', icon: <BellRing size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true, badge: subRequestsCount, badgeColor: 'indigo' },
-    { to: '/billing', label: 'Plan & Payment', icon: <CreditCard size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
-    { to: '/businesses', label: 'Businesses', icon: <Store size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
-    { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
-    { to: '/expenses', label: 'Expenses', icon: <Receipt size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
-    { to: '/reports', label: 'Financial Reports', icon: <FileBarChart size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
-    { 
-      to: '/reminders', 
-      label: isGlobalKernelMode ? 'System Audit' : 'Compliance', 
-      icon: isGlobalKernelMode ? <Activity size={20} /> : <Bell size={20} />, 
-      roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], 
-      badge: remindersCount,
-      badgeColor: user?.role === UserRole.STAFF ? 'rose' : (isGlobalKernelMode ? 'indigo' : 'teal') 
+  // CATEGORIZED MENU DEFINITION
+  const menuCategories = [
+    {
+      label: 'Core',
+      items: [
+        { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
+        { to: '/pos', label: 'POS Terminal', icon: <ShoppingCart size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+      ]
     },
-    { to: '/users', label: 'Identity & Access', icon: <ShieldCheck size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN] },
-    { to: '/profile', label: 'My Profile', icon: <UserCircle size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
+    {
+      label: 'Inventory Management',
+      icon: <Package size={20} />,
+      items: [
+        { to: '/inventory', label: 'Stock Ledger', icon: <Package size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+        { to: '/stock-reception', label: 'Reception', icon: <PackageCheck size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
+        { to: '/suppliers', label: 'Suppliers', icon: <Truck size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+        { to: '/movements', label: 'Audit Trail', icon: <History size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+      ]
+    },
+    {
+      label: 'Financials',
+      icon: <TrendingUp size={20} />,
+      items: [
+        { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
+        { to: '/expenses', label: 'Expenses', icon: <Receipt size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
+        { to: '/transactions', label: 'Transactions', icon: <ClipboardList size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
+        { to: '/reports', label: 'Reports', icon: <FileBarChart size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
+      ]
+    },
+    {
+      label: 'Administration',
+      icon: <ShieldCheck size={20} />,
+      items: [
+        { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={18} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
+        { to: '/businesses', label: 'Business Units', icon: <Store size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
+        { to: '/users', label: 'Identity & Access', icon: <Users size={18} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN] },
+        { to: '/billing', label: 'Plan & Payment', icon: <CreditCard size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN], hideInGlobalMode: true },
+        { to: '/subscription-requests', label: 'Sub Requests', icon: <BellRing size={18} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true, badge: subRequestsCount, badgeColor: 'indigo' },
+        { 
+          to: '/reminders', 
+          label: isGlobalKernelMode ? 'System Audit' : 'Compliance', 
+          icon: isGlobalKernelMode ? <Activity size={18} /> : <Bell size={18} />, 
+          roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], 
+          badge: remindersCount,
+          badgeColor: user?.role === UserRole.STAFF ? 'rose' : (isGlobalKernelMode ? 'indigo' : 'teal') 
+        },
+        { to: '/profile', label: 'My Profile', icon: <UserCircle size={18} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
+      ]
+    }
   ];
 
-  const filteredItems = menuItems.filter(item => {
+  const filterItem = (item: any) => {
     const hasRole = item.roles.includes(user?.role as UserRole);
     if (!hasRole) return false;
     if (isGlobalKernelMode) {
@@ -140,7 +195,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       if (item.showOnlyInGlobalMode) return false;
     }
     return true;
-  });
+  };
 
   const checkAlerts = async () => {
     if (!user) return;
@@ -203,8 +258,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       )}
 
       <aside className={`fixed inset-y-0 left-0 w-64 ${isGlobalKernelMode ? 'bg-slate-900 border-r border-white/5 shadow-2xl shadow-indigo-500/10' : 'bg-slate-900'} text-white z-50 transition-all duration-300 lg:translate-x-0 lg:static lg:block flex flex-col ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex-1 overflow-y-auto p-6 text-left">
-          <div className="flex items-center gap-3 mb-10">
+        <div className="flex-1 overflow-y-auto p-4 text-left custom-scrollbar">
+          <div className="flex items-center gap-3 mb-8 px-2 pt-2">
             <div className={`w-10 h-10 ${isGlobalKernelMode ? 'bg-indigo-600' : 'bg-teal-500'} rounded-xl flex items-center justify-center font-bold text-white shadow-lg shadow-black/20`}>
               {isGlobalKernelMode ? <Server size={20} /> : 'ZL'}
             </div>
@@ -215,17 +270,56 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               </p>
             </div>
           </div>
-          <nav className="space-y-2">
-            {filteredItems.map((item) => {
-              const { roles, hideInGlobalMode, showOnlyInGlobalMode, ...sidebarProps } = item;
+          
+          <nav className="space-y-1">
+            {menuCategories.map((cat, idx) => {
+              const visibleItems = cat.items.filter(filterItem);
+              if (visibleItems.length === 0) return null;
+
+              if (cat.label === 'Core') {
+                return (
+                  <div key={idx} className="mb-4 space-y-1">
+                    {visibleItems.map(item => (
+                      <SidebarItem 
+                        key={item.to} 
+                        {...item} 
+                        theme={currentTheme}
+                        active={location.pathname === item.to}
+                        onClick={() => setIsSidebarOpen(false)}
+                      />
+                    ))}
+                  </div>
+                );
+              }
+
+              const isActiveGroup = visibleItems.some(i => location.pathname === i.to);
+              const isExpanded = expandedMenus[cat.label];
+
               return (
-                <SidebarItem 
-                  key={item.to} 
-                  {...sidebarProps} 
-                  theme={currentTheme}
-                  active={location.pathname === item.to} 
-                  onClick={() => setIsSidebarOpen(false)} 
-                />
+                <div key={idx} className="mb-2">
+                  <SidebarItem 
+                    label={cat.label}
+                    icon={cat.icon}
+                    active={isActiveGroup}
+                    theme={currentTheme}
+                    hasChildren={true}
+                    expanded={isExpanded}
+                    onToggle={() => toggleMenu(cat.label)}
+                  />
+                  {isExpanded && (
+                    <div className="mt-1 ml-4 border-l border-slate-700 pl-2 space-y-1 animate-in slide-in-from-left-2 duration-200">
+                      {visibleItems.map(item => (
+                        <SidebarItem 
+                          key={item.to} 
+                          {...item} 
+                          theme={currentTheme}
+                          active={location.pathname === item.to}
+                          onClick={() => setIsSidebarOpen(false)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </nav>

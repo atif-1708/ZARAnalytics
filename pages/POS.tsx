@@ -207,11 +207,16 @@ export const POS: React.FC = () => {
     if (!printWindow) return;
 
     const itemsHtml = (sale.items || []).map(item => `
-      <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
-        <span>${item.quantity} x ${item.description || item.sku}</span>
-        <span>${formatZAR(item.priceAtSale * item.quantity)}</span>
+      <div style="margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px;">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold;">
+          <span>${item.description || 'Item'}</span>
+          <span>${formatZAR(item.priceAtSale * item.quantity)}</span>
+        </div>
+        <div style="font-size: 10px; color: #555; margin-top: 2px;">
+           ${item.quantity} x @ ${formatZAR(item.priceAtSale)} <span style="margin-left: 8px;">SKU: ${item.sku}</span>
+        </div>
+        ${item.discount ? `<div style="font-size: 10px; color: #666; text-align: right;">Disc: -${formatZAR(item.discount)}</div>` : ''}
       </div>
-      ${item.discount ? `<div style="font-size: 10px; color: #666; text-align: right;">Disc: -${formatZAR(item.discount)}</div>` : ''}
     `).join('');
 
     printWindow.document.write(`
@@ -219,13 +224,13 @@ export const POS: React.FC = () => {
         <head>
           <style>
             body { font-family: 'Courier New', monospace; padding: 20px; width: 300px; margin: 0 auto; }
-            .header { text-align: center; margin-bottom: 20px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-            .title { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
-            .meta { font-size: 10px; color: #333; }
-            .items { margin-bottom: 15px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
-            .totals { text-align: right; font-size: 12px; margin-bottom: 20px; }
+            .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+            .title { font-weight: bold; font-size: 16px; margin-bottom: 5px; text-transform: uppercase; }
+            .meta { font-size: 10px; color: #333; margin-bottom: 2px; }
+            .items { margin-bottom: 15px; }
+            .totals { text-align: right; font-size: 12px; margin-bottom: 20px; border-top: 2px solid #000; padding-top: 10px; }
             .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-top: 5px; }
-            .footer { text-align: center; font-size: 10px; margin-top: 30px; }
+            .footer { text-align: center; font-size: 10px; margin-top: 30px; border-top: 1px dashed #000; padding-top: 10px; }
           </style>
         </head>
         <body>
@@ -251,7 +256,6 @@ export const POS: React.FC = () => {
           </div>
           <script>
             window.print();
-            // Removed auto-close to prevent slip hiding before user is done
           </script>
         </body>
       </html>
