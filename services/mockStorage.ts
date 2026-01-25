@@ -325,7 +325,7 @@ export const storage = {
     }
 
     // 3. AUTO-LINK: Create Expense Entry for Stock Purchase
-    // This ensures "Cashflow" (Liquidity) decreases when stock assets increase.
+    // CATEGORY: 'stock' to separate from operating expenses in reports
     if (po.totalAmount && po.totalAmount > 0) {
         try {
             const expensePayload = mapToDb({
@@ -333,6 +333,7 @@ export const storage = {
                 month: po.date ? new Date(po.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
                 amount: po.totalAmount,
                 description: `Stock Purchase: ${po.supplierName} (Inv #${po.invoiceNumber})`,
+                category: 'stock',
                 orgId: finalOrgId
             });
             await supabase.from('expenses').insert(expensePayload);
@@ -534,6 +535,10 @@ export const storage = {
     const { orgId: contextOrgId } = await getFilter();
     const finalOrgId = expense.orgId || contextOrgId;
     const payload = mapToDb({ ...expense, org_id: finalOrgId });
+    
+    // Ensure category is set
+    if (!payload.category) payload.category = 'operating';
+    
     if (payload.user_id) delete payload.user_id;
     const operation = payload.id ? supabase.from('expenses').upsert(payload) : supabase.from('expenses').insert(payload);
     const { data, error } = await operation.select().single();
@@ -701,6 +706,7 @@ export const storage = {
             month: new Date().toISOString().split('T')[0], // Expense date
             amount,
             description: `${reason} (Till Payout)`, // Add context
+            category: 'operating',
             orgId
         });
         // We attempt to insert into expenses. If it fails (e.g. table lock), we just log error but don't fail the movement.

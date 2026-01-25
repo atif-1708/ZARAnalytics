@@ -147,9 +147,11 @@ export const Dashboard: React.FC = () => {
       }
     }
 
+    // Filter operating expenses (exclude stock purchases) for P&L
+    const operatingExpenses = expenses.filter(e => e.category !== 'stock');
+
     const calculateData = (dataSales: DailySale[], dataExpenses: MonthlyExpense[], start: Date, end: Date) => {
       const filteredSales = dataSales.filter(item => {
-        // Prioritize createdAt over date to fix previous-day issue
         const itemDate = item.createdAt ? new Date(item.createdAt) : new Date(item.date);
         const inRange = itemDate >= start && itemDate <= end;
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
@@ -158,19 +160,11 @@ export const Dashboard: React.FC = () => {
       });
 
       const filteredExpenses = dataExpenses.filter(item => {
-        // Strict Date Filtering
-        // If expense is "2023-10-27" (YYYY-MM-DD), use that specific date.
-        // If expense is "2023-10" (Legacy YYYY-MM), default to 1st of month.
         const parts = item.month.split('-').map(Number);
-        // parts[0]=Year, parts[1]=Month, parts[2]=Day (or undefined)
         const itemDate = new Date(parts[0], parts[1] - 1, parts[2] || 1);
-        
-        // Check if the specific date is within the filter range
         const inRange = itemDate >= start && itemDate <= end;
-
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
-        
         return inRange && userHasAccess && matchesBiz;
       });
 
@@ -178,7 +172,6 @@ export const Dashboard: React.FC = () => {
       const gp = filteredSales.reduce((acc, curr) => acc + Number(curr.profitAmount), 0);
       const ex = filteredExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
       
-      // New Metrics Calculation
       const cash = filteredSales
         .filter(s => s.paymentMethod === PaymentMethod.CASH && s.salesAmount > 0)
         .reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
@@ -196,8 +189,8 @@ export const Dashboard: React.FC = () => {
       return { rev, gp, ex, net: gp - ex, cash, card, returns, margin };
     };
 
-    const current = calculateData(sales, expenses, startDate, endDate);
-    const previous = calculateData(sales, expenses, prevStartDate, prevEndDate);
+    const current = calculateData(sales, operatingExpenses, startDate, endDate);
+    const previous = calculateData(sales, operatingExpenses, prevStartDate, prevEndDate);
 
     const calcTrend = (curr: number, prev: number) => {
       if (prev <= 0) return undefined;
@@ -219,7 +212,7 @@ export const Dashboard: React.FC = () => {
            const sDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
            return sDate >= startDate && sDate <= endDate && s.businessId === biz.id;
         });
-        const bizExpenses = expenses.filter(e => {
+        const bizExpenses = operatingExpenses.filter(e => {
            const parts = e.month.split('-').map(Number);
            const eDate = new Date(parts[0], parts[1] - 1, parts[2] || 1);
            const inRange = eDate >= startDate && eDate <= endDate;
@@ -236,30 +229,24 @@ export const Dashboard: React.FC = () => {
       .sort((a, b) => b.profit - a.profit);
 
     // GRAPH DATA
-    // Determine graph context: Use selected month if active, otherwise current month
     let graphYear = currentYear;
     let graphMonth = currentMonthIndex;
 
     if (filters.timeframe === 'select_month' && filters.selectedMonth) {
        const [y, m] = filters.selectedMonth.split('-').map(Number);
        graphYear = y;
-       graphMonth = m - 1; // JS months are 0-indexed
+       graphMonth = m - 1;
     }
 
     const chartData = [];
     const daysInMonth = new Date(graphYear, graphMonth + 1, 0).getDate();
-    // Use a Map to sum sales for each business per day (fixes overwrite issue)
     const monthlySalesMap = new Map<string, number>();
     
     sales.forEach(s => {
-      // Use createdAt for precision
       const sDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
-      
-      // Filter for the graph's target month
       if (sDate.getFullYear() === graphYear && sDate.getMonth() === graphMonth) {
         const dateKey = `${sDate.getFullYear()}-${String(sDate.getMonth() + 1).padStart(2, '0')}-${String(sDate.getDate()).padStart(2, '0')}`;
         const key = `${dateKey}_${s.businessId}`;
-        
         const currentSum = monthlySalesMap.get(key) || 0;
         monthlySalesMap.set(key, currentSum + Number(s.salesAmount));
       }
@@ -268,12 +255,10 @@ export const Dashboard: React.FC = () => {
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${graphYear}-${String(graphMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dayEntry: any = { dayLabel: day.toString(), fullDate: dateStr };
-      
       businesses.forEach(biz => {
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(biz.id);
         if (!userHasAccess) return;
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
-        
         const total = monthlySalesMap.get(`${dateStr}_${biz.id}`) || 0;
         dayEntry[`biz_${biz.id}`] = convert(total);
       });

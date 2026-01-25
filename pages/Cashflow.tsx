@@ -22,7 +22,7 @@ import {
   TrendingUp, 
   Package, 
   Building2, 
-  Briefcase 
+  Briefcase
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS cash_movements (
 
 -- ADD INITIAL CAPITAL COLUMN IF MISSING
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS initial_capital numeric DEFAULT 0;
+
+-- ADD CATEGORY TO EXPENSES IF MISSING
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS category text DEFAULT 'operating';
 
 ALTER TABLE cash_shifts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cash_movements ENABLE ROW LEVEL SECURITY;
@@ -125,10 +128,11 @@ export const Cashflow: React.FC = () => {
       // A. Stock Worth (Asset Value)
       const stockWorth = pData.reduce((sum, p) => sum + ((p.costPrice || 0) * (p.currentStock || 0)), 0);
 
-      // B. Cash Liquidity (Initial Capital + Net Retained Earnings)
-      // Cash Worth = Opening Balance + (Gross Profit Generated) - (Expenses Paid)
-      const totalGrossProfit = relevantSales.reduce((sum, s) => sum + Number(s.profitAmount), 0);
-      const totalExpenses = relevantExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
+      // B. Cash Liquidity 
+      // Revised Formula: Initial Capital + Total Sales Revenue - Total Expenses (Op + Stock)
+      // This represents pure cash movement.
+      const totalRevenue = relevantSales.reduce((sum, s) => sum + Number(s.salesAmount), 0);
+      const totalAllExpenses = relevantExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
       
       // Calculate Initial Capital from selected businesses
       const targetBizForCalc = selectedBusinessId === 'all' 
@@ -137,7 +141,7 @@ export const Cashflow: React.FC = () => {
       
       const totalInitialCapital = targetBizForCalc.reduce((acc, b) => acc + (b.initialCapital || 0), 0);
 
-      const liquidity = totalInitialCapital + totalGrossProfit - totalExpenses;
+      const liquidity = totalInitialCapital + totalRevenue - totalAllExpenses;
 
       setValuationData({
         stockValue: stockWorth,
@@ -250,7 +254,7 @@ export const Cashflow: React.FC = () => {
            <div className="flex-1 space-y-2">
               <h4 className="text-lg font-black text-amber-800 uppercase tracking-tight">Database Update Required</h4>
               <p className="text-sm text-amber-700 font-medium leading-relaxed">
-                The cash management tables (including Initial Capital) are missing. Please run the SQL script below in your Supabase SQL Editor.
+                The cash management tables (including Initial Capital & Categories) are missing. Please run the SQL script below in your Supabase SQL Editor.
               </p>
            </div>
            <div className="flex flex-col gap-2">
@@ -287,7 +291,7 @@ export const Cashflow: React.FC = () => {
                <h3 className={`text-4xl font-black tracking-tight ${valuationData.cashLiquidity >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                  {formatZAR(valuationData.cashLiquidity)}
                </h3>
-               <p className="text-[10px] font-bold text-slate-400 mt-2">Capital + Profit - Expenses</p>
+               <p className="text-[10px] font-bold text-slate-400 mt-2">Capital + Revenue - All Expenses</p>
             </div>
          </div>
 

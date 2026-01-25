@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Edit3, Receipt, Loader2, Lock, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Edit3, Receipt, Loader2, Lock, AlertCircle, Tag } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { MonthlyExpense, UserRole, Business, Filters } from '../types';
@@ -53,9 +53,10 @@ export const Expenses: React.FC = () => {
   
   const [formData, setFormData] = useState({
     businessId: '', 
-    month: getLocalISOString().split('T')[0], // Default to Today Local (YYYY-MM-DD)
+    month: getLocalISOString().split('T')[0], 
     amount: 0, 
-    description: ''
+    description: '',
+    category: 'operating' as 'operating' | 'stock'
   });
 
   const loadData = async () => {
@@ -119,7 +120,6 @@ export const Expenses: React.FC = () => {
     }
 
     return expenses.filter(item => {
-      // Robust Date Parsing: Handle YYYY-MM (legacy) and YYYY-MM-DD (new)
       const dateStr = item.month.length === 7 ? item.month + '-01' : item.month;
       const itemDate = new Date(dateStr);
       
@@ -177,7 +177,8 @@ export const Expenses: React.FC = () => {
                 businessId: (entryBusinesses[0]?.id || ''), 
                 month: getLocalISOString().split('T')[0], 
                 amount: 0, 
-                description: '' 
+                description: '',
+                category: 'operating'
               }); 
               setIsModalOpen(true); 
             }} 
@@ -210,6 +211,7 @@ export const Expenses: React.FC = () => {
             <tr>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Date</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Business Unit</th>
+              <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-center">Type</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400">Description</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Amount ({currency})</th>
               <th className="px-6 py-4 text-xs font-black uppercase text-slate-400 text-right">Actions</th>
@@ -217,13 +219,11 @@ export const Expenses: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredExpenses.length === 0 ? (
-               <tr><td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic text-sm">No expenses found for the current period and filters.</td></tr>
+               <tr><td colSpan={6} className="px-6 py-10 text-center text-slate-400 italic text-sm">No expenses found for the current period and filters.</td></tr>
             ) : (
               filteredExpenses.map(ex => {
                 const b = businesses.find(bx => bx.id === ex.businessId);
                 const canEditThis = canModify && (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN || (isStaff && user?.assignedBusinessIds?.includes(ex.businessId)));
-                
-                // Handle display date properly
                 const displayDate = ex.month.length === 7 ? ex.month + '-01' : ex.month;
 
                 return (
@@ -239,6 +239,13 @@ export const Expenses: React.FC = () => {
                         </div>
                       )}
                     </td>
+                    <td className="px-6 py-4 text-center">
+                       <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest ${
+                         ex.category === 'stock' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'bg-rose-50 text-rose-600 border border-rose-100'
+                       }`}>
+                         {ex.category || 'Operating'}
+                       </span>
+                    </td>
                     <td className="px-6 py-4 text-sm font-medium text-slate-600 truncate max-w-xs" title={ex.description}>
                       {ex.description || '-'}
                     </td>
@@ -248,7 +255,7 @@ export const Expenses: React.FC = () => {
                         {canEditThis ? (
                           <>
                             <button 
-                              onClick={() => { setEditingExpense(ex); setSaveError(null); setFormData({ ...ex }); setIsModalOpen(true); }} 
+                              onClick={() => { setEditingExpense(ex); setSaveError(null); setFormData({ ...ex, category: ex.category || 'operating' }); setIsModalOpen(true); }} 
                               className="p-2 text-slate-400 hover:text-blue-600 transition-colors"
                               title="Edit Expense"
                             >
@@ -306,6 +313,27 @@ export const Expenses: React.FC = () => {
                   {entryBusinesses.map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
                 </select>
               </div>
+              
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Category</label>
+                <div className="grid grid-cols-2 gap-3">
+                   <button 
+                     type="button"
+                     onClick={() => setFormData({...formData, category: 'operating'})}
+                     className={`py-3 rounded-xl border font-bold text-xs uppercase tracking-widest ${formData.category === 'operating' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                   >
+                     Operating
+                   </button>
+                   <button 
+                     type="button"
+                     onClick={() => setFormData({...formData, category: 'stock'})}
+                     className={`py-3 rounded-xl border font-bold text-xs uppercase tracking-widest ${formData.category === 'stock' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-400'}`}
+                   >
+                     Stock Purchase
+                   </button>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1 text-left">Expense Date</label>
@@ -337,7 +365,7 @@ export const Expenses: React.FC = () => {
                 <textarea 
                   rows={3} 
                   disabled={isSaving}
-                  placeholder="e.g. Electricity, Rent, Staff Wages..."
+                  placeholder={formData.category === 'stock' ? "e.g. Supplier Invoice Payment" : "e.g. Electricity, Rent, Staff Wages..."}
                   value={formData.description} 
                   onChange={e=>setFormData({...formData, description:e.target.value})} 
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" 
