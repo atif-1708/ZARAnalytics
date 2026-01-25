@@ -31,7 +31,8 @@ import {
   ClipboardList,
   Truck,
   PackageCheck,
-  ChevronDown
+  ChevronDown,
+  Coins
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Organization } from '../types';
@@ -147,7 +148,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       icon: <Package size={20} />,
       items: [
         { to: '/inventory', label: 'Stock Ledger', icon: <Package size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
-        { to: '/stock-reception', label: 'Reception', icon: <PackageCheck size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
+        { to: '/stock-reception', label: 'Reception', icon: <PackageCheck size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
         { to: '/suppliers', label: 'Suppliers', icon: <Truck size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
         { to: '/movements', label: 'Audit Trail', icon: <History size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
       ]
@@ -156,6 +157,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       label: 'Financials',
       icon: <TrendingUp size={20} />,
       items: [
+        { to: '/cashflow', label: 'Cashflow & Till', icon: <Coins size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
         { to: '/sales', label: 'Daily Sales', icon: <TrendingUp size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
         { to: '/expenses', label: 'Expenses', icon: <Receipt size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
         { to: '/transactions', label: 'Transactions', icon: <ClipboardList size={18} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },

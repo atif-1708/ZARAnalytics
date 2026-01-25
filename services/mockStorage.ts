@@ -1,7 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
-import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement, SaleItem, Supplier, PurchaseOrder } from '../types';
+import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement, SaleItem, Supplier, PurchaseOrder, CashShift, CashMovement, CashMovementType } from '../types';
 import { getLocalISOString } from '../utils/formatters';
 
 const mapToDb = (obj: any) => {
@@ -48,6 +48,7 @@ const getFilter = async () => {
 };
 
 export const storage = {
+  // ... (Previous methods remain unchanged)
   getOrganizations: async (): Promise<Organization[]> => {
     try {
       const { data, error } = await supabase.from('organizations').select('*').order('name');
@@ -228,7 +229,6 @@ export const storage = {
     return true;
   },
 
-  // SUPPLIER METHODS
   getSuppliers: async (): Promise<Supplier[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -263,7 +263,6 @@ export const storage = {
     if (error) throw new Error(error.message);
   },
 
-  // PROCUREMENT (Stock Reception)
   getPurchaseOrders: async (): Promise<PurchaseOrder[]> => {
     try {
       const { orgId, role } = await getFilter();
@@ -272,7 +271,7 @@ export const storage = {
       
       const { data, error } = await query;
       if (error) {
-         if (error.code === '42P01') return []; // Gracefully handle missing table
+         if (error.code === '42P01') return []; 
          throw error;
       }
       return (data || []).map(mapFromDb).filter(Boolean);
@@ -286,7 +285,6 @@ export const storage = {
     const { orgId: contextOrgId, userName } = await getFilter();
     const finalOrgId = po.orgId || contextOrgId;
     
-    // 1. Save the Purchase Order
     const poPayload = mapToDb({ ...po, org_id: finalOrgId });
     const { data: savedPO, error: poError } = await supabase.from('purchase_orders').insert(poPayload).select().single();
     
@@ -295,22 +293,18 @@ export const storage = {
       throw new Error(poError.message);
     }
 
-    // 2. Process Items (Update Stock & Cost, Log Movement)
     if (po.items && po.items.length > 0) {
       for (const item of po.items) {
         try {
-          // Fetch current stock
           const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
           const currentStock = prod?.current_stock || 0;
           const newStock = currentStock + item.quantity;
 
-          // Update Product: New Stock + LAST PRICE update
           await supabase.from('products').update({
             current_stock: newStock,
-            cost_price: item.unitCost // Updates master cost price to the latest invoice price
+            cost_price: item.unitCost
           }).eq('id', item.productId);
 
-          // Log Movement
           const movementPayload = mapToDb({
             productId: item.productId,
             quantity: item.quantity,
@@ -464,7 +458,7 @@ export const storage = {
 
     const refundEntry = {
       businessId: original.businessId,
-      date: new Date().toISOString(), // Use standard UTC ISO string for robust Timezone handling
+      date: new Date().toISOString(),
       salesAmount: -Math.abs(totalRefundAmount),
       profitAmount: -Math.abs(totalRefundProfit),
       profitPercentage: 0, 
@@ -609,5 +603,131 @@ export const storage = {
   deleteUser: async (id: string) => {
     const { error } = await supabase.from('profiles').delete().eq('id', id);
     if (error) throw new Error(error.message);
+  },
+
+  // --- CASHFLOW MANAGEMENT ---
+
+  getOpenShift: async (businessId: string): Promise<CashShift | null> => {
+    const { userId } = await getFilter();
+    if (!userId) return null;
+    
+    // Check if user has an open shift in this business
+    const { data, error } = await supabase
+      .from('cash_shifts')
+      .select('*')
+      .eq('business_id', businessId)
+      .eq('user_id', userId)
+      .eq('status', 'OPEN')
+      .single();
+      
+    if (error) {
+      if (error.code === 'PGRST116') return null; // No rows found
+      // Ignore missing table errors gracefully
+      if (error.code === '42P01') return null;
+      console.error("Shift check error:", error);
+      return null;
+    }
+    return mapFromDb(data);
+  },
+
+  openShift: async (businessId: string, openingFloat: number): Promise<CashShift> => {
+    const { userId, userName, orgId } = await getFilter();
+    if (!userId) throw new Error("Authentication required");
+
+    const payload = mapToDb({
+      businessId,
+      userId,
+      userName: userName || 'Staff',
+      openingFloat,
+      status: 'OPEN',
+      orgId
+    });
+
+    const { data, error } = await supabase.from('cash_shifts').insert(payload).select().single();
+    if (error) throw new Error(error.message);
+    return mapFromDb(data);
+  },
+
+  closeShift: async (shiftId: string, closingCashCounted: number, expectedCash: number, variance: number, notes?: string) => {
+    const { error } = await supabase.from('cash_shifts').update({
+      closing_cash_counted: closingCashCounted,
+      expected_cash: expectedCash,
+      variance,
+      notes,
+      closed_at: new Date().toISOString(),
+      status: 'CLOSED'
+    }).eq('id', shiftId);
+
+    if (error) throw new Error(error.message);
+  },
+
+  addCashMovement: async (shiftId: string, businessId: string, type: CashMovementType, amount: number, reason: string) => {
+    const { userId, orgId } = await getFilter();
+    const payload = mapToDb({
+      shiftId,
+      businessId,
+      type,
+      amount,
+      reason,
+      userId,
+      orgId
+    });
+    const { error } = await supabase.from('cash_movements').insert(payload);
+    if (error) throw new Error(error.message);
+  },
+
+  getShiftMovements: async (shiftId: string): Promise<CashMovement[]> => {
+    const { data, error } = await supabase.from('cash_movements').select('*').eq('shift_id', shiftId);
+    if (error) {
+      if (error.code === '42P01') return [];
+      throw error;
+    }
+    return (data || []).map(mapFromDb);
+  },
+
+  // Calculate Aggregated Cash Sales for a Shift Period
+  getShiftAggregates: async (businessId: string, startTime: string, endTime?: string) => {
+    // 1. Get Cash Sales in window
+    let query = supabase
+      .from('sales')
+      .select('sales_amount')
+      .eq('business_id', businessId)
+      .eq('payment_method', 'CASH')
+      .gt('created_at', startTime);
+      
+    if (endTime) {
+      query = query.lte('created_at', endTime);
+    }
+
+    const { data: sales, error } = await query;
+    if (error) {
+      // If sales doesn't have created_at, fallback to date (less precise but functional)
+      if (error.message.includes('created_at')) {
+         return 0; // Or handle legacy
+      }
+      throw error;
+    }
+
+    const totalCashSales = sales.reduce((acc, curr) => acc + Number(curr.sales_amount), 0);
+    return totalCashSales;
+  },
+
+  getShiftHistory: async (businessId?: string): Promise<CashShift[]> => {
+    const { orgId, role } = await getFilter();
+    let query = supabase.from('cash_shifts').select('*').order('opened_at', { ascending: false });
+    
+    if (businessId && businessId !== 'all') {
+      query = query.eq('business_id', businessId);
+    } else if (role !== UserRole.SUPER_ADMIN || orgId) {
+      query = query.eq('org_id', orgId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      if (error.code === '42P01') return [];
+      console.error("Shift history error", error);
+      return [];
+    }
+    return (data || []).map(mapFromDb);
   }
 };

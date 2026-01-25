@@ -30,11 +30,16 @@ import {
   ScanBarcode,
   FileText,
   Printer,
-  List
+  List,
+  Lock,
+  Unlock,
+  ArrowDownRight,
+  ArrowUpRight,
+  LogOut
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
-import { Product, Business, SaleItem, PaymentMethod, UserRole, DailySale } from '../types';
+import { Product, Business, SaleItem, PaymentMethod, UserRole, DailySale, CashShift } from '../types';
 import { formatZAR, getLocalISOString } from '../utils/formatters';
 import { PdfService } from '../services/pdf';
 
@@ -47,6 +52,15 @@ export const POS: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   
+  // Shift State
+  const [activeShift, setActiveShift] = useState<CashShift | null>(null);
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false); // For opening/closing
+  const [isDrawerModalOpen, setIsDrawerModalOpen] = useState(false); // For ops
+  const [shiftFormData, setShiftFormData] = useState({ float: '', count: '', notes: '' });
+  const [drawerFormData, setDrawerFormData] = useState({ type: 'DROP' as 'DROP'|'PAYOUT', amount: '', reason: '' });
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftSummary, setShiftSummary] = useState<{ expected: number, variance: number } | null>(null);
+
   // Search State
   const [searchFields, setSearchFields] = useState({
     sku: '',
@@ -81,6 +95,108 @@ export const POS: React.FC = () => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
 
+  const checkShiftStatus = async (bizId: string) => {
+    if (!bizId) return;
+    try {
+      const shift = await storage.getOpenShift(bizId);
+      setActiveShift(shift);
+      if (!shift) {
+        setIsShiftModalOpen(true); // Force open shift modal
+      }
+    } catch (e) {
+      console.error("Shift check failed", e);
+    }
+  };
+
+  const handleStartShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBusinessId || shiftLoading) return;
+    setShiftLoading(true);
+    try {
+      const floatVal = parseFloat(shiftFormData.float) || 0;
+      const newShift = await storage.openShift(selectedBusinessId, floatVal);
+      setActiveShift(newShift);
+      setIsShiftModalOpen(false);
+      setShiftFormData({ float: '', count: '', notes: '' });
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
+  const handleCloseShiftPreCheck = async () => {
+    if (!activeShift) return;
+    setShiftLoading(true);
+    try {
+      // Calculate Expected Cash
+      const salesCash = await storage.getShiftAggregates(activeShift.businessId, activeShift.openedAt);
+      const movements = await storage.getShiftMovements(activeShift.id);
+      
+      const adds = movements.filter(m => m.type === 'FLOAT_ADD').reduce((a,c) => a + c.amount, 0);
+      const drops = movements.filter(m => m.type === 'DROP').reduce((a,c) => a + c.amount, 0);
+      const payouts = movements.filter(m => m.type === 'PAYOUT').reduce((a,c) => a + c.amount, 0);
+
+      const expected = activeShift.openingFloat + salesCash + adds - drops - payouts;
+      setShiftSummary({ expected, variance: 0 }); // Variance calc happens after user input in render
+      setIsShiftModalOpen(true); // Re-use modal for closing
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
+  const handleConfirmCloseShift = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeShift || !shiftSummary || shiftLoading) return;
+    setShiftLoading(true);
+    try {
+      const counted = parseFloat(shiftFormData.count) || 0;
+      const variance = counted - shiftSummary.expected;
+      
+      await storage.closeShift(activeShift.id, counted, shiftSummary.expected, variance, shiftFormData.notes);
+      
+      // Print Shift Report (Optional, simplified here)
+      alert(`Shift Closed.\nExpected: ${formatZAR(shiftSummary.expected)}\nCounted: ${formatZAR(counted)}\nVariance: ${formatZAR(variance)}`);
+      
+      setActiveShift(null);
+      setShiftSummary(null);
+      setShiftFormData({ float: '', count: '', notes: '' });
+      setIsShiftModalOpen(true); // Re-open to start new shift immediately
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
+  const handleDrawerOperation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeShift || shiftLoading) return;
+    setShiftLoading(true);
+    try {
+      const amount = parseFloat(drawerFormData.amount);
+      if (!amount || amount <= 0) throw new Error("Invalid amount");
+      
+      await storage.addCashMovement(
+        activeShift.id, 
+        activeShift.businessId, 
+        drawerFormData.type, 
+        amount, 
+        drawerFormData.reason
+      );
+      
+      alert(`${drawerFormData.type} Recorded Successfully.`);
+      setIsDrawerModalOpen(false);
+      setDrawerFormData({ type: 'DROP', amount: '', reason: '' });
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setShiftLoading(false);
+    }
+  };
+
   const fetchTodayTotals = async (bizId: string) => {
     if (!bizId) return;
     try {
@@ -104,6 +220,11 @@ export const POS: React.FC = () => {
     }
   };
 
+  // ... (Existing loadDailyStats, handleExportSummaryPdf, loadData, etc. kept same)
+  // I'm skipping re-writing untouched functions to save space, assuming they merge correctly.
+  // BUT I must include them to be safe as per instructions "Full content of file".
+  
+  // Re-pasting standard functions...
   const loadDailyStats = async () => {
     if (!selectedBusinessId) return;
     setIsProcessing(true);
@@ -190,7 +311,8 @@ export const POS: React.FC = () => {
     PdfService.save(doc, `daily_sales_summary_${new Date().toISOString().split('T')[0]}`);
   };
 
-  const loadData = async () => {
+  // Re-integrate loadData with shift check
+  const loadDataWithShift = async () => {
     setIsLoading(true);
     try {
       const bData = await storage.getBusinesses();
@@ -203,6 +325,8 @@ export const POS: React.FC = () => {
       setBusinesses(filteredBiz);
       if (filteredBiz.length > 0 && !selectedBusinessId) {
         setSelectedBusinessId(filteredBiz[0].id);
+        // Only check shift if we have a business
+        checkShiftStatus(filteredBiz[0].id);
       }
     } finally {
       setIsLoading(false);
@@ -216,6 +340,7 @@ export const POS: React.FC = () => {
       const pData = await storage.getProducts(selectedBusinessId);
       setProducts(pData);
       await fetchTodayTotals(selectedBusinessId);
+      await checkShiftStatus(selectedBusinessId);
     } catch (e) { 
       console.error("POS: Failed to load products", e); 
     } finally {
@@ -223,7 +348,7 @@ export const POS: React.FC = () => {
     }
   };
 
-  useEffect(() => { loadData(); }, [user]);
+  useEffect(() => { loadDataWithShift(); }, [user]);
   useEffect(() => { loadProducts(); }, [selectedBusinessId]);
 
   const filteredProducts = useMemo(() => {
@@ -236,6 +361,7 @@ export const POS: React.FC = () => {
   }, [products, searchFields]);
 
   const addToCart = (product: Product) => {
+    if (!activeShift) return; // Prevent adding if no shift
     if ((product.currentStock ?? 0) <= 0) return;
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id);
@@ -282,22 +408,18 @@ export const POS: React.FC = () => {
     setCart(prev => prev.filter(item => item.productId !== productId));
   };
 
-  // Calculations
   const cartSubtotal = cart.reduce((acc, item) => acc + (item.priceAtSale * item.quantity), 0);
   const totalDiscount = cart.reduce((acc, item) => acc + (item.discount || 0), 0);
   const cartCost = cart.reduce((acc, item) => acc + (item.costAtSale * item.quantity), 0);
   const finalTotal = Math.max(0, cartSubtotal - totalDiscount);
-  
   const cashReceivedVal = parseFloat(receivedAmount) || 0;
   const changeDue = Math.max(0, cashReceivedVal - finalTotal);
 
   const printReceipt = (sale: DailySale) => {
     const biz = businesses.find(b => b.id === sale.businessId);
     const date = sale.createdAt ? new Date(sale.createdAt) : new Date(sale.date);
-    
     const printWindow = window.open('', '', 'width=400,height=600');
     if (!printWindow) return;
-
     const itemsHtml = (sale.items || []).map(item => `
       <div style="margin-bottom: 8px; border-bottom: 1px dotted #ccc; padding-bottom: 4px;">
         <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold;">
@@ -310,7 +432,6 @@ export const POS: React.FC = () => {
         ${item.discount ? `<div style="font-size: 10px; color: #666; text-align: right;">Disc: -${formatZAR(item.discount)}</div>` : ''}
       </div>
     `).join('');
-
     printWindow.document.write(`
       <html>
         <head>
@@ -357,6 +478,7 @@ export const POS: React.FC = () => {
 
   const handleCheckout = async () => {
     if (cart.length === 0 || !selectedMethod || isProcessing) return;
+    if (!activeShift) { alert("No active shift. Cannot trade."); return; }
     if (selectedMethod === PaymentMethod.CASH && cashReceivedVal < finalTotal) {
       alert("Amount received is less than the total due. Please enter correct cash amount.");
       return;
@@ -411,21 +533,39 @@ export const POS: React.FC = () => {
   );
 
   return (
-    // Height adjusted to 100vh - 90px to provide more vertical space for the basket
-    <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-90px)]">
+    <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-90px)] relative">
+      
+      {/* SHIFT OVERLAY BLOCKER */}
+      {!activeShift && !isShiftModalOpen && (
+         <div className="absolute inset-0 z-40 bg-slate-100/50 backdrop-blur-sm flex flex-col items-center justify-center rounded-[2rem]">
+            <Lock size={48} className="text-slate-400 mb-4" />
+            <h3 className="text-xl font-black text-slate-700 uppercase tracking-tight">Terminal Locked</h3>
+            <p className="text-sm font-bold text-slate-400 mb-6">No active shift session detected.</p>
+            <button 
+              onClick={() => setIsShiftModalOpen(true)}
+              className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl hover:scale-105 transition-transform"
+            >
+              Start New Shift
+            </button>
+         </div>
+      )}
+
       {/* Left: Product Selection */}
       <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm text-left">
         
         {/* Header Container */}
         <div className="p-4 border-b border-slate-100 bg-white sticky top-0 z-20 space-y-4">
           
-          {/* Row 1: Store Controls */}
+          {/* Row 1: Store Controls & Shift Status */}
           <div className="flex items-center justify-between">
              <div className="flex items-center gap-2">
                  <div className="p-2.5 bg-slate-900 text-white rounded-xl shadow-md"><Store size={18} /></div>
                  <select 
                    value={selectedBusinessId} 
-                   onChange={e => setSelectedBusinessId(e.target.value)} 
+                   onChange={e => {
+                     setSelectedBusinessId(e.target.value);
+                     checkShiftStatus(e.target.value);
+                   }} 
                    className="bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold py-3 pl-3 pr-8 rounded-xl outline-none cursor-pointer focus:ring-2 focus:ring-teal-500/20 transition-all w-64 hover:bg-slate-100"
                  >
                    {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -438,6 +578,18 @@ export const POS: React.FC = () => {
                    <RefreshCw size={16} />
                  </button>
              </div>
+
+             {activeShift && (
+               <div className="flex items-center gap-2">
+                  <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center gap-2">
+                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                     <div className="flex flex-col">
+                        <span className="text-[9px] font-black text-emerald-700 uppercase leading-none">Shift Active</span>
+                        <span className="text-[8px] font-bold text-emerald-500">{activeShift.userName}</span>
+                     </div>
+                  </div>
+               </div>
+             )}
           </div>
           
           {/* Row 2: Search Fields */}
@@ -593,13 +745,31 @@ export const POS: React.FC = () => {
              </div>
           </div>
           
-          <button 
-            onClick={loadDailyStats}
-            className="w-full mt-2 py-2 bg-slate-50 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"
-          >
-            {isProcessing ? <Loader2 size={12} className="animate-spin" /> : <List size={12} />}
-            View Daily Summary
-          </button>
+          <div className="grid grid-cols-2 gap-2 mt-2">
+             <button 
+               onClick={() => setIsDrawerModalOpen(true)}
+               disabled={!activeShift}
+               className="py-2 bg-slate-900 border border-slate-900 text-white rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
+             >
+               <Coins size={12} /> Manage Drawer
+             </button>
+             <button 
+               onClick={loadDailyStats}
+               className="py-2 bg-slate-50 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"
+             >
+               {isProcessing ? <Loader2 size={12} className="animate-spin" /> : <List size={12} />}
+               Summary
+             </button>
+          </div>
+          
+          {activeShift && (
+             <button 
+               onClick={handleCloseShiftPreCheck}
+               className="w-full mt-2 py-2 bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all"
+             >
+               <LogOut size={12} /> Close Shift
+             </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto bg-slate-50/30">
@@ -707,7 +877,7 @@ export const POS: React.FC = () => {
           </div>
           
           <button 
-            disabled={cart.length === 0 || isSuspended || isProcessing} 
+            disabled={cart.length === 0 || isSuspended || isProcessing || !activeShift} 
             onClick={() => {
               setReceivedAmount('');
               setSelectedMethod(null);
@@ -720,6 +890,11 @@ export const POS: React.FC = () => {
                 <AlertCircle size={18} />
                 <span>Registry Locked</span>
               </>
+            ) : !activeShift ? (
+              <>
+                <Lock size={18} />
+                <span>Shift Required</span>
+              </>
             ) : (
               <>
                 Checkout Transaction <ChevronRight size={18} />
@@ -728,6 +903,136 @@ export const POS: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* SHIFT MODAL (Start/Close) */}
+      {isShiftModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md" />
+          <div className="bg-white rounded-[2.5rem] w-full max-w-sm p-10 relative shadow-2xl space-y-6 text-center animate-in zoom-in duration-300">
+             {!shiftSummary ? (
+               <>
+                 <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+                   <Unlock size={32} />
+                 </div>
+                 <div>
+                   <h3 className="text-2xl font-black text-slate-900 tracking-tight">Start Shift</h3>
+                   <p className="text-xs font-bold text-slate-400 mt-1">Enter opening cash float to begin trading.</p>
+                 </div>
+                 <form onSubmit={handleStartShift} className="space-y-4">
+                    <input 
+                      type="number" 
+                      autoFocus
+                      required 
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-2xl font-black text-slate-800 outline-none focus:ring-4 focus:ring-teal-500/20 transition-all"
+                      value={shiftFormData.float}
+                      onChange={e => setShiftFormData({...shiftFormData, float: e.target.value})}
+                    />
+                    <button 
+                      disabled={shiftLoading}
+                      type="submit" 
+                      className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                    >
+                      {shiftLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Open Register'}
+                    </button>
+                 </form>
+               </>
+             ) : (
+               <>
+                 <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner">
+                   <LogOut size={32} />
+                 </div>
+                 <div>
+                   <h3 className="text-2xl font-black text-slate-900 tracking-tight">Close Shift</h3>
+                   <p className="text-xs font-bold text-slate-400 mt-1">Count and verify physical cash in drawer.</p>
+                 </div>
+                 <form onSubmit={handleConfirmCloseShift} className="space-y-4 text-left">
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center">
+                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Expected</span>
+                       <span className="font-black text-lg text-slate-900">{formatZAR(shiftSummary.expected)}</span>
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Counted Cash</label>
+                       <input 
+                        type="number" 
+                        autoFocus
+                        required 
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold outline-none focus:border-rose-500 transition-all"
+                        value={shiftFormData.count}
+                        onChange={e => setShiftFormData({...shiftFormData, count: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Notes (Optional)</label>
+                       <textarea 
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-medium text-xs outline-none focus:border-rose-500 transition-all"
+                        rows={2}
+                        value={shiftFormData.notes}
+                        onChange={e => setShiftFormData({...shiftFormData, notes: e.target.value})}
+                      />
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                       <button type="button" onClick={() => { setIsShiftModalOpen(false); setShiftSummary(null); }} className="flex-1 py-3 text-xs font-bold text-slate-400 hover:text-slate-600">Cancel</button>
+                       <button 
+                        disabled={shiftLoading}
+                        type="submit" 
+                        className="flex-[2] py-3 bg-rose-600 text-white rounded-xl font-black uppercase text-xs tracking-widest shadow-xl hover:bg-rose-700 transition-all"
+                      >
+                        {shiftLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Close & Print'}
+                      </button>
+                    </div>
+                 </form>
+               </>
+             )}
+          </div>
+        </div>
+      )}
+
+      {/* DRAWER OPERATIONS MODAL */}
+      {isDrawerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsDrawerModalOpen(false)} />
+          <form onSubmit={handleDrawerOperation} className="bg-white rounded-[2.5rem] w-full max-w-sm p-8 relative shadow-2xl space-y-5 text-center">
+             <div className="flex justify-center gap-4 mb-4">
+                <button type="button" onClick={() => setDrawerFormData({...drawerFormData, type: 'DROP'})} className={`flex-1 py-3 rounded-xl border-2 font-black text-[10px] uppercase tracking-widest transition-all ${drawerFormData.type === 'DROP' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400'}`}>
+                   Bank Drop
+                </button>
+                <button type="button" onClick={() => setDrawerFormData({...drawerFormData, type: 'PAYOUT'})} className={`flex-1 py-3 rounded-xl border-2 font-black text-[10px] uppercase tracking-widest transition-all ${drawerFormData.type === 'PAYOUT' ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-slate-100 text-slate-400'}`}>
+                   Payout
+                </button>
+             </div>
+             
+             <input 
+                type="number" 
+                required 
+                min="0.01"
+                step="0.01"
+                placeholder="Amount (R)"
+                className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-2xl font-black text-slate-800 outline-none"
+                value={drawerFormData.amount}
+                onChange={e => setDrawerFormData({...drawerFormData, amount: e.target.value})}
+             />
+
+             <input 
+                required 
+                placeholder={drawerFormData.type === 'DROP' ? "e.g. Mid-day safe drop" : "e.g. Window cleaner"}
+                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none"
+                value={drawerFormData.reason}
+                onChange={e => setDrawerFormData({...drawerFormData, reason: e.target.value})}
+             />
+
+             <button disabled={shiftLoading} type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl mt-2">
+                {shiftLoading ? <Loader2 className="animate-spin mx-auto"/> : 'Record Transaction'}
+             </button>
+             <button type="button" onClick={() => setIsDrawerModalOpen(false)} className="text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-slate-600 mt-2">Cancel</button>
+          </form>
+        </div>
+      )}
 
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

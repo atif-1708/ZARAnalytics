@@ -177,3 +177,33 @@ export interface Notification {
   actionLabel?: string;
   businessId?: string;
 }
+
+export type CashMovementType = 'DROP' | 'PAYOUT' | 'FLOAT_ADD';
+
+export interface CashShift {
+  id: string;
+  businessId: string;
+  userId: string;
+  userName: string;
+  openedAt: string;
+  closedAt?: string;
+  openingFloat: number;
+  closingCashCounted?: number;
+  expectedCash?: number;
+  variance?: number;
+  status: 'OPEN' | 'CLOSED';
+  notes?: string;
+  orgId: string;
+}
+
+export interface CashMovement {
+  id: string;
+  shiftId: string;
+  businessId: string;
+  type: CashMovementType;
+  amount: number;
+  reason: string;
+  createdAt: string;
+  userId: string;
+  orgId: string;
+}

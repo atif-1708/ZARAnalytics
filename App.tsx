@@ -22,6 +22,7 @@ import { MovementLedger } from './pages/MovementLedger';
 import { Transactions } from './pages/Transactions';
 import { Suppliers } from './pages/Suppliers';
 import { StockReception } from './pages/StockReception';
+import { Cashflow } from './pages/Cashflow';
 import { UserRole } from './types';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode, roles?: UserRole[] }> = ({ children, roles }) => {
@@ -57,6 +58,12 @@ const App: React.FC = () => {
           <Route path="/pos" element={
             <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF]}>
               <POS />
+            </ProtectedRoute>
+          } />
+
+          <Route path="/cashflow" element={
+            <ProtectedRoute roles={[UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF]}>
+              <Cashflow />
             </ProtectedRoute>
           } />
 
