@@ -235,21 +235,38 @@ export const Dashboard: React.FC = () => {
       })
       .sort((a, b) => b.profit - a.profit);
 
-    // GRAPH DATA (Current Month)
+    // GRAPH DATA
+    // Determine graph context: Use selected month if active, otherwise current month
+    let graphYear = currentYear;
+    let graphMonth = currentMonthIndex;
+
+    if (filters.timeframe === 'select_month' && filters.selectedMonth) {
+       const [y, m] = filters.selectedMonth.split('-').map(Number);
+       graphYear = y;
+       graphMonth = m - 1; // JS months are 0-indexed
+    }
+
     const chartData = [];
-    const daysInMonth = new Date(currentYear, currentMonthIndex + 1, 0).getDate();
-    const currentMonthSalesMap = new Map();
+    const daysInMonth = new Date(graphYear, graphMonth + 1, 0).getDate();
+    // Use a Map to sum sales for each business per day (fixes overwrite issue)
+    const monthlySalesMap = new Map<string, number>();
     
     sales.forEach(s => {
+      // Use createdAt for precision
       const sDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
-      if (sDate.getFullYear() === currentYear && sDate.getMonth() === currentMonthIndex) {
+      
+      // Filter for the graph's target month
+      if (sDate.getFullYear() === graphYear && sDate.getMonth() === graphMonth) {
         const dateKey = `${sDate.getFullYear()}-${String(sDate.getMonth() + 1).padStart(2, '0')}-${String(sDate.getDate()).padStart(2, '0')}`;
-        currentMonthSalesMap.set(`${dateKey}_${s.businessId}`, s);
+        const key = `${dateKey}_${s.businessId}`;
+        
+        const currentSum = monthlySalesMap.get(key) || 0;
+        monthlySalesMap.set(key, currentSum + Number(s.salesAmount));
       }
     });
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${currentYear}-${String(currentMonthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dateStr = `${graphYear}-${String(graphMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dayEntry: any = { dayLabel: day.toString(), fullDate: dateStr };
       
       businesses.forEach(biz => {
@@ -257,8 +274,8 @@ export const Dashboard: React.FC = () => {
         if (!userHasAccess) return;
         if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
         
-        const sale = currentMonthSalesMap.get(`${dateStr}_${biz.id}`);
-        dayEntry[`biz_${biz.id}`] = sale ? convert(Number(sale.salesAmount)) : 0;
+        const total = monthlySalesMap.get(`${dateStr}_${biz.id}`) || 0;
+        dayEntry[`biz_${biz.id}`] = convert(total);
       });
       chartData.push(dayEntry);
     }
@@ -383,7 +400,7 @@ export const Dashboard: React.FC = () => {
                 <XAxis dataKey="dayLabel" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} dy={10} />
                 <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val} />
                 <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: '12px' }} labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '8px' }} itemStyle={{ fontSize: '11px', fontWeight: 700 }} />
-                <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '30px', fontSize: '10px', textTransform: 'uppercase', fontWeight: '900' }} iconType="circle" />
+                <Legend verticalAlign="top" align="right" wrapperStyle={{ paddingBottom: '30px', fontSize: '10px', textTransform: 'uppercase', fontWeight: 900 }} iconType="circle" />
                 {businesses.map((biz, idx) => {
                   if (!(isAdminVisibility || user?.assignedBusinessIds?.includes(biz.id))) return null;
                   if (filters.businessId !== 'all' && biz.id !== filters.businessId) return null;
