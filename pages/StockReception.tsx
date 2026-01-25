@@ -149,11 +149,15 @@ export const StockReception: React.FC = () => {
       const searchLower = logSearch.toLowerCase();
       const poDate = po.date.split('T')[0]; // Compare using YYYY-MM-DD
       
-      // Text Search: Invoice Number OR Product Description
+      // Text Search: Invoice Number, Supplier Name, Product SKU OR Product Description
       const matchesSearch = 
         !logSearch || 
         po.invoiceNumber.toLowerCase().includes(searchLower) || 
-        po.items?.some(item => item.description.toLowerCase().includes(searchLower));
+        (po.supplierName && po.supplierName.toLowerCase().includes(searchLower)) ||
+        po.items?.some(item => 
+          item.description.toLowerCase().includes(searchLower) || 
+          item.sku.toLowerCase().includes(searchLower)
+        );
         
       // Supplier Filter
       const matchesSupplier = !logSupplierId || po.supplierId === logSupplierId;
@@ -577,7 +581,7 @@ NOTIFY pgrst, 'reload config';`;
               <div className="relative flex-1 w-full">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                  <input 
-                   placeholder="Search Invoice # or Product..." 
+                   placeholder="Search Invoice #, SKU, or Product..." 
                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium"
                    value={logSearch}
                    onChange={e => setLogSearch(e.target.value)}
