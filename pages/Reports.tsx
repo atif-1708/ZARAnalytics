@@ -190,7 +190,11 @@ export const Reports: React.FC = () => {
         const inRange = itemDate >= start && itemDate <= end;
         const userHasAccess = isAdminVisibility || user?.assignedBusinessIds?.includes(item.businessId);
         const matchesBiz = filters.businessId === 'all' || item.businessId === filters.businessId;
-        return inRange && userHasAccess && matchesBiz;
+        
+        // Exclude stock purchases from P&L expenses logic
+        const isOperatingExpense = item.category !== 'stock';
+        
+        return inRange && userHasAccess && matchesBiz && isOperatingExpense;
       });
 
       const rawSales = fSales.reduce((acc, curr) => acc + Number(curr.salesAmount), 0);
@@ -466,7 +470,7 @@ export const Reports: React.FC = () => {
                 <div className="p-3 bg-rose-50 text-rose-600 rounded-xl w-fit"><ArrowDownCircle size={20} /></div>
                 <TrendBadge trend={reportData.trends.expenses} />
               </div>
-              <p className="text-sm font-medium text-slate-500">Total Expenses</p>
+              <p className="text-sm font-medium text-slate-500">Operating Expenses</p>
               <h3 className="text-xl font-bold text-rose-600">{formatCurrency(reportData.totalExpenses, currency)}</h3>
             </div>
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-left">
@@ -671,7 +675,7 @@ export const Reports: React.FC = () => {
                              <th className="px-6 py-4 text-right">Profit</th>
                           </tr>
                        </thead>
-                       <tbody className="divide-y divide-slate-50">
+                       <tbody className="divide-y divide-slate-100">
                           {productMetrics.sortedList.length === 0 ? (
                              <tr><td colSpan={6} className="py-20 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No item sales recorded</td></tr>
                           ) : (
