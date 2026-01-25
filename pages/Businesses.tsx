@@ -1,10 +1,11 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2, Zap, ArrowUpCircle, Lock } from 'lucide-react';
+import { Plus, Trash2, Edit3, Store, MapPin, AlertCircle, Loader2, Building2, Zap, ArrowUpCircle, Lock, Wallet } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Business, UserRole, Organization, SubscriptionTier } from '../types';
+import { formatZAR } from '../utils/formatters';
 
 const TIER_LIMITS: Record<SubscriptionTier, number> = {
   starter: 1,
@@ -28,10 +29,16 @@ export const Businesses: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const [formData, setFormData] = useState({ 
+  const [formData, setFormData] = useState<{
+    name: string;
+    location: string;
+    orgId: string;
+    initialCapital: number;
+  }>({ 
     name: '', 
     location: '', 
-    orgId: '' 
+    orgId: '',
+    initialCapital: 0
   });
 
   const loadData = async () => {
@@ -99,7 +106,8 @@ export const Businesses: React.FC = () => {
         ...(editingBusiness || {}), 
         name: formData.name, 
         location: formData.location, 
-        orgId: finalOrgId 
+        orgId: finalOrgId,
+        initialCapital: Number(formData.initialCapital) || 0
       };
 
       await storage.saveBusiness(payload);
@@ -107,7 +115,11 @@ export const Businesses: React.FC = () => {
       setIsModalOpen(false);
       setEditingBusiness(null);
     } catch (err: any) {
-      setError(err.message || "Failed to save business unit.");
+      if (err.message?.includes('initial_capital') || err.message?.includes('column')) {
+        setError("Database Schema Mismatch: Please run the SQL update script found on the 'Cashflow' page to enable Initial Capital tracking.");
+      } else {
+        setError(err.message || "Failed to save business unit.");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -124,7 +136,8 @@ export const Businesses: React.FC = () => {
     setFormData({ 
       name: '', 
       location: '', 
-      orgId: selectedOrgId || '' 
+      orgId: selectedOrgId || '',
+      initialCapital: 0
     });
     setIsModalOpen(true);
   };
@@ -136,7 +149,8 @@ export const Businesses: React.FC = () => {
     setFormData({ 
       name: business.name, 
       location: business.location, 
-      orgId: business.orgId || '' 
+      orgId: business.orgId || '',
+      initialCapital: business.initialCapital || 0
     });
     setIsModalOpen(true);
   };
@@ -228,6 +242,13 @@ export const Businesses: React.FC = () => {
                   <span>{business.location}</span>
                 </div>
                 
+                {(business.initialCapital || 0) > 0 && (
+                  <div className="mb-4 bg-slate-50 p-2 rounded-xl flex items-center gap-2 text-slate-500 text-[10px] font-bold uppercase tracking-widest border border-slate-100">
+                    <Wallet size={12} className="text-emerald-500" />
+                    Capital: {formatZAR(business.initialCapital || 0)}
+                  </div>
+                )}
+                
                 {isSuperAdmin && (
                   <div className="mt-4 pt-4 border-t border-slate-50 flex items-center gap-2">
                     <Building2 size={12} className="text-slate-300" />
@@ -297,6 +318,24 @@ export const Businesses: React.FC = () => {
                     onChange={e=>setFormData({...formData, location: e.target.value})} 
                     placeholder="e.g. Cape Town, WC"
                   />
+                </div>
+
+                <div className="text-left">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1 block">Initial Capital Investment (ZAR)</label>
+                  <div className="relative">
+                    <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={isSaving}
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all font-bold" 
+                      value={formData.initialCapital} 
+                      onChange={e=>setFormData({...formData, initialCapital: parseFloat(e.target.value) || 0})} 
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-bold mt-1 ml-1">Starting cash float/equity. Used for total business valuation.</p>
                 </div>
 
                 {isSuperAdmin && !selectedOrgId && (

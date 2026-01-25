@@ -187,7 +187,13 @@ export const POS: React.FC = () => {
         drawerFormData.reason
       );
       
-      alert(`${drawerFormData.type} Recorded Successfully.`);
+      // If it was a Payout, inform the user about the auto-expense linking
+      if (drawerFormData.type === 'PAYOUT') {
+          alert(`${drawerFormData.type} Recorded.\n\nNote: This has also been automatically added to your Expenses ledger.`);
+      } else {
+          alert(`${drawerFormData.type} Recorded Successfully.`);
+      }
+      
       setIsDrawerModalOpen(false);
       setDrawerFormData({ type: 'DROP', amount: '', reason: '' });
     } catch (e: any) {

@@ -256,7 +256,7 @@ export const StockReception: React.FC = () => {
         status: 'received',
         items: basket
       });
-      setSuccessMsg("Invoice processed successfully!");
+      setSuccessMsg("Stock updated & purchase expense recorded!");
       setBasket([]);
       setHeader(prev => ({ ...prev, invoiceNumber: '' }));
       const updatedProducts = await storage.getProducts(header.businessId);

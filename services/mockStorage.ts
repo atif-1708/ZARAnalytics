@@ -285,6 +285,7 @@ export const storage = {
     const { orgId: contextOrgId, userName } = await getFilter();
     const finalOrgId = po.orgId || contextOrgId;
     
+    // 1. Save PO
     const poPayload = mapToDb({ ...po, org_id: finalOrgId });
     const { data: savedPO, error: poError } = await supabase.from('purchase_orders').insert(poPayload).select().single();
     
@@ -293,6 +294,7 @@ export const storage = {
       throw new Error(poError.message);
     }
 
+    // 2. Process Items (Stock Updates & Movement Log)
     if (po.items && po.items.length > 0) {
       for (const item of po.items) {
         try {
@@ -320,6 +322,23 @@ export const storage = {
           console.error(`Failed to process stock item ${item.sku}:`, e);
         }
       }
+    }
+
+    // 3. AUTO-LINK: Create Expense Entry for Stock Purchase
+    // This ensures "Cashflow" (Liquidity) decreases when stock assets increase.
+    if (po.totalAmount && po.totalAmount > 0) {
+        try {
+            const expensePayload = mapToDb({
+                businessId: po.businessId,
+                month: po.date ? new Date(po.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                amount: po.totalAmount,
+                description: `Stock Purchase: ${po.supplierName} (Inv #${po.invoiceNumber})`,
+                orgId: finalOrgId
+            });
+            await supabase.from('expenses').insert(expensePayload);
+        } catch (e) {
+            console.error("Auto-expense for stock failed:", e);
+        }
     }
     
     return mapFromDb(savedPO);
@@ -583,7 +602,7 @@ export const storage = {
     const profilePayload = { 
       id: authData.user.id, 
       name: userData.name, 
-      role: userData.role,
+      role: userData.role, 
       assigned_business_ids: userData.assignedBusinessIds || [],
       org_id: userData.orgId || contextOrgId 
     };
@@ -674,6 +693,23 @@ export const storage = {
     });
     const { error } = await supabase.from('cash_movements').insert(payload);
     if (error) throw new Error(error.message);
+
+    // AUTO-LINK: Create Expense if Payout
+    if (type === 'PAYOUT') {
+        const expensePayload = mapToDb({
+            businessId,
+            month: new Date().toISOString().split('T')[0], // Expense date
+            amount,
+            description: `${reason} (Till Payout)`, // Add context
+            orgId
+        });
+        // We attempt to insert into expenses. If it fails (e.g. table lock), we just log error but don't fail the movement.
+        try {
+            await supabase.from('expenses').insert(expensePayload);
+        } catch (e) {
+            console.error("Auto-Link Expense Failed:", e);
+        }
+    }
   },
 
   getShiftMovements: async (shiftId: string): Promise<CashMovement[]> => {

@@ -40,6 +40,7 @@ export interface Business {
   location: string;
   createdAt: string;
   orgId?: string;
+  initialCapital?: number;
 }
 
 export interface Product {
