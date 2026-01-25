@@ -69,6 +69,7 @@ export interface Supplier {
 export interface PurchaseOrderItem {
   productId: string;
   sku: string;
+  barcode?: string;
   description: string;
   quantity: number;
   unitCost: number;

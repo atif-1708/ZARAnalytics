@@ -149,14 +149,15 @@ export const StockReception: React.FC = () => {
       const searchLower = logSearch.toLowerCase();
       const poDate = po.date.split('T')[0]; // Compare using YYYY-MM-DD
       
-      // Text Search: Invoice Number, Supplier Name, Product SKU OR Product Description
+      // Text Search: Invoice Number, Supplier Name, Product SKU, Barcode OR Description
       const matchesSearch = 
         !logSearch || 
         po.invoiceNumber.toLowerCase().includes(searchLower) || 
         (po.supplierName && po.supplierName.toLowerCase().includes(searchLower)) ||
         po.items?.some(item => 
           item.description.toLowerCase().includes(searchLower) || 
-          item.sku.toLowerCase().includes(searchLower)
+          item.sku.toLowerCase().includes(searchLower) ||
+          (item.barcode && item.barcode.toLowerCase().includes(searchLower))
         );
         
       // Supplier Filter
@@ -186,6 +187,7 @@ export const StockReception: React.FC = () => {
       return [...prev, {
         productId: p.id,
         sku: p.sku,
+        barcode: p.barcode,
         description: p.description,
         quantity: 1,
         unitCost: p.costPrice,
@@ -581,7 +583,7 @@ NOTIFY pgrst, 'reload config';`;
               <div className="relative flex-1 w-full">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                  <input 
-                   placeholder="Search Invoice #, SKU, or Product..." 
+                   placeholder="Search Invoice #, SKU, Barcode, or Product..." 
                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium"
                    value={logSearch}
                    onChange={e => setLogSearch(e.target.value)}
@@ -741,7 +743,10 @@ NOTIFY pgrst, 'reload config';`;
                           <tr key={idx}>
                              <td className="px-4 py-3 font-medium text-slate-700">
                                 {item.description}
-                                <div className="text-[10px] text-slate-400 font-mono">{item.sku}</div>
+                                <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                                   <span>{item.sku}</span>
+                                   {item.barcode && <span className="flex items-center gap-1"><Barcode size={10}/> {item.barcode}</span>}
+                                </div>
                              </td>
                              <td className="px-4 py-3 text-center font-bold text-slate-600">{item.quantity}</td>
                              <td className="px-4 py-3 text-right text-slate-500">{formatZAR(item.unitCost)}</td>
