@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileText, TrendingUp, Briefcase, Loader2, 
   ArrowDownCircle, DollarSign, Download, Store,
-  ArrowUpRight, ArrowDownRight, Package, Trophy, BarChart2, ShoppingBag, Info
+  ArrowUpRight, ArrowDownRight, Package, Trophy, BarChart2, ShoppingBag, Info, Printer
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell 
@@ -13,6 +13,7 @@ import { FilterPanel } from '../components/FilterPanel';
 import { Filters, Business, DailySale, MonthlyExpense, UserRole, SaleItem, Product } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/formatters';
+import { PdfService } from '../services/pdf';
 
 const TrendBadge: React.FC<{ trend?: { value: number; isUp: boolean } }> = ({ trend }) => {
   if (!trend) return null;
@@ -303,8 +304,49 @@ export const Reports: React.FC = () => {
   }, [sales, dateLimits, filters, user, isAdminVisibility, currency, exchangeRate, products]);
 
   const handleExportProductPerformance = () => {
-    const headers = ['Rank', 'Item Name', 'SKU', 'Current Stock', 'Qty Sold', `Revenue (${currency})`, `Profit (${currency})`];
+    const doc = PdfService.createDoc('Product Performance Report', `Period: ${dateLimits.startDate.toLocaleDateString()} - ${dateLimits.endDate.toLocaleDateString()}`, user?.name);
     
+    const tableData = productMetrics.sortedList.map((p, idx) => [
+      (idx + 1).toString(),
+      p.name,
+      p.sku,
+      p.currentStock.toString(),
+      p.quantity.toString(),
+      formatCurrency(convert(p.revenue), currency),
+      formatCurrency(convert(p.profit), currency)
+    ]);
+
+    PdfService.generateTable(doc, ['Rank', 'Item', 'SKU', 'Stock', 'Sold', `Rev (${currency})`, `Profit (${currency})`], tableData);
+    PdfService.save(doc, 'product_performance');
+  };
+
+  const handleExportFinancials = () => {
+    const doc = PdfService.createDoc('Financial Summary Report', `Period: ${dateLimits.startDate.toLocaleDateString()} - ${dateLimits.endDate.toLocaleDateString()}`, user?.name);
+    
+    // Add Summary Section manually before table
+    doc.setFontSize(10);
+    doc.text(`Total Revenue: ${formatCurrency(reportData.totalSales, currency)}`, 14, 55);
+    doc.text(`Total Profit: ${formatCurrency(reportData.totalProfit, currency)}`, 14, 60);
+    doc.text(`Net Position: ${formatCurrency(reportData.netProfit, currency)}`, 14, 65);
+
+    const tableData = reportData.aggregatedSales.map((s: any) => {
+      const b = businesses.find(bx => bx.id === s.businessId);
+      const margin = s.salesAmount > 0 ? ((s.profitAmount / s.salesAmount) * 100).toFixed(1) + '%' : '0%';
+      return [
+        s.date,
+        b ? `${b.name} (${b.location})` : 'Unknown',
+        margin,
+        formatCurrency(convert(s.salesAmount), currency),
+        formatCurrency(convert(s.profitAmount), currency)
+      ];
+    });
+
+    PdfService.generateTable(doc, ['Date', 'Business Unit', 'Margin', `Revenue (${currency})`, `Profit (${currency})`], tableData, 75);
+    PdfService.save(doc, 'financial_summary');
+  };
+
+  const handleExportCSV = () => {
+    const headers = ['Rank', 'Item Name', 'SKU', 'Current Stock', 'Qty Sold', `Revenue (${currency})`, `Profit (${currency})`];
     const rows = productMetrics.sortedList.map((p, idx) => [
       idx + 1,
       `"${p.name.replace(/"/g, '""')}"`,
@@ -314,14 +356,12 @@ export const Reports: React.FC = () => {
       convert(p.revenue).toFixed(2),
       convert(p.profit).toFixed(2)
     ]);
-
     const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `product_performance_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `product_performance.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -370,13 +410,15 @@ export const Reports: React.FC = () => {
                Product Performance
              </button>
            </div>
-           <button 
-             onClick={() => window.print()}
-             className="no-print hidden md:flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all text-xs font-bold uppercase tracking-widest"
-           >
-             <Download size={14} />
-             Export
-           </button>
+           
+           {activeTab === 'financials' && (
+             <button 
+               onClick={handleExportFinancials}
+               className="no-print hidden md:flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all text-xs font-bold uppercase tracking-widest shadow-lg"
+             >
+               <FileText size={14} /> PDF Report
+             </button>
+           )}
         </div>
       </div>
 
@@ -592,13 +634,22 @@ export const Reports: React.FC = () => {
                         <ShoppingBag size={18} className="text-slate-400" />
                         <h3 className="font-bold text-slate-800">Itemized Performance Ledger</h3>
                     </div>
-                    <button 
-                      onClick={handleExportProductPerformance}
-                      disabled={productMetrics.sortedList.length === 0}
-                      className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-teal-600 bg-white border border-slate-200 hover:border-teal-200 px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Download size={14} /> Export CSV
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={handleExportProductPerformance}
+                        disabled={productMetrics.sortedList.length === 0}
+                        className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white bg-slate-900 px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 shadow-lg"
+                      >
+                        <Printer size={14} /> Print PDF
+                      </button>
+                      <button 
+                        onClick={handleExportCSV}
+                        disabled={productMetrics.sortedList.length === 0}
+                        className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-teal-600 bg-white border border-slate-200 hover:border-teal-200 px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download size={14} /> CSV
+                      </button>
+                    </div>
                  </div>
                  <div className="flex-1 overflow-auto max-h-[500px]">
                     <table className="w-full text-left">

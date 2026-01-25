@@ -24,13 +24,15 @@ import {
   ArrowLeftRight,
   Database,
   Percent,
-  Receipt
+  Receipt,
+  Printer
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { DailySale, Business, UserRole, PaymentMethod } from '../types';
 import { formatDate, formatZAR } from '../utils/formatters';
 import { MISSING_SCHEMA_SQL } from './Inventory';
+import { PdfService } from '../services/pdf';
 
 export const Transactions: React.FC = () => {
   const { user } = useAuth();
@@ -216,13 +218,45 @@ export const Transactions: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleExportPdf = () => {
+    const doc = PdfService.createDoc('Sales Register', `Generated: ${new Date().toLocaleDateString()}`, user?.name);
+    
+    // Add Filter Summary
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    const dateText = dateFilter ? `Date: ${dateFilter}` : 'Date: All';
+    const bizText = selectedBusinessId !== 'all' ? `Business: ${businesses.find(b => b.id === selectedBusinessId)?.name}` : 'Business: All';
+    doc.text(`${bizText} | ${dateText}`, 14, 55);
+
+    const data = filteredTransactions.map(s => {
+      const biz = businesses.find(b => b.id === s.businessId);
+      const effectiveDate = getEffectiveDate(s);
+      return [
+        s.id.substring(0, 8),
+        `${effectiveDate.toLocaleDateString()} ${effectiveDate.toLocaleTimeString()}`,
+        biz ? biz.name : 'Unknown',
+        s.paymentMethod || '-',
+        s.isRefunded || s.salesAmount < 0 ? 'REFUND' : 'SALE',
+        formatZAR(s.salesAmount)
+      ];
+    });
+
+    PdfService.generateTable(doc, ['ID', 'Date/Time', 'Unit', 'Method', 'Type', 'Amount'], data, 65);
+    PdfService.save(doc, 'sales_register');
+  };
+
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
 
   return (
     <div className="space-y-6">
-      <div className="text-left">
-        <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Granular Transaction Log</h2>
-        <p className="text-slate-500">Itemized audit of every digital checkout processed via POS</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div className="text-left">
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Granular Transaction Log</h2>
+          <p className="text-slate-500">Itemized audit of every digital checkout processed via POS</p>
+        </div>
+        <button onClick={handleExportPdf} className="flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition-all text-xs uppercase tracking-widest">
+           <Printer size={16} /> Export Register
+        </button>
       </div>
 
       {showSchemaAlert && (

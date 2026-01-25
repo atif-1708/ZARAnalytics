@@ -33,12 +33,14 @@ import {
   PieChart,
   CircleDollarSign,
   TrendingUp,
-  Box
+  Box,
+  Printer
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
 import { Product, Business, UserRole, StockMovement } from '../types';
 import { formatZAR, formatDate } from '../utils/formatters';
+import { PdfService } from '../services/pdf';
 
 export const MISSING_SCHEMA_SQL = `-- 1. ADD MISSING BARCODE COLUMN
 ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode text;
@@ -296,6 +298,34 @@ export const Inventory: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleExportPdf = () => {
+    const biz = businesses.find(b => b.id === selectedBusinessId);
+    const doc = PdfService.createDoc('Inventory Valuation Report', `Business Unit: ${biz?.name || 'All'} | Items: ${filteredProducts.length}`, user?.name);
+    
+    // Add Totals Summary
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Total Asset Value (Cost): ${formatZAR(valuationStats.totalCostValue)}`, 14, 55);
+    doc.text(`Total Retail Value: ${formatZAR(valuationStats.totalRetailValue)}`, 14, 60);
+    doc.text(`Potential Profit: ${formatZAR(valuationStats.potentialProfit)}`, 14, 65);
+
+    const data = filteredProducts.map(p => {
+      const stock = Math.max(0, p.currentStock || 0);
+      return [
+        p.sku,
+        p.description,
+        stock.toString(),
+        formatZAR(p.costPrice),
+        formatZAR(stock * p.costPrice),
+        formatZAR(p.salePrice),
+        formatZAR(stock * p.salePrice)
+      ];
+    });
+
+    PdfService.generateTable(doc, ['SKU', 'Description', 'Stock', 'Unit Cost', 'Total Cost', 'Retail Price', 'Total Retail'], data, 75);
+    PdfService.save(doc, 'inventory_valuation');
+  };
+
   if (isLoading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-teal-600" size={40} /></div>;
 
   return (
@@ -311,7 +341,7 @@ export const Inventory: React.FC = () => {
              <button onClick={() => setActiveTab('list')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'list' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Product List</button>
              <button onClick={() => setActiveTab('valuation')} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'valuation' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Valuation</button>
            </div>
-           {activeTab === 'list' && (
+           {activeTab === 'list' ? (
              <>
                 <button 
                   onClick={() => setIsImportModalOpen(true)} 
@@ -323,6 +353,10 @@ export const Inventory: React.FC = () => {
                   <PlusCircle size={16} /> New SKU
                 </button>
              </>
+           ) : (
+             <button onClick={handleExportPdf} className="flex items-center justify-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition-all text-xs uppercase tracking-widest">
+               <Printer size={16} /> Export PDF
+             </button>
            )}
         </div>
       </div>
