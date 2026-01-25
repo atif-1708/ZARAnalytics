@@ -14,14 +14,14 @@ import {
   Barcode, 
   Hash, 
   CheckCircle, 
-  AlertCircle,
-  ScanBarcode,
-  X,
-  Database,
-  History,
-  Eye,
-  Filter,
-  Clock
+  AlertCircle, 
+  ScanBarcode, 
+  X, 
+  Database, 
+  History, 
+  Eye, 
+  Filter, 
+  Clock 
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -144,10 +144,13 @@ export const StockReception: React.FC = () => {
   const filteredHistory = useMemo(() => {
     return purchaseHistory.filter(po => {
       const searchLower = logSearch.toLowerCase();
+      
+      // Check Invoice Number, Supplier Name, OR any Product Description in the items list
       const matchesSearch = 
         !logSearch || 
         po.invoiceNumber.toLowerCase().includes(searchLower) || 
-        po.supplierName.toLowerCase().includes(searchLower);
+        po.supplierName.toLowerCase().includes(searchLower) ||
+        po.items?.some(item => item.description.toLowerCase().includes(searchLower));
         
       const matchesDate = !logDate || po.date.startsWith(logDate);
       
@@ -566,7 +569,7 @@ NOTIFY pgrst, 'reload config';`;
               <div className="relative flex-1 w-full">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                  <input 
-                   placeholder="Search Invoice # or Supplier..." 
+                   placeholder="Search Invoice #, Supplier or Product..." 
                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium"
                    value={logSearch}
                    onChange={e => setLogSearch(e.target.value)}
