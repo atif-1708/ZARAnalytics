@@ -22,7 +22,11 @@ import {
   BarChart3,
   Clock,
   Filter,
-  ArrowRight
+  ArrowRight,
+  Download,
+  Building2,
+  PieChart,
+  Receipt
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -32,12 +36,14 @@ import {
   CartesianGrid, 
   Tooltip, 
   ResponsiveContainer,
-  Cell
+  Cell,
+  AreaChart,
+  Area
 } from 'recharts';
 import { storage } from '../services/mockStorage';
 import { Supplier, UserRole, PurchaseOrder } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { formatZAR, formatDate, getLocalISOString } from '../utils/formatters';
+import { formatZAR, formatDate } from '../utils/formatters';
 
 export const Suppliers: React.FC = () => {
   const { user } = useAuth();
@@ -47,16 +53,22 @@ export const Suppliers: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Dashboard Filters
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-  const endOfDay = now.toISOString().split('T')[0];
-
-  const [dateRange, setDateRange] = useState({
-    start: startOfMonth,
-    end: endOfDay
+  // Dashboard Filters - Defaults to "This Month" (Local Time)
+  const [dateRange, setDateRange] = useState(() => {
+    const now = new Date();
+    // Calculate 1st day of current month in local time
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startStr = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+    
+    // Calculate today in local time
+    const endStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    
+    return { start: startStr, end: endStr };
   });
   
+  // New: Supplier Dropdown Filter
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('all');
+
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
@@ -102,34 +114,40 @@ export const Suppliers: React.FC = () => {
   useEffect(() => { loadData(); }, [user]);
 
   const dashboardStats = useMemo(() => {
-    // 1. Filter POs by Date Range
-    const filteredPOs = purchaseOrders.filter(po => {
+    // 1. First Filter: By Date
+    let filteredPOs = purchaseOrders.filter(po => {
       const poDate = po.date.split('T')[0];
       return poDate >= dateRange.start && poDate <= dateRange.end;
     });
 
+    // 2. Second Filter: By Specific Supplier (if selected)
+    if (selectedSupplierId !== 'all') {
+      filteredPOs = filteredPOs.filter(po => po.supplierId === selectedSupplierId);
+    }
+
     const totalSpend = filteredPOs.reduce((sum, po) => sum + Number(po.totalAmount), 0);
     const totalPos = filteredPOs.length;
+    const avgOrderValue = totalPos > 0 ? totalSpend / totalPos : 0;
     
-    // 2. Spend by Supplier (Ranked High to Low)
+    // 3. Spend by Supplier (Ranked High to Low) - For Leaderboard
+    // Note: If a specific supplier is selected, this map will only contain 1 entry, effectively handling the "drill down"
     const supplierSpendMap = new Map<string, number>();
-    const activeSupplierIds = new Set<string>();
-
+    
+    // We iterate over the *Filtered* POs to build the chart/metrics
     filteredPOs.forEach(po => {
       const current = supplierSpendMap.get(po.supplierId) || 0;
       supplierSpendMap.set(po.supplierId, current + Number(po.totalAmount));
-      activeSupplierIds.add(po.supplierId);
     });
 
+    // For the leaderboard, if 'all' is selected, we want to show everyone in the date range.
     const rankedSuppliers = Array.from(supplierSpendMap.entries())
       .map(([id, amount]) => {
         const s = suppliers.find(sup => sup.id === id);
         return { id, name: s?.name || 'Unknown', amount, contact: s?.contactPerson };
       })
-      .sort((a, b) => b.amount - a.amount); // Top to Low
+      .sort((a, b) => b.amount - a.amount);
 
-    // 3. Chart Data (Daily Aggregation within range)
-    // If range > 32 days, aggregate by Month, else by Day
+    // 4. Chart Data (Daily Aggregation within range)
     const start = new Date(dateRange.start);
     const end = new Date(dateRange.end);
     const diffTime = Math.abs(end.getTime() - start.getTime());
@@ -146,7 +164,6 @@ export const Suppliers: React.FC = () => {
           monthMap.set(monthKey, curr + Number(po.totalAmount));
        });
        
-       // Fill gaps logic omitted for brevity in this specific snippet, simple sort map
        Array.from(monthMap.entries()).sort().forEach(([key, val]) => {
           const dateObj = new Date(key + '-01');
           chartData.push({
@@ -163,7 +180,6 @@ export const Suppliers: React.FC = () => {
           dayMap.set(dayKey, curr + Number(po.totalAmount));
        });
 
-       // Fill in empty days for smoother chart
        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const iso = d.toISOString().split('T')[0];
           const label = d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
@@ -175,21 +191,44 @@ export const Suppliers: React.FC = () => {
        }
     }
 
-    // 4. Recent Arrivals (Filtered)
+    // 5. Recent Arrivals Table
     const recentArrivals = [...filteredPOs]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 10);
+      .slice(0, 20);
 
     return { 
       totalSpend, 
       totalPos, 
-      activeCount: activeSupplierIds.size,
+      avgOrderValue,
       rankedSuppliers, 
       recentArrivals,
       chartData,
-      isMonthlyView
+      isMonthlyView,
+      csvData: filteredPOs // For export
     };
-  }, [suppliers, purchaseOrders, dateRange]);
+  }, [suppliers, purchaseOrders, dateRange, selectedSupplierId]);
+
+  const handleExport = () => {
+    const headers = ['Date', 'Invoice Ref', 'Supplier', 'Item Count', 'Total Amount'];
+    const rows = dashboardStats.csvData.map(po => [
+      po.date.split('T')[0],
+      po.invoiceNumber,
+      po.supplierName,
+      po.items?.length || 0,
+      po.totalAmount
+    ]);
+    
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `procurement_report_${dateRange.start}_to_${dateRange.end}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -250,7 +289,6 @@ export const Suppliers: React.FC = () => {
   );
 
   const MISSING_TABLE_SQL = `
--- 1. Suppliers Table
 CREATE TABLE IF NOT EXISTS suppliers (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   name text NOT NULL,
@@ -261,8 +299,6 @@ CREATE TABLE IF NOT EXISTS suppliers (
   org_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
   created_at timestamptz DEFAULT now()
 );
-
--- 2. Purchase Orders Table
 CREATE TABLE IF NOT EXISTS purchase_orders (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   supplier_id uuid REFERENCES suppliers(id),
@@ -276,19 +312,13 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   org_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
   created_at timestamptz DEFAULT now()
 );
-
--- 3. Security Policies
 ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE purchase_orders ENABLE ROW LEVEL SECURITY;
-
 DROP POLICY IF EXISTS "Allow all authenticated" ON suppliers;
 CREATE POLICY "Allow all authenticated" ON suppliers FOR ALL TO authenticated USING (true);
-
 DROP POLICY IF EXISTS "Allow all authenticated" ON purchase_orders;
 CREATE POLICY "Allow all authenticated" ON purchase_orders FOR ALL TO authenticated USING (true);
-
-NOTIFY pgrst, 'reload config';
-`;
+NOTIFY pgrst, 'reload config';`;
 
   const copySql = () => {
     navigator.clipboard.writeText(MISSING_TABLE_SQL);
@@ -303,8 +333,8 @@ NOTIFY pgrst, 'reload config';
       {/* Header & Tabs */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="text-left">
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Vendor Management</h2>
-          <p className="text-slate-500">Analyze procurement costs and manage supplier relationships</p>
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">Vendor Intelligence</h2>
+          <p className="text-slate-500">Procurement analytics, invoice history, and supplier directory</p>
         </div>
         
         <div className="flex items-center gap-4">
@@ -313,7 +343,7 @@ NOTIFY pgrst, 'reload config';
                onClick={() => setActiveTab('overview')}
                className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
              >
-               Dashboard
+               Analytics
              </button>
              <button 
                onClick={() => setActiveTab('directory')}
@@ -328,7 +358,7 @@ NOTIFY pgrst, 'reload config';
                onClick={openAdd}
                className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 bg-slate-900 text-white shadow-lg hover:bg-slate-800"
              >
-               <Plus size={14} /> New Vendor
+               <Plus size={14} /> Add Vendor
              </button>
            )}
         </div>
@@ -340,18 +370,16 @@ NOTIFY pgrst, 'reload config';
              <Database size={32} />
            </div>
            <div className="flex-1 space-y-2">
-              <h4 className="text-lg font-black text-amber-800 uppercase tracking-tight">Database Setup Required</h4>
+              <h4 className="text-lg font-black text-amber-800 uppercase tracking-tight">Setup Required</h4>
               <p className="text-sm text-amber-700 font-medium leading-relaxed">
                 The 'suppliers' table is missing. Run this SQL script in your Supabase SQL Editor to enable the Vendor Management module.
               </p>
            </div>
            <div className="flex flex-col gap-2">
              <button onClick={copySql} className="bg-white text-amber-600 border border-amber-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-50 transition-colors">
-                {copied ? 'Copied' : 'Copy SQL Script'}
+                {copied ? 'Copied' : 'Copy Script'}
              </button>
-             <button onClick={() => setSchemaError(false)} className="text-amber-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
-               Dismiss
-             </button>
+             <button onClick={() => setSchemaError(false)} className="text-amber-400 text-[10px] font-bold uppercase tracking-widest hover:underline">Dismiss</button>
            </div>
         </div>
       )}
@@ -360,13 +388,29 @@ NOTIFY pgrst, 'reload config';
       {activeTab === 'overview' && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
            
-           {/* Date Range Filter Bar */}
-           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-4">
+           {/* Date Range & Supplier Filter Bar */}
+           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col xl:flex-row items-center gap-4">
+              <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100 w-full xl:w-auto">
+                 <Truck size={16} className="text-slate-400" />
+                 <select 
+                   value={selectedSupplierId}
+                   onChange={(e) => setSelectedSupplierId(e.target.value)}
+                   className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full xl:w-48 cursor-pointer"
+                 >
+                    <option value="all">All Suppliers</option>
+                    {suppliers.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                 </select>
+              </div>
+
+              <div className="w-px h-6 bg-slate-200 hidden xl:block" />
+
               <div className="flex items-center gap-2 text-slate-500 text-sm font-bold">
                  <Filter size={16} />
-                 <span>Analysis Period:</span>
+                 <span>Period:</span>
               </div>
-              <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex-1 w-full md:w-auto">
+              <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex-1 w-full xl:w-auto">
                  <input 
                    type="date" 
                    value={dateRange.start}
@@ -381,9 +425,13 @@ NOTIFY pgrst, 'reload config';
                    className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full text-right"
                  />
               </div>
-              <div className="text-[10px] font-black uppercase text-slate-400 tracking-widest px-2">
-                 {dashboardStats.totalPos} Invoices Found
-              </div>
+              
+              <button 
+                onClick={handleExport}
+                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 ml-auto"
+              >
+                <Download size={14} /> Report
+              </button>
            </div>
 
            {/* Row 1: High Level KPIs */}
@@ -393,33 +441,31 @@ NOTIFY pgrst, 'reload config';
                     <Wallet size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Spend (Selected)</p>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Spend</p>
                     <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.totalSpend)}</h3>
                  </div>
               </div>
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
                  <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center">
-                    <FileText size={32} />
+                    <Receipt size={32} />
                  </div>
                  <div className="text-left">
                     <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Invoices Processed</p>
-                    <div className="flex items-center gap-2">
-                       <h3 className="text-2xl font-black text-slate-900">{dashboardStats.totalPos}</h3>
-                    </div>
+                    <h3 className="text-2xl font-black text-slate-900">{dashboardStats.totalPos}</h3>
                  </div>
               </div>
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-6">
-                 <div className="w-16 h-16 bg-slate-50 text-slate-600 rounded-3xl flex items-center justify-center">
-                    <Truck size={32} />
+                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center">
+                    <PieChart size={32} />
                  </div>
                  <div className="text-left">
-                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Active Vendors</p>
-                    <h3 className="text-2xl font-black text-slate-900">{dashboardStats.activeCount}</h3>
+                    <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Avg. Order Value</p>
+                    <h3 className="text-2xl font-black text-slate-900">{formatZAR(dashboardStats.avgOrderValue)}</h3>
                  </div>
               </div>
            </div>
 
-           {/* Row 2: Charts & Top List */}
+           {/* Row 2: Charts & Analysis */}
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left: Procurement Chart */}
               <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 flex flex-col">
@@ -427,56 +473,88 @@ NOTIFY pgrst, 'reload config';
                     <div className="flex items-center gap-3">
                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><TrendingUp size={20} /></div>
                        <div>
-                          <h3 className="text-lg font-black text-slate-800">Spend Analysis</h3>
+                          <h3 className="text-lg font-black text-slate-800">Procurement Trend</h3>
                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                             {dashboardStats.isMonthlyView ? 'Monthly Aggregation' : 'Daily Trend'}
+                             {dashboardStats.isMonthlyView ? 'Monthly Aggregation' : 'Daily Volume'}
                           </p>
                        </div>
                     </div>
                  </div>
                  <div className="flex-1 min-h-[300px]">
                     <ResponsiveContainer width="100%" height="100%">
-                       <BarChart data={dashboardStats.chartData}>
+                       <AreaChart data={dashboardStats.chartData}>
+                          <defs>
+                            <linearGradient id="colorSpend" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                           <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} dy={10} />
                           <YAxis fontSize={10} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontWeight: 700 }} tickFormatter={(val) => val >= 1000 ? `${(val/1000).toFixed(0)}k` : val} />
-                          <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', padding: '12px' }} labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '4px' }} itemStyle={{ fontSize: '12px', fontWeight: 600, color: '#4f46e5' }} formatter={(value: number) => [formatZAR(value), 'Spend']} />
-                          <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                             {dashboardStats.chartData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.value > 0 ? '#6366f1' : '#e2e8f0'} />
-                             ))}
-                          </Bar>
-                       </BarChart>
+                          <Tooltip cursor={{ stroke: '#6366f1', strokeWidth: 1 }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', padding: '12px' }} labelStyle={{ fontWeight: 900, color: '#0f172a', marginBottom: '4px' }} itemStyle={{ fontSize: '12px', fontWeight: 600, color: '#4f46e5' }} formatter={(value: number) => [formatZAR(value), 'Spend']} />
+                          <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorSpend)" />
+                       </AreaChart>
                     </ResponsiveContainer>
                  </div>
               </div>
 
-              {/* Right: Top Suppliers Leaderboard */}
+              {/* Right: Dynamic Context (Rankings OR Supplier Detail) */}
               <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 flex flex-col">
-                 <h3 className="text-lg font-black text-slate-800 mb-6 text-left">Top Partners (High to Low)</h3>
-                 <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-                    {dashboardStats.rankedSuppliers.length === 0 ? (
-                       <div className="text-center py-10 text-slate-400 italic text-xs uppercase tracking-widest">No data for period</div>
-                    ) : (
-                       dashboardStats.rankedSuppliers.slice(0, 8).map((s, idx) => (
-                          <div key={s.id} className="relative">
-                             <div className="flex justify-between items-center text-xs font-bold text-slate-700 mb-1.5">
-                                <div className="flex items-center gap-2">
-                                   <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center text-[9px] font-black">{idx + 1}</span>
-                                   <span className="truncate max-w-[120px]">{s.name}</span>
-                                </div>
-                                <span className="font-black text-slate-900">{formatZAR(s.amount)}</span>
-                             </div>
-                             <div className="w-full bg-slate-50 rounded-full h-2 overflow-hidden">
-                                <div 
-                                  className="h-full bg-teal-500 rounded-full" 
-                                  style={{ width: `${(s.amount / (dashboardStats.totalSpend || 1)) * 100}%` }} 
-                                />
-                             </div>
+                 {selectedSupplierId === 'all' ? (
+                   <>
+                     <h3 className="text-lg font-black text-slate-800 mb-6 text-left">Top Partners (Vol)</h3>
+                     <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+                        {dashboardStats.rankedSuppliers.length === 0 ? (
+                           <div className="text-center py-10 text-slate-400 italic text-xs uppercase tracking-widest">No data for period</div>
+                        ) : (
+                           dashboardStats.rankedSuppliers.slice(0, 8).map((s, idx) => (
+                              <div key={s.id} className="relative">
+                                 <div className="flex justify-between items-center text-xs font-bold text-slate-700 mb-1.5">
+                                    <div className="flex items-center gap-2">
+                                       <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-500 flex items-center justify-center text-[9px] font-black">{idx + 1}</span>
+                                       <span className="truncate max-w-[120px]">{s.name}</span>
+                                    </div>
+                                    <span className="font-black text-slate-900">{formatZAR(s.amount)}</span>
+                                 </div>
+                                 <div className="w-full bg-slate-50 rounded-full h-2 overflow-hidden">
+                                    <div 
+                                      className="h-full bg-teal-500 rounded-full" 
+                                      style={{ width: `${(s.amount / (dashboardStats.totalSpend || 1)) * 100}%` }} 
+                                    />
+                                 </div>
+                              </div>
+                           ))
+                        )}
+                     </div>
+                   </>
+                 ) : (
+                   <>
+                     <div className="flex items-center gap-3 mb-6">
+                       <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center"><Building2 size={24}/></div>
+                       <div className="text-left overflow-hidden">
+                         <h3 className="text-lg font-black text-slate-800 truncate">{dashboardStats.rankedSuppliers[0]?.name || 'Supplier'}</h3>
+                         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Vendor Profile</p>
+                       </div>
+                     </div>
+                     <div className="space-y-4 text-left">
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Spend this Period</p>
+                           <p className="text-xl font-black text-slate-900">{formatZAR(dashboardStats.totalSpend)}</p>
+                        </div>
+                        <div className="p-4 bg-slate-50 rounded-2xl">
+                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Invoices</p>
+                           <p className="text-xl font-black text-slate-900">{dashboardStats.totalPos}</p>
+                        </div>
+                        {dashboardStats.rankedSuppliers[0]?.contact && (
+                          <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-2">
+                             <Users size={14} className="text-teal-500"/>
+                             Contact: {dashboardStats.rankedSuppliers[0].contact}
                           </div>
-                       ))
-                    )}
-                 </div>
+                        )}
+                     </div>
+                   </>
+                 )}
               </div>
            </div>
 
@@ -484,7 +562,7 @@ NOTIFY pgrst, 'reload config';
            <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-slate-100 bg-slate-50/50 text-left flex items-center gap-3">
                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><PackageCheck size={20} /></div>
-                 <h3 className="text-lg font-black text-slate-800">Recent Stock Arrivals (Filtered Range)</h3>
+                 <h3 className="text-lg font-black text-slate-800">Invoices Processed (Log)</h3>
               </div>
               <div className="overflow-x-auto">
                  <table className="w-full text-left">
