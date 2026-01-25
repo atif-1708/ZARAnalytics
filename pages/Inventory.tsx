@@ -300,7 +300,8 @@ export const Inventory: React.FC = () => {
 
   const handleExportPdf = () => {
     const biz = businesses.find(b => b.id === selectedBusinessId);
-    const doc = PdfService.createDoc('Inventory Valuation Report', `Business Unit: ${biz?.name || 'All'} | Items: ${filteredProducts.length}`, user?.name);
+    const businessName = biz?.name || 'ZARlytics';
+    const doc = PdfService.createDoc('Inventory Valuation Report', `Business Unit: ${biz?.name || 'All'} | Items: ${filteredProducts.length}`, user?.name, businessName);
     
     // Add Totals Summary
     doc.setFontSize(10);

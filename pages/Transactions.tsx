@@ -219,7 +219,11 @@ export const Transactions: React.FC = () => {
   };
 
   const handleExportPdf = () => {
-    const doc = PdfService.createDoc('Sales Register', `Generated: ${new Date().toLocaleDateString()}`, user?.name);
+    const businessName = selectedBusinessId === 'all'
+      ? 'Consolidated Register'
+      : (businesses.find(b => b.id === selectedBusinessId)?.name || 'ZARlytics');
+
+    const doc = PdfService.createDoc('Sales Register', `Generated: ${new Date().toLocaleDateString()}`, user?.name, businessName);
     
     // Add Filter Summary
     doc.setFontSize(9);

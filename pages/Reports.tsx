@@ -304,7 +304,11 @@ export const Reports: React.FC = () => {
   }, [sales, dateLimits, filters, user, isAdminVisibility, currency, exchangeRate, products]);
 
   const handleExportProductPerformance = () => {
-    const doc = PdfService.createDoc('Product Performance Report', `Period: ${dateLimits.startDate.toLocaleDateString()} - ${dateLimits.endDate.toLocaleDateString()}`, user?.name);
+    const businessName = filters.businessId === 'all' 
+      ? 'Consolidated Report' 
+      : (businesses.find(b => b.id === filters.businessId)?.name || 'ZARlytics');
+
+    const doc = PdfService.createDoc('Product Performance Report', `Period: ${dateLimits.startDate.toLocaleDateString()} - ${dateLimits.endDate.toLocaleDateString()}`, user?.name, businessName);
     
     const tableData = productMetrics.sortedList.map((p, idx) => [
       (idx + 1).toString(),
@@ -321,7 +325,11 @@ export const Reports: React.FC = () => {
   };
 
   const handleExportFinancials = () => {
-    const doc = PdfService.createDoc('Financial Summary Report', `Period: ${dateLimits.startDate.toLocaleDateString()} - ${dateLimits.endDate.toLocaleDateString()}`, user?.name);
+    const businessName = filters.businessId === 'all' 
+      ? 'Consolidated Report' 
+      : (businesses.find(b => b.id === filters.businessId)?.name || 'ZARlytics');
+
+    const doc = PdfService.createDoc('Financial Summary Report', `Period: ${dateLimits.startDate.toLocaleDateString()} - ${dateLimits.endDate.toLocaleDateString()}`, user?.name, businessName);
     
     // Add Summary Section manually before table
     doc.setFontSize(10);

@@ -3,7 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export const PdfService = {
-  createDoc: (title: string, subtitle?: string, user?: string) => {
+  createDoc: (title: string, subtitle?: string, user?: string, branding: string = 'ZARlytics') => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
 
@@ -15,7 +15,7 @@ export const PdfService = {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text('ZARlytics', 14, 13);
+    doc.text(branding, 14, 13);
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
