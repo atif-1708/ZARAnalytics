@@ -7,18 +7,14 @@ import {
   Loader2, 
   Store, 
   Truck, 
-  Calendar, 
   FileText, 
-  Save, 
   PackageCheck, 
   Barcode, 
   Hash, 
   CheckCircle, 
-  AlertCircle, 
   ScanBarcode, 
   X, 
   Database, 
-  History, 
   Eye, 
   Filter, 
   Clock,
@@ -147,9 +143,8 @@ export const StockReception: React.FC = () => {
   const filteredHistory = useMemo(() => {
     return purchaseHistory.filter(po => {
       const searchLower = logSearch.toLowerCase();
-      const poDate = po.date.split('T')[0]; // Compare using YYYY-MM-DD
+      const poDate = po.date.split('T')[0];
       
-      // Text Search: Invoice Number, Supplier Name, Product SKU, Barcode OR Description
       const matchesSearch = 
         !logSearch || 
         po.invoiceNumber.toLowerCase().includes(searchLower) || 
@@ -160,14 +155,10 @@ export const StockReception: React.FC = () => {
           (item.barcode && item.barcode.toLowerCase().includes(searchLower))
         );
         
-      // Supplier Filter
       const matchesSupplier = !logSupplierId || po.supplierId === logSupplierId;
-
-      // Date Range Filter
       const matchesStart = !logStartDate || poDate >= logStartDate;
       const matchesEnd = !logEndDate || poDate <= logEndDate;
       
-      // Filter by user assignment
       const userHasAccess = 
         user?.role === UserRole.SUPER_ADMIN || 
         user?.role === UserRole.ORG_ADMIN || 
@@ -244,7 +235,7 @@ export const StockReception: React.FC = () => {
       alert("Please fill in all invoice details and add items.");
       return;
     }
-    if (!window.confirm(`Process Stock Arrival?\n\nInvoice Total: ${formatZAR(invoiceTotal)}\nItems: ${basket.length}\n\nThis will update stock levels.`)) return;
+    if (!window.confirm(`Process Stock Arrival?\n\nInvoice Total: ${formatZAR(invoiceTotal)}\nItems: ${basket.length}\n\nThis will update stock levels and record the purchase expense.`)) return;
 
     setIsProcessing(true);
     try {
@@ -750,4 +741,20 @@ NOTIFY pgrst, 'reload config';`;
                              </td>
                              <td className="px-4 py-3 text-center font-bold text-slate-600">{item.quantity}</td>
                              <td className="px-4 py-3 text-right text-slate-500">{formatZAR(item.unitCost)}</td>
-                             <td className="px-4 py-3 text-right font-bold text-slate-800">{formatZAR(item.totalCost)}
+                             <td className="px-4 py-3 text-right font-bold text-slate-800">{formatZAR(item.totalCost)}</td>
+                          </tr>
+                       ))}
+                    </tbody>
+                 </table>
+              </div>
+
+              <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+                 <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Invoice Value</span>
+                 <span className="text-2xl font-black text-teal-600">{formatZAR(viewingOrder.totalAmount)}</span>
+              </div>
+           </div>
+        </div>
+      )}
+    </div>
+  );
+};
