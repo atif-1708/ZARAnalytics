@@ -28,11 +28,12 @@ import {
   Clock, 
   AlertCircle,
   ScanBarcode,
-  FileText
+  FileText,
+  Printer
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
-import { Product, Business, SaleItem, PaymentMethod, UserRole } from '../types';
+import { Product, Business, SaleItem, PaymentMethod, UserRole, DailySale } from '../types';
 import { formatZAR, getLocalISOString } from '../utils/formatters';
 
 export const POS: React.FC = () => {
@@ -59,8 +60,8 @@ export const POS: React.FC = () => {
   // Checkout & Calculator State
   const [receivedAmount, setReceivedAmount] = useState<string>('');
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod | null>(null);
-  
   const [todayTotals, setTodayTotals] = useState({ cash: 0, bank: 0 });
+  const [lastCompletedSale, setLastCompletedSale] = useState<DailySale | null>(null);
 
   // Live Clock Effect
   useEffect(() => {
@@ -78,11 +79,8 @@ export const POS: React.FC = () => {
     if (!bizId) return;
     try {
       const allSales = await storage.getSales();
-      
       const todayKey = getLocalDayKey(new Date());
-      
       const bizSalesToday = allSales.filter(s => {
-        // Use createdAt if available as it is more reliable than potentially truncated user date
         const saleDate = s.createdAt ? new Date(s.createdAt) : new Date(s.date);
         const saleKey = getLocalDayKey(saleDate);
         return s.businessId === bizId && saleKey === todayKey;
@@ -111,7 +109,6 @@ export const POS: React.FC = () => {
         user?.assignedBusinessIds?.includes(b.id)
       );
       setBusinesses(filteredBiz);
-      
       if (filteredBiz.length > 0 && !selectedBusinessId) {
         setSelectedBusinessId(filteredBiz[0].id);
       }
@@ -123,7 +120,6 @@ export const POS: React.FC = () => {
   const loadProducts = async (isManual = false) => {
     if (!selectedBusinessId) return;
     if (isManual) setIsRefreshing(true);
-    
     try {
       const pData = await storage.getProducts(selectedBusinessId);
       setProducts(pData);
@@ -143,7 +139,6 @@ export const POS: React.FC = () => {
       const matchSku = !searchFields.sku || p.sku.toLowerCase().includes(searchFields.sku.toLowerCase());
       const matchBarcode = !searchFields.barcode || (p.barcode && p.barcode.toLowerCase().includes(searchFields.barcode.toLowerCase()));
       const matchDesc = !searchFields.description || (p.description && p.description.toLowerCase().includes(searchFields.description.toLowerCase()));
-      
       return matchSku && matchBarcode && matchDesc;
     });
   }, [products, searchFields]);
@@ -167,7 +162,6 @@ export const POS: React.FC = () => {
         discount: 0
       }];
     });
-    // Optional: Clear barcode search after scan for continuous scanning workflow
     if (searchFields.barcode) {
       setSearchFields(prev => ({ ...prev, barcode: '' }));
     }
@@ -205,10 +199,68 @@ export const POS: React.FC = () => {
   const cashReceivedVal = parseFloat(receivedAmount) || 0;
   const changeDue = Math.max(0, cashReceivedVal - finalTotal);
 
+  const printReceipt = (sale: DailySale) => {
+    const biz = businesses.find(b => b.id === sale.businessId);
+    const date = sale.createdAt ? new Date(sale.createdAt) : new Date(sale.date);
+    
+    const printWindow = window.open('', '', 'width=400,height=600');
+    if (!printWindow) return;
+
+    const itemsHtml = (sale.items || []).map(item => `
+      <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+        <span>${item.quantity} x ${item.description || item.sku}</span>
+        <span>${formatZAR(item.priceAtSale * item.quantity)}</span>
+      </div>
+      ${item.discount ? `<div style="font-size: 10px; color: #666; text-align: right;">Disc: -${formatZAR(item.discount)}</div>` : ''}
+    `).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <style>
+            body { font-family: 'Courier New', monospace; padding: 20px; width: 300px; margin: 0 auto; }
+            .header { text-align: center; margin-bottom: 20px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+            .title { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
+            .meta { font-size: 10px; color: #333; }
+            .items { margin-bottom: 15px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
+            .totals { text-align: right; font-size: 12px; margin-bottom: 20px; }
+            .total-row { display: flex; justify-content: space-between; font-weight: bold; font-size: 14px; margin-top: 5px; }
+            .footer { text-align: center; font-size: 10px; margin-top: 30px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">${biz?.name || 'ZARlytics Store'}</div>
+            <div class="meta">${biz?.location || ''}</div>
+            <div class="meta">Date: ${date.toLocaleString()}</div>
+            <div class="meta">Ref: ${sale.id.substring(0, 8)}</div>
+          </div>
+          <div class="items">
+            ${itemsHtml}
+          </div>
+          <div class="totals">
+            ${sale.profitAmount > 0 && sale.profitPercentage > 0 ? '' : ''} 
+            <div class="total-row">
+              <span>TOTAL</span>
+              <span>${formatZAR(sale.salesAmount)}</span>
+            </div>
+            <div style="font-size: 10px; margin-top: 5px;">Method: ${sale.paymentMethod}</div>
+          </div>
+          <div class="footer">
+            Thank you for your business!
+          </div>
+          <script>
+            window.print();
+            // Removed auto-close to prevent slip hiding before user is done
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const handleCheckout = async () => {
     if (cart.length === 0 || !selectedMethod || isProcessing) return;
-    
-    // For cash, validate received amount
     if (selectedMethod === PaymentMethod.CASH && cashReceivedVal < finalTotal) {
       alert("Amount received is less than the total due. Please enter correct cash amount.");
       return;
@@ -217,12 +269,9 @@ export const POS: React.FC = () => {
     setIsProcessing(true);
     try {
       const biz = businesses.find(b => b.id === selectedBusinessId);
-      
-      // Capture SYSTEM TIME in ISO format.
-      // This ensures time is recorded exactly as it is on the device/server in UTC.
       const timestamp = new Date().toISOString();
 
-      await storage.saveSale({
+      const saleData = await storage.saveSale({
         businessId: selectedBusinessId,
         date: timestamp, 
         salesAmount: finalTotal,
@@ -233,6 +282,7 @@ export const POS: React.FC = () => {
         orgId: biz?.orgId
       });
 
+      setLastCompletedSale(saleData);
       setSuccessMessage(`Sale Completed: ${formatZAR(finalTotal)}`);
       setCart([]);
       setReceivedAmount('');
@@ -242,7 +292,10 @@ export const POS: React.FC = () => {
       await loadProducts();
       await fetchTodayTotals(selectedBusinessId);
       
-      setTimeout(() => setSuccessMessage(null), 5000);
+      setTimeout(() => {
+        setSuccessMessage(null);
+        setLastCompletedSale(null);
+      }, 8000);
     } catch (e) {
       alert("Checkout failed: " + (e as Error).message);
     } finally {
@@ -290,10 +343,8 @@ export const POS: React.FC = () => {
              </div>
           </div>
           
-          {/* Row 2: Search Fields (Ordered: SKU -> Description -> Barcode) */}
+          {/* Row 2: Search Fields */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            
-            {/* 1. SKU */}
             <div className="relative group">
               <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-600 transition-colors" size={16} />
               <input 
@@ -304,8 +355,6 @@ export const POS: React.FC = () => {
                 onChange={e => setSearchFields(prev => ({ ...prev, sku: e.target.value }))} 
               />
             </div>
-
-            {/* 2. Description */}
             <div className="relative group">
               <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={16} />
               <input 
@@ -316,8 +365,6 @@ export const POS: React.FC = () => {
                 onChange={e => setSearchFields(prev => ({ ...prev, description: e.target.value }))} 
               />
             </div>
-
-            {/* 3. Barcode (Scan) - kept autoFocus here as it's the primary scan target */}
             <div className="relative group">
               <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={16} />
               <input 
@@ -329,7 +376,6 @@ export const POS: React.FC = () => {
                 onChange={e => setSearchFields(prev => ({ ...prev, barcode: e.target.value }))} 
               />
             </div>
-
           </div>
         </div>
 
@@ -405,7 +451,7 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: Digital Basket (High Density View) */}
+      {/* Right: Digital Basket */}
       <div className="w-full xl:w-[420px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left shrink-0">
         <div className="p-5 border-b border-slate-100">
           <div className="flex items-center justify-between mb-4">
@@ -418,7 +464,6 @@ export const POS: React.FC = () => {
             )}
           </div>
 
-          {/* Live Clock & Date */}
           <div className="mb-4 p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between shadow-sm">
             <div className="flex items-center gap-2 text-slate-500">
               <Calendar size={14} />
@@ -452,12 +497,21 @@ export const POS: React.FC = () => {
           </div>
         </div>
 
-        {/* High Density Item List */}
         <div className="flex-1 overflow-y-auto bg-slate-50/30">
           {successMessage && (
-            <div className="m-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-700 text-xs font-bold flex items-center gap-3 animate-in zoom-in slide-in-from-top-4">
-              <div className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-lg"><CheckCircle size={18} /></div>
-              <span>{successMessage}</span>
+            <div className="m-3 p-4 bg-emerald-50 border border-emerald-100 rounded-2xl text-emerald-700 text-xs font-bold flex flex-col gap-3 animate-in zoom-in slide-in-from-top-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-emerald-500 text-white rounded-full flex items-center justify-center shadow-lg"><CheckCircle size={18} /></div>
+                <span>{successMessage}</span>
+              </div>
+              {lastCompletedSale && (
+                <button 
+                  onClick={() => printReceipt(lastCompletedSale)} 
+                  className="w-full py-2 bg-white border border-emerald-200 rounded-xl text-emerald-700 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-emerald-100 transition-colors"
+                >
+                  <Printer size={14} /> Print Receipt
+                </button>
+              )}
             </div>
           )}
           
@@ -483,14 +537,12 @@ export const POS: React.FC = () => {
                   </div>
 
                   <div className="flex items-center justify-between gap-3">
-                    {/* Quantity Controls */}
                     <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">
                       <button onClick={() => updateQuantity(item.productId, -1)} className="p-1 text-slate-400 hover:text-rose-500"><Minus size={12} /></button>
                       <span className="w-6 text-center text-[11px] font-black text-slate-800">{item.quantity}</span>
                       <button onClick={() => updateQuantity(item.productId, 1)} className="p-1 text-slate-400 hover:text-teal-500"><Plus size={12} /></button>
                     </div>
 
-                    {/* Per-Item Discount Input */}
                     <div className="flex-1 max-w-[90px]">
                       <div className="relative group/input">
                         <Tag className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within/input:text-indigo-500 transition-colors" size={10} />
@@ -504,7 +556,6 @@ export const POS: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Pricing */}
                     <div className="text-right flex flex-col items-end min-w-[70px]">
                       {itemDiscount > 0 && (
                         <span className="text-[8px] font-bold text-slate-400 line-through decoration-slate-300 leading-tight">
@@ -531,7 +582,6 @@ export const POS: React.FC = () => {
           )}
         </div>
 
-        {/* Footer Summary */}
         <div className="p-5 bg-slate-900 border-t border-slate-800 space-y-4 shadow-2xl">
           <div className="space-y-1 px-1">
              <div className="flex justify-between items-center">
@@ -574,13 +624,11 @@ export const POS: React.FC = () => {
         </div>
       </div>
 
-      {/* Checkout Modal (Cash Desk Interface) */}
       {isCheckoutOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => !isProcessing && setIsCheckoutOpen(false)} />
           <div className="bg-white rounded-[3rem] w-full max-w-4xl p-10 relative shadow-2xl border border-slate-100 flex flex-col md:flex-row gap-10">
              
-             {/* Left: Summary & Method Selection */}
              <div className="md:w-1/3 space-y-6">
                 <div className="text-left space-y-1">
                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction Summary</p>
@@ -634,7 +682,6 @@ export const POS: React.FC = () => {
                 </div>
              </div>
 
-             {/* Right: Cashier Desk (Calculator) */}
              <div className="flex-1 flex flex-col pt-4">
                 {selectedMethod === PaymentMethod.CASH ? (
                   <div className="flex flex-col h-full animate-in slide-in-from-right-8 duration-300">
