@@ -1,7 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
-import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement, SaleItem } from '../types';
+import { Business, DailySale, MonthlyExpense, User, UserRole, Reminder, Organization, Product, StockMovement, SaleItem, Supplier, PurchaseOrder } from '../types';
 import { getLocalISOString } from '../utils/formatters';
 
 const mapToDb = (obj: any) => {
@@ -228,6 +228,109 @@ export const storage = {
     return true;
   },
 
+  // SUPPLIER METHODS
+  getSuppliers: async (): Promise<Supplier[]> => {
+    try {
+      const { orgId, role } = await getFilter();
+      let query = supabase.from('suppliers').select('*').order('name');
+      if (role !== UserRole.SUPER_ADMIN || orgId) query = query.eq('org_id', orgId);
+      
+      const { data, error } = await query;
+      if (error) {
+        if (error.code === '42P01') throw new Error("SCHEMA_MISSING");
+        throw error;
+      }
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err: any) {
+      if (err.message?.includes('SCHEMA_MISSING')) throw err;
+      console.error("Storage Error (Suppliers):", err);
+      return [];
+    }
+  },
+
+  saveSupplier: async (supplier: Partial<Supplier>) => {
+    const { orgId: contextOrgId } = await getFilter();
+    const finalOrgId = supplier.orgId || contextOrgId;
+    const payload = mapToDb({ ...supplier, org_id: finalOrgId });
+    const operation = payload.id ? supabase.from('suppliers').upsert(payload) : supabase.from('suppliers').insert(payload);
+    const { data, error } = await operation.select().single();
+    if (error) throw new Error(error.message);
+    return mapFromDb(data);
+  },
+
+  deleteSupplier: async (id: string) => {
+    const { error } = await supabase.from('suppliers').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
+  // PROCUREMENT (Stock Reception)
+  getPurchaseOrders: async (): Promise<PurchaseOrder[]> => {
+    try {
+      const { orgId, role } = await getFilter();
+      let query = supabase.from('purchase_orders').select('*').order('date', { ascending: false });
+      if (role !== UserRole.SUPER_ADMIN || orgId) query = query.eq('org_id', orgId);
+      
+      const { data, error } = await query;
+      if (error) {
+         if (error.code === '42P01') return []; // Gracefully handle missing table
+         throw error;
+      }
+      return (data || []).map(mapFromDb).filter(Boolean);
+    } catch (err) {
+      console.error("Storage Error (Purchase Orders):", err);
+      return [];
+    }
+  },
+
+  savePurchaseOrder: async (po: Partial<PurchaseOrder>) => {
+    const { orgId: contextOrgId, userName } = await getFilter();
+    const finalOrgId = po.orgId || contextOrgId;
+    
+    // 1. Save the Purchase Order
+    const poPayload = mapToDb({ ...po, org_id: finalOrgId });
+    const { data: savedPO, error: poError } = await supabase.from('purchase_orders').insert(poPayload).select().single();
+    
+    if (poError) {
+      if (poError.code === '42P01') throw new Error("SCHEMA_MISSING");
+      throw new Error(poError.message);
+    }
+
+    // 2. Process Items (Update Stock & Cost, Log Movement)
+    if (po.items && po.items.length > 0) {
+      for (const item of po.items) {
+        try {
+          // Fetch current stock
+          const { data: prod } = await supabase.from('products').select('current_stock').eq('id', item.productId).single();
+          const currentStock = prod?.current_stock || 0;
+          const newStock = currentStock + item.quantity;
+
+          // Update Product: New Stock + LAST PRICE update
+          await supabase.from('products').update({
+            current_stock: newStock,
+            cost_price: item.unitCost // Updates master cost price to the latest invoice price
+          }).eq('id', item.productId);
+
+          // Log Movement
+          const movementPayload = mapToDb({
+            productId: item.productId,
+            quantity: item.quantity,
+            type: 'arrival',
+            reason: `Invoice ${po.invoiceNumber} (${po.supplierName})`,
+            businessId: po.businessId,
+            orgId: finalOrgId,
+            userName: userName || 'Stock Reception'
+          });
+          await supabase.from('stock_movements').insert(movementPayload);
+
+        } catch (e) {
+          console.error(`Failed to process stock item ${item.sku}:`, e);
+        }
+      }
+    }
+    
+    return mapFromDb(savedPO);
+  },
+
   saveSale: async (sale: Partial<DailySale>) => {
     const { orgId: contextOrgId, userName } = await getFilter();
     const finalOrgId = sale.orgId || contextOrgId;
@@ -260,10 +363,6 @@ export const storage = {
     const payload = mapToDb({ ...sale, org_id: finalOrgId });
     if (payload.user_id) delete payload.user_id;
     
-    // TIME FIX: Use standard ISO String which includes 'Z'.
-    // This allows Postgres `timestamptz` to correctly identify it as UTC and convert it to server time properly.
-    // If the DB column is DATE, this will be truncated to YYYY-MM-DD.
-    // If the DB column is TEXT, this will save the full UTC string.
     if (!payload.date || payload.date.length <= 10) {
       payload.date = new Date().toISOString(); 
     }
@@ -301,8 +400,6 @@ export const storage = {
                 throw new Error(`Invalid Refund: ${item.sku} has ${remainingQty} left. You requested ${requestedRefundQty}.`);
             }
 
-            // DISCOUNT FIX: Calculate effective price paid per unit
-            // If item has a discount, subtract it from the total line price before calculating unit price
             const lineItemTotal = item.priceAtSale * item.quantity;
             const lineItemPaid = lineItemTotal - (item.discount || 0);
             const effectiveUnitPrice = item.quantity > 0 ? lineItemPaid / item.quantity : 0;

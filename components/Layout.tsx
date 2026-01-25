@@ -28,7 +28,9 @@ import {
   ShoppingCart,
   Package,
   History,
-  ClipboardList
+  ClipboardList,
+  Truck,
+  PackageCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole, Organization } from '../types';
@@ -102,8 +104,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const menuItems: any[] = [
     { to: '/dashboard', label: isGlobalKernelMode ? 'Global Control' : 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY] },
-    { to: '/pos', label: 'POS Terminal', icon: <ShoppingCart size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
-    { to: '/inventory', label: 'Inventory', icon: <Package size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
+    { to: '/pos', label: 'POS Terminal', icon: <ShoppingCart size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+    { to: '/inventory', label: 'Inventory', icon: <Package size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
+    { to: '/stock-reception', label: 'Stock Reception', icon: <PackageCheck size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true, hasNew: true },
+    { to: '/suppliers', label: 'Suppliers', icon: <Truck size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
     { to: '/movements', label: 'Movement Ledger', icon: <History size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF], hideInGlobalMode: true },
     { to: '/transactions', label: 'Transaction Log', icon: <ClipboardList size={20} />, roles: [UserRole.ADMIN, UserRole.ORG_ADMIN, UserRole.STAFF, UserRole.VIEW_ONLY], hideInGlobalMode: true },
     { to: '/organizations', label: 'Tenants & Billing', icon: <Building2 size={20} />, roles: [UserRole.SUPER_ADMIN], showOnlyInGlobalMode: true },
@@ -126,7 +130,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   ];
 
   const filteredItems = menuItems.filter(item => {
-    const hasRole = item.roles.includes(user?.role as UserRole) || (isSuperAdmin && item.roles.includes(UserRole.SUPER_ADMIN));
+    const hasRole = item.roles.includes(user?.role as UserRole);
     if (!hasRole) return false;
     if (isGlobalKernelMode) {
       if (item.hideInGlobalMode) return false;
@@ -213,7 +217,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
           <nav className="space-y-2">
             {filteredItems.map((item) => {
-              const { roles, hideInGlobalMode, WoodOnlyInGlobalMode, ...sidebarProps } = item;
+              const { roles, hideInGlobalMode, showOnlyInGlobalMode, ...sidebarProps } = item;
               return (
                 <SidebarItem 
                   key={item.to} 

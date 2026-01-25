@@ -55,6 +55,40 @@ export interface Product {
   createdAt: string;
 }
 
+export interface Supplier {
+  id: string;
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  taxId?: string;
+  orgId: string;
+  createdAt: string;
+}
+
+export interface PurchaseOrderItem {
+  productId: string;
+  sku: string;
+  description: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  invoiceNumber: string;
+  date: string;
+  totalAmount: number;
+  status: 'received';
+  items: PurchaseOrderItem[];
+  businessId: string;
+  orgId: string;
+  createdAt: string;
+}
+
 export interface StockMovement {
   id: string;
   productId: string;
