@@ -123,7 +123,13 @@ export const Transactions: React.FC = () => {
     return viewingSale.items.reduce((total, item, idx) => {
       if (selectedItems[idx]) {
         const qty = refundQuantities[idx] || (item.quantity - (item.refundedQuantity || 0));
-        return total + (item.priceAtSale * qty);
+        
+        // DISCOUNT LOGIC: Ensure refund is based on actual price paid
+        const lineItemTotal = item.priceAtSale * item.quantity;
+        const lineItemPaid = lineItemTotal - (item.discount || 0);
+        const effectivePrice = item.quantity > 0 ? lineItemPaid / item.quantity : 0;
+        
+        return total + (effectivePrice * qty);
       }
       return total;
     }, 0);
@@ -152,7 +158,7 @@ export const Transactions: React.FC = () => {
     }
 
     const totalRefund = calculateTotalRefund();
-    const confirmMsg = `Confirm Refund of ${formatZAR(totalRefund)}?\n\n- ${itemsToRefund.length} item(s) will be returned to stock.\n- Financials will be adjusted.`;
+    const confirmMsg = `Confirm Refund of ${formatZAR(totalRefund)}?\n\n- ${itemsToRefund.length} item(s) will be returned to stock.\n- Financials will be adjusted using the discounted price paid.`;
     
     if (!window.confirm(confirmMsg)) return;
 
@@ -438,13 +444,18 @@ export const Transactions: React.FC = () => {
                    <span>Item Description</span>
                    <div className="flex gap-8">
                       <span>Qty</span>
-                      <span className="w-16 text-right">Price</span>
+                      <span className="w-16 text-right">Paid</span>
                    </div>
                 </div>
                 {viewingSale.items?.map((item, idx) => {
                   const refundedCount = item.refundedQuantity || 0;
                   const remainingQty = item.quantity - refundedCount;
                   const isFullyRefunded = remainingQty <= 0;
+                  
+                  // DISCOUNT VISUALIZATION
+                  const itemTotal = item.priceAtSale * item.quantity;
+                  const itemDiscount = item.discount || 0;
+                  const itemPaid = itemTotal - itemDiscount;
 
                   return (
                     <div key={idx} className={`flex items-center py-2 group ${isFullyRefunded ? 'opacity-50' : ''}`}>
@@ -470,6 +481,11 @@ export const Transactions: React.FC = () => {
                             Returned: {refundedCount}/{item.quantity}
                           </span>
                         )}
+                        {itemDiscount > 0 && (
+                           <span className="text-[9px] font-black text-indigo-500 uppercase tracking-tight mt-0.5">
+                             Discount: -{formatZAR(itemDiscount)}
+                           </span>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-6 shrink-0">
@@ -493,7 +509,12 @@ export const Transactions: React.FC = () => {
                           <span className="text-sm font-bold text-slate-500 w-8 text-center">{item.quantity}</span>
                         )}
                         
-                        <span className="text-sm font-black text-teal-600 w-16 text-right">{formatZAR(item.priceAtSale * item.quantity)}</span>
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-sm font-black text-teal-600">{formatZAR(itemPaid)}</span>
+                           {itemDiscount > 0 && (
+                             <span className="text-[8px] font-bold text-slate-300 line-through">{formatZAR(itemTotal)}</span>
+                           )}
+                        </div>
                       </div>
                     </div>
                   );

@@ -301,7 +301,13 @@ export const storage = {
                 throw new Error(`Invalid Refund: ${item.sku} has ${remainingQty} left. You requested ${requestedRefundQty}.`);
             }
 
-            totalRefundAmount += item.priceAtSale * requestedRefundQty;
+            // DISCOUNT FIX: Calculate effective price paid per unit
+            // If item has a discount, subtract it from the total line price before calculating unit price
+            const lineItemTotal = item.priceAtSale * item.quantity;
+            const lineItemPaid = lineItemTotal - (item.discount || 0);
+            const effectiveUnitPrice = item.quantity > 0 ? lineItemPaid / item.quantity : 0;
+
+            totalRefundAmount += effectiveUnitPrice * requestedRefundQty;
             
             return { ...item, refundedQuantity: previouslyRefunded + requestedRefundQty };
         }

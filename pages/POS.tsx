@@ -262,75 +262,84 @@ export const POS: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)]">
+    <div className="flex flex-col xl:flex-row gap-6 h-[calc(100vh-140px)]">
       {/* Left: Product Selection */}
       <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm text-left">
-        <div className="p-6 border-b border-slate-100 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 bg-slate-50/50">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-             <div className="p-2 bg-slate-900 text-white rounded-xl shadow-lg"><Store size={20} /></div>
-             <select 
-               value={selectedBusinessId} 
-               onChange={e => setSelectedBusinessId(e.target.value)} 
-               className="bg-transparent font-black text-slate-800 text-sm outline-none cursor-pointer border-none focus:ring-0"
-             >
-               {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-             </select>
-             <button 
-               onClick={() => loadProducts(true)} 
-               className={`p-2 rounded-lg hover:bg-slate-200 transition-colors ${isRefreshing ? 'animate-spin text-teal-600' : 'text-slate-400'}`}
-               title="Refresh Inventory"
-             >
-               <RefreshCw size={16} />
-             </button>
+        
+        {/* Header Container */}
+        <div className="p-4 border-b border-slate-100 bg-white sticky top-0 z-20 space-y-4">
+          
+          {/* Row 1: Store Controls */}
+          <div className="flex items-center justify-between">
+             <div className="flex items-center gap-2">
+                 <div className="p-2.5 bg-slate-900 text-white rounded-xl shadow-md"><Store size={18} /></div>
+                 <select 
+                   value={selectedBusinessId} 
+                   onChange={e => setSelectedBusinessId(e.target.value)} 
+                   className="bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold py-3 pl-3 pr-8 rounded-xl outline-none cursor-pointer focus:ring-2 focus:ring-teal-500/20 transition-all w-64 hover:bg-slate-100"
+                 >
+                   {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                 </select>
+                 <button 
+                   onClick={() => loadProducts(true)} 
+                   className={`p-3 rounded-xl border border-slate-200 hover:bg-slate-50 hover:text-teal-600 transition-all ${isRefreshing ? 'animate-spin text-teal-600' : 'text-slate-400'}`}
+                   title="Refresh Inventory"
+                 >
+                   <RefreshCw size={16} />
+                 </button>
+             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 w-full xl:w-auto flex-1 xl:max-w-2xl">
-            {/* SKU Search */}
+          {/* Row 2: Search Fields (Ordered: SKU -> Description -> Barcode) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            
+            {/* 1. SKU */}
             <div className="relative group">
-              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" size={14} />
+              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-600 transition-colors" size={16} />
               <input 
                 type="text" 
                 placeholder="SKU Code" 
-                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all shadow-sm placeholder:text-slate-300" 
+                className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs focus:bg-white focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all placeholder:text-slate-400 shadow-sm" 
                 value={searchFields.sku} 
                 onChange={e => setSearchFields(prev => ({ ...prev, sku: e.target.value }))} 
               />
             </div>
 
-            {/* Barcode Search */}
+            {/* 2. Description */}
             <div className="relative group">
-              <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={14} />
+              <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors" size={16} />
+              <input 
+                type="text" 
+                placeholder="Item Description" 
+                className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400 shadow-sm" 
+                value={searchFields.description} 
+                onChange={e => setSearchFields(prev => ({ ...prev, description: e.target.value }))} 
+              />
+            </div>
+
+            {/* 3. Barcode (Scan) - kept autoFocus here as it's the primary scan target */}
+            <div className="relative group">
+              <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={16} />
               <input 
                 type="text" 
                 autoFocus
                 placeholder="Scan Barcode" 
-                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm placeholder:text-slate-300" 
+                className="w-full pl-10 pr-3 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-xs focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-400 shadow-sm" 
                 value={searchFields.barcode} 
                 onChange={e => setSearchFields(prev => ({ ...prev, barcode: e.target.value }))} 
               />
             </div>
 
-            {/* Description Search */}
-            <div className="relative group">
-              <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={14} />
-              <input 
-                type="text" 
-                placeholder="Item Description" 
-                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm placeholder:text-slate-300" 
-                value={searchFields.description} 
-                onChange={e => setSearchFields(prev => ({ ...prev, description: e.target.value }))} 
-              />
-            </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-white">
           <div className="min-w-full">
-            <div className="sticky top-0 z-10 grid grid-cols-12 gap-4 px-8 py-3 bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">
-               <div className="col-span-3">SKU / ID</div>
-               <div className="col-span-5">Product Details</div>
+            <div className="sticky top-0 z-10 grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-[0.15em] text-slate-400">
+               <div className="col-span-3 md:col-span-2">SKU / ID</div>
+               <div className="col-span-5 md:col-span-6">Product Details</div>
                <div className="col-span-2 text-right">Unit Price</div>
-               <div className="col-span-2 text-right">Availability</div>
+               <div className="col-span-2 text-right">Stock</div>
             </div>
 
             {filteredProducts.length > 0 ? (
@@ -344,39 +353,39 @@ export const POS: React.FC = () => {
                       key={product.id} 
                       disabled={isOutOfStock}
                       onClick={() => addToCart(product)} 
-                      className={`w-full grid grid-cols-12 gap-4 items-center px-8 py-4 text-left transition-all group ${isOutOfStock ? 'opacity-50 cursor-not-allowed bg-slate-50/50' : 'hover:bg-teal-50/40'}`}
+                      className={`w-full grid grid-cols-12 gap-4 items-center px-6 py-3.5 text-left transition-all group ${isOutOfStock ? 'opacity-50 cursor-not-allowed bg-slate-50/50' : 'hover:bg-teal-50/30'}`}
                     >
-                      <div className="col-span-3">
+                      <div className="col-span-3 md:col-span-2 overflow-hidden">
                          <div className="flex flex-col items-start gap-1">
                            <div className="flex items-center gap-2">
-                             <div className={`p-1.5 rounded-lg border transition-colors ${isOutOfStock ? 'bg-slate-100 text-slate-300 border-slate-200' : 'bg-white text-teal-600 border-teal-100 group-hover:bg-teal-600 group-hover:text-white'}`}>
-                                <Hash size={14} />
+                             <div className={`p-1 rounded-md border transition-colors ${isOutOfStock ? 'bg-slate-100 text-slate-300 border-slate-200' : 'bg-white text-teal-600 border-teal-100 group-hover:bg-teal-600 group-hover:text-white'}`}>
+                                <Hash size={12} />
                              </div>
-                             <span className="font-mono text-xs font-black text-slate-800 tracking-tight">{product.sku}</span>
+                             <span className="font-mono text-xs font-black text-slate-800 tracking-tight truncate">{product.sku}</span>
                            </div>
                            {product.barcode && (
-                             <div className="flex items-center gap-1.5 pl-1 opacity-60">
+                             <div className="flex items-center gap-1.5 pl-0.5 opacity-60">
                                <ScanBarcode size={10} />
-                               <span className="text-[9px] font-mono">{product.barcode}</span>
+                               <span className="text-[9px] font-mono truncate max-w-[80px]">{product.barcode}</span>
                              </div>
                            )}
                          </div>
                       </div>
-                      <div className="col-span-5 overflow-hidden">
+                      <div className="col-span-5 md:col-span-6 overflow-hidden">
                          <p className="text-sm font-bold text-slate-700 truncate">{product.description || 'No Description Available'}</p>
                          <div className="flex items-center gap-2 mt-0.5">
                             <Layers size={10} className="text-slate-300" />
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Standard Inventory Unit</span>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Standard Unit</span>
                          </div>
                       </div>
                       <div className="col-span-2 text-right">
                          <span className="text-sm font-black text-slate-900">{formatZAR(product.salePrice)}</span>
                       </div>
                       <div className="col-span-2 flex flex-col items-end">
-                         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all ${
+                         <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-widest border transition-all ${
                            isOutOfStock ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100 group-hover:bg-emerald-600 group-hover:text-white'
                          }`}>
-                           {isOutOfStock ? 'Stock Out' : `${stock} In Stock`}
+                           {isOutOfStock ? 'Out' : `${stock}`}
                          </div>
                       </div>
                     </button>
@@ -397,7 +406,7 @@ export const POS: React.FC = () => {
       </div>
 
       {/* Right: Digital Basket (High Density View) */}
-      <div className="w-full lg:w-[460px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left">
+      <div className="w-full xl:w-[420px] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden text-left shrink-0">
         <div className="p-5 border-b border-slate-100">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -405,7 +414,7 @@ export const POS: React.FC = () => {
               <h3 className="font-black text-slate-800 uppercase text-xs tracking-widest">Digital Basket</h3>
             </div>
             {cart.length > 0 && (
-              <button onClick={() => {setCart([]);}} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest">Clear Session</button>
+              <button onClick={() => {setCart([]);}} className="text-[9px] font-black text-rose-500 uppercase hover:text-rose-700 tracking-widest bg-rose-50 px-2 py-1 rounded-md border border-rose-100">Clear</button>
             )}
           </div>
 
@@ -459,7 +468,7 @@ export const POS: React.FC = () => {
               const itemFinal = Math.max(0, itemSubtotal - itemDiscount);
 
               return (
-                <div key={item.productId} className="p-3 bg-white group hover:bg-teal-50/30 transition-all flex flex-col gap-1.5">
+                <div key={item.productId} className="p-3 bg-white group hover:bg-teal-50/30 transition-all flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 pr-2">
                       <Hash size={12} className="text-slate-300" />
@@ -482,13 +491,13 @@ export const POS: React.FC = () => {
                     </div>
 
                     {/* Per-Item Discount Input */}
-                    <div className="flex-1 max-w-[110px]">
+                    <div className="flex-1 max-w-[90px]">
                       <div className="relative group/input">
                         <Tag className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within/input:text-indigo-500 transition-colors" size={10} />
                         <input 
                           type="number"
-                          placeholder="Disc. ZAR"
-                          className="w-full pl-6 pr-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black text-slate-700 outline-none focus:border-indigo-400 focus:bg-white transition-all placeholder:text-slate-300"
+                          placeholder="Disc."
+                          className="w-full pl-5 pr-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black text-slate-700 outline-none focus:border-indigo-400 focus:bg-white transition-all placeholder:text-slate-300 text-right"
                           value={item.discount || ''}
                           onChange={(e) => updateItemDiscount(item.productId, parseFloat(e.target.value) || 0)}
                         />
