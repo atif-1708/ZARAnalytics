@@ -26,7 +26,9 @@ import {
   X, 
   Calendar, 
   Clock, 
-  AlertCircle 
+  AlertCircle,
+  ScanBarcode,
+  FileText
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -41,7 +43,14 @@ export const POS: React.FC = () => {
   const [cart, setCart] = useState<SaleItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [search, setSearch] = useState('');
+  
+  // Search State
+  const [searchFields, setSearchFields] = useState({
+    sku: '',
+    barcode: '',
+    description: ''
+  });
+
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -130,12 +139,14 @@ export const POS: React.FC = () => {
   useEffect(() => { loadProducts(); }, [selectedBusinessId]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter(p => 
-      p.sku.toLowerCase().includes(search.toLowerCase()) || 
-      (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase())) ||
-      (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
-    );
-  }, [products, search]);
+    return products.filter(p => {
+      const matchSku = !searchFields.sku || p.sku.toLowerCase().includes(searchFields.sku.toLowerCase());
+      const matchBarcode = !searchFields.barcode || (p.barcode && p.barcode.toLowerCase().includes(searchFields.barcode.toLowerCase()));
+      const matchDesc = !searchFields.description || (p.description && p.description.toLowerCase().includes(searchFields.description.toLowerCase()));
+      
+      return matchSku && matchBarcode && matchDesc;
+    });
+  }, [products, searchFields]);
 
   const addToCart = (product: Product) => {
     if ((product.currentStock ?? 0) <= 0) return;
@@ -156,6 +167,10 @@ export const POS: React.FC = () => {
         discount: 0
       }];
     });
+    // Optional: Clear barcode search after scan for continuous scanning workflow
+    if (searchFields.barcode) {
+      setSearchFields(prev => ({ ...prev, barcode: '' }));
+    }
   };
 
   const updateQuantity = (productId: string, delta: number) => {
@@ -250,7 +265,7 @@ export const POS: React.FC = () => {
     <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-140px)]">
       {/* Left: Product Selection */}
       <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm text-left">
-        <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/50">
+        <div className="p-6 border-b border-slate-100 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 bg-slate-50/50">
           <div className="flex items-center gap-3 w-full md:w-auto">
              <div className="p-2 bg-slate-900 text-white rounded-xl shadow-lg"><Store size={20} /></div>
              <select 
@@ -268,15 +283,44 @@ export const POS: React.FC = () => {
                <RefreshCw size={16} />
              </button>
           </div>
-          <div className="relative w-full md:w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="Filter by SKU or description..." 
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-sm focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all shadow-inner" 
-              value={search} 
-              onChange={e => setSearch(e.target.value)} 
-            />
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 w-full xl:w-auto flex-1 xl:max-w-2xl">
+            {/* SKU Search */}
+            <div className="relative group">
+              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-teal-500 transition-colors" size={14} />
+              <input 
+                type="text" 
+                placeholder="SKU Code" 
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all shadow-sm placeholder:text-slate-300" 
+                value={searchFields.sku} 
+                onChange={e => setSearchFields(prev => ({ ...prev, sku: e.target.value }))} 
+              />
+            </div>
+
+            {/* Barcode Search */}
+            <div className="relative group">
+              <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={14} />
+              <input 
+                type="text" 
+                autoFocus
+                placeholder="Scan Barcode" 
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-sm placeholder:text-slate-300" 
+                value={searchFields.barcode} 
+                onChange={e => setSearchFields(prev => ({ ...prev, barcode: e.target.value }))} 
+              />
+            </div>
+
+            {/* Description Search */}
+            <div className="relative group">
+              <FileText className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={14} />
+              <input 
+                type="text" 
+                placeholder="Item Description" 
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl outline-none font-bold text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm placeholder:text-slate-300" 
+                value={searchFields.description} 
+                onChange={e => setSearchFields(prev => ({ ...prev, description: e.target.value }))} 
+              />
+            </div>
           </div>
         </div>
 
@@ -303,11 +347,19 @@ export const POS: React.FC = () => {
                       className={`w-full grid grid-cols-12 gap-4 items-center px-8 py-4 text-left transition-all group ${isOutOfStock ? 'opacity-50 cursor-not-allowed bg-slate-50/50' : 'hover:bg-teal-50/40'}`}
                     >
                       <div className="col-span-3">
-                         <div className="flex items-center gap-2">
-                           <div className={`p-1.5 rounded-lg border transition-colors ${isOutOfStock ? 'bg-slate-100 text-slate-300 border-slate-200' : 'bg-white text-teal-600 border-teal-100 group-hover:bg-teal-600 group-hover:text-white'}`}>
-                              <Hash size={14} />
+                         <div className="flex flex-col items-start gap-1">
+                           <div className="flex items-center gap-2">
+                             <div className={`p-1.5 rounded-lg border transition-colors ${isOutOfStock ? 'bg-slate-100 text-slate-300 border-slate-200' : 'bg-white text-teal-600 border-teal-100 group-hover:bg-teal-600 group-hover:text-white'}`}>
+                                <Hash size={14} />
+                             </div>
+                             <span className="font-mono text-xs font-black text-slate-800 tracking-tight">{product.sku}</span>
                            </div>
-                           <span className="font-mono text-xs font-black text-slate-800 tracking-tight">{product.sku}</span>
+                           {product.barcode && (
+                             <div className="flex items-center gap-1.5 pl-1 opacity-60">
+                               <ScanBarcode size={10} />
+                               <span className="text-[9px] font-mono">{product.barcode}</span>
+                             </div>
+                           )}
                          </div>
                       </div>
                       <div className="col-span-5 overflow-hidden">
@@ -334,10 +386,10 @@ export const POS: React.FC = () => {
             ) : (
               <div className="flex flex-col items-center justify-center py-32 text-slate-400">
                  <div className="w-20 h-20 bg-slate-50 text-slate-200 rounded-[2.5rem] flex items-center justify-center mb-6">
-                   {search ? <PackageSearch size={40} /> : <Package size={40} />}
+                   <PackageSearch size={40} />
                  </div>
                  <h4 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-1">No Matches</h4>
-                 <p className="text-xs font-medium text-slate-400">Adjust your search term or barcode</p>
+                 <p className="text-xs font-medium text-slate-400">Try adjusting your search criteria</p>
               </div>
             )}
           </div>

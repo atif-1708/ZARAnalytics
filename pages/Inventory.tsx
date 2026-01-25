@@ -36,18 +36,19 @@ import { useAuth } from '../context/AuthContext';
 import { Product, Business, UserRole, StockMovement } from '../types';
 import { formatZAR, formatDate } from '../utils/formatters';
 
-export const MISSING_SCHEMA_SQL = `-- 1. FIX COLUMN TYPES FOR ACCURATE TIMEKEEPING
+export const MISSING_SCHEMA_SQL = `-- 1. ADD MISSING BARCODE COLUMN
+ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode text;
+CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode);
+
+-- 2. FIX COLUMN TYPES FOR ACCURATE TIMEKEEPING
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE sales ALTER COLUMN date TYPE timestamptz USING date::timestamptz;
 ALTER TABLE stock_movements ALTER COLUMN created_at TYPE timestamptz USING created_at::timestamptz;
 
--- 2. UPDATE EXISTING PRODUCTS TABLE
+-- 3. ENSURE OTHER COLUMNS EXIST
 ALTER TABLE products ALTER COLUMN name DROP NOT NULL;
 ALTER TABLE products DROP COLUMN IF EXISTS category;
-
--- 3. ENSURE COLUMNS EXIST
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text;
-ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode text;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_refunded boolean DEFAULT false;
 
@@ -75,7 +76,10 @@ CREATE POLICY "Allow all for authenticated" ON products FOR ALL TO authenticated
 DROP POLICY IF EXISTS "Allow all for authenticated movements" ON stock_movements;
 CREATE POLICY "Allow all for authenticated movements" ON stock_movements FOR ALL TO authenticated USING (true);
 DROP POLICY IF EXISTS "Allow all for authenticated sales" ON sales;
-CREATE POLICY "Allow all for authenticated sales" ON sales FOR ALL TO authenticated USING (true);`;
+CREATE POLICY "Allow all for authenticated sales" ON sales FOR ALL TO authenticated USING (true);
+
+-- 7. REFRESH CACHE
+NOTIFY pgrst, 'reload config';`;
 
 export const Inventory: React.FC = () => {
   const { user } = useAuth();
@@ -129,7 +133,15 @@ export const Inventory: React.FC = () => {
       setProducts(pData);
       setIsSchemaNoticeOpen(false);
     } catch (e: any) { 
-      if (e.message?.includes('SCHEMA_MISSING') || e.code === '42P01') setIsSchemaNoticeOpen(true);
+      // Catch schema errors specifically
+      if (
+        e.message?.includes('SCHEMA_MISSING') || 
+        e.code === '42P01' || 
+        e.message?.includes('Could not find the') || // Supabase "Could not find the 'barcode' column" error
+        e.message?.includes('column') 
+      ) {
+        setIsSchemaNoticeOpen(true);
+      }
     }
   };
 
@@ -146,8 +158,11 @@ export const Inventory: React.FC = () => {
       await loadProducts();
       setIsModalOpen(false);
     } catch (err: any) { 
-      if (err.message?.includes('relation') || err.code === '42P01' || err.message?.includes('violates not-null')) setIsSchemaNoticeOpen(true);
-      else alert(err.message); 
+      if (err.message?.includes('relation') || err.code === '42P01' || err.message?.includes('violates not-null') || err.message?.includes('column')) {
+        setIsSchemaNoticeOpen(true);
+      } else {
+        alert(err.message); 
+      }
     } finally { setIsSaving(false); }
   };
 
@@ -233,8 +248,11 @@ export const Inventory: React.FC = () => {
           alert(`Successfully imported ${importedProducts.length} items.`);
         }
       } catch (err: any) {
-        if (err.message?.includes('violates not-null')) setIsSchemaNoticeOpen(true);
-        else alert("Import Error: " + err.message);
+        if (err.message?.includes('violates not-null') || err.message?.includes('column')) {
+          setIsSchemaNoticeOpen(true);
+        } else {
+          alert("Import Error: " + err.message);
+        }
       } finally {
         setIsSaving(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -286,7 +304,7 @@ export const Inventory: React.FC = () => {
            <div className="flex-1 space-y-2">
               <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">System Update Required</h4>
               <p className="text-sm text-rose-600 font-medium leading-relaxed">
-                We've detected an issue with your database structure (likely missing columns like barcode or proper timestamps). Please run this updated SQL script in your Supabase SQL Editor.
+                We've detected an issue with your database structure (likely missing columns like 'barcode' or proper timestamps). Please run this updated SQL script in your Supabase SQL Editor.
               </p>
            </div>
            <div className="flex flex-col gap-2">
