@@ -315,6 +315,7 @@ export const Inventory: React.FC = () => {
               <tr>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">SKU / BARCODE</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">ITEM DESCRIPTION</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">COST PRICE</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">UNIT PRICE</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">CURRENT STOCK</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">MANAGEMENT</th>
@@ -333,6 +334,7 @@ export const Inventory: React.FC = () => {
                   <td className="px-6 py-4">
                     <p className="text-sm font-medium text-slate-600 max-w-xs truncate">{p.description || 'No description provided'}</p>
                   </td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-slate-500">{formatZAR(p.costPrice)}</td>
                   <td className="px-6 py-4 text-right text-sm font-black text-teal-600">{formatZAR(p.salePrice)}</td>
                   <td className="px-6 py-4 text-center">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-black border ${p.currentStock < 10 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>
@@ -359,7 +361,7 @@ export const Inventory: React.FC = () => {
               ))}
               {filteredProducts.length === 0 && (
                 <tr>
-                   <td colSpan={6} className="py-20 text-center text-slate-400 italic text-sm">
+                   <td colSpan={7} className="py-20 text-center text-slate-400 italic text-sm">
                       <Package size={40} className="mx-auto mb-3 opacity-10" />
                       No items found in this business unit.
                    </td>
