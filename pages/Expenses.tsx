@@ -63,7 +63,9 @@ export const Expenses: React.FC = () => {
     setIsLoading(true);
     try {
       const [eData, bData] = await Promise.all([storage.getExpenses(), storage.getBusinesses()]);
-      setExpenses(eData);
+      // Sort expenses by date descending (latest first)
+      const sortedExpenses = eData.sort((a, b) => new Date(b.month).getTime() - new Date(a.month).getTime());
+      setExpenses(sortedExpenses);
       setBusinesses(bData);
     } finally {
       setIsLoading(false);
