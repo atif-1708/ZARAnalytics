@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import { storage } from '../services/mockStorage';
 import { FilterPanel } from '../components/FilterPanel';
-import { Filters, Business, DailySale, MonthlyExpense, UserRole, SaleItem } from '../types';
+import { Filters, Business, DailySale, MonthlyExpense, UserRole, SaleItem, Product } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/formatters';
 
@@ -45,6 +45,7 @@ export const Reports: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [sales, setSales] = useState<DailySale[]>([]);
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
+  const [products, setProducts] = useState<Product[]>([]); // New state for products
   const [loading, setLoading] = useState(true);
 
   const fetchExchangeRate = async () => {
@@ -64,14 +65,16 @@ export const Reports: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [b, s, e] = await Promise.all([
+        const [b, s, e, p] = await Promise.all([
           storage.getBusinesses(),
           storage.getSales(),
-          storage.getExpenses()
+          storage.getExpenses(),
+          storage.getProducts() // Fetch live product data for stock levels
         ]);
         setBusinesses(b);
         setSales(s);
         setExpenses(e);
+        setProducts(p);
       } catch (err) {
         console.error("Report data load failed", err);
       } finally {
@@ -243,6 +246,7 @@ export const Reports: React.FC = () => {
       quantity: number;
       revenue: number;
       profit: number;
+      currentStock: number;
     }>();
 
     relevantSales.forEach(sale => {
@@ -251,13 +255,17 @@ export const Reports: React.FC = () => {
            const key = item.productId || item.sku;
            
            if (!productMap.has(key)) {
+             // Look up live product data
+             const liveProduct = products.find(p => p.id === item.productId || p.sku === item.sku);
+             
              productMap.set(key, {
                id: item.productId,
                sku: item.sku,
                name: item.description || 'Unknown Item',
                quantity: 0,
                revenue: 0,
-               profit: 0
+               profit: 0,
+               currentStock: liveProduct?.currentStock || 0
              });
            }
            
@@ -297,7 +305,7 @@ export const Reports: React.FC = () => {
         profit: convert(p.profit)
       }))
     };
-  }, [sales, dateLimits, filters, user, isAdminVisibility, currency, exchangeRate]);
+  }, [sales, dateLimits, filters, user, isAdminVisibility, currency, exchangeRate, products]);
 
   if (loading) {
     return (
@@ -569,6 +577,7 @@ export const Reports: React.FC = () => {
                           <tr>
                              <th className="px-6 py-4 text-center">Rank</th>
                              <th className="px-6 py-4">Item</th>
+                             <th className="px-6 py-4 text-center">Current Stock</th>
                              <th className="px-6 py-4 text-center">Qty Sold</th>
                              <th className="px-6 py-4 text-right">Revenue</th>
                              <th className="px-6 py-4 text-right">Profit</th>
@@ -576,7 +585,7 @@ export const Reports: React.FC = () => {
                        </thead>
                        <tbody className="divide-y divide-slate-50">
                           {productMetrics.sortedList.length === 0 ? (
-                             <tr><td colSpan={5} className="py-20 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No item sales recorded</td></tr>
+                             <tr><td colSpan={6} className="py-20 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No item sales recorded</td></tr>
                           ) : (
                              productMetrics.sortedList.map((p, idx) => (
                                 <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
@@ -588,6 +597,11 @@ export const Reports: React.FC = () => {
                                    <td className="px-6 py-4">
                                       <p className="text-xs font-black text-slate-800">{p.name}</p>
                                       <p className="text-[10px] font-bold text-slate-400 font-mono">{p.sku}</p>
+                                   </td>
+                                   <td className="px-6 py-4 text-center">
+                                      <span className={`px-2 py-1 rounded text-[10px] font-black ${p.currentStock <= 5 ? 'bg-rose-50 text-rose-600' : 'text-slate-600'}`}>
+                                        {p.currentStock}
+                                      </span>
                                    </td>
                                    <td className="px-6 py-4 text-center text-xs font-bold text-slate-600">{p.quantity}</td>
                                    <td className="px-6 py-4 text-right text-xs font-black text-indigo-600">{formatCurrency(convert(p.revenue), currency)}</td>
