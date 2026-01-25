@@ -132,6 +132,7 @@ export const POS: React.FC = () => {
   const filteredProducts = useMemo(() => {
     return products.filter(p => 
       p.sku.toLowerCase().includes(search.toLowerCase()) || 
+      (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase())) ||
       (p.description && p.description.toLowerCase().includes(search.toLowerCase()))
     );
   }, [products, search]);

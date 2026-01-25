@@ -28,7 +28,8 @@ import {
   Boxes,
   Hash,
   Upload,
-  FileText
+  FileText,
+  ScanBarcode
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +47,7 @@ ALTER TABLE products DROP COLUMN IF EXISTS category;
 
 -- 3. ENSURE COLUMNS EXIST
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sku text;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode text;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_refunded boolean DEFAULT false;
 
@@ -99,7 +101,7 @@ export const Inventory: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState({
-    sku: '', description: '', costPrice: 0, salePrice: 0, currentStock: 0
+    sku: '', barcode: '', description: '', costPrice: 0, salePrice: 0, currentStock: 0
   });
   const [adjustData, setAdjustData] = useState({
     quantity: 1, reason: '', type: 'arrival' as StockMovement['type']
@@ -193,6 +195,7 @@ export const Inventory: React.FC = () => {
         if (lines.length < 2) throw new Error("CSV file is empty or missing headers.");
 
         const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+        // Updated expected headers to include 'barcode' (optional but supported)
         const expected = ['sku', 'description', 'costprice', 'saleprice', 'currentstock'];
         
         const missing = expected.filter(exp => !headers.includes(exp));
@@ -213,6 +216,7 @@ export const Inventory: React.FC = () => {
 
           headers.forEach((header, index) => {
             if (header === 'sku') p.sku = values[index];
+            if (header === 'barcode') p.barcode = values[index]; // Map barcode
             if (header === 'description') p.description = values[index];
             if (header === 'costprice') p.costPrice = parseFloat(values[index]) || 0;
             if (header === 'saleprice') p.salePrice = parseFloat(values[index]) || 0;
@@ -242,6 +246,7 @@ export const Inventory: React.FC = () => {
 
   const filteredProducts = products.filter(p => 
     p.sku.toLowerCase().includes(search.toLowerCase()) ||
+    (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase())) ||
     p.description.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -267,7 +272,7 @@ export const Inventory: React.FC = () => {
           >
             <FileSpreadsheet size={18} /> Bulk CSV
           </button>
-          <button onClick={() => { setEditingProduct(null); setFormData({ sku: '', description: '', costPrice: 0, salePrice: 0, currentStock: 0 }); setIsModalOpen(true); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition-all">
+          <button onClick={() => { setEditingProduct(null); setFormData({ sku: '', barcode: '', description: '', costPrice: 0, salePrice: 0, currentStock: 0 }); setIsModalOpen(true); }} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg hover:bg-slate-800 transition-all">
             <PlusCircle size={18} /> New SKU
           </button>
         </div>
@@ -281,7 +286,7 @@ export const Inventory: React.FC = () => {
            <div className="flex-1 space-y-2">
               <h4 className="text-lg font-black text-rose-800 uppercase tracking-tight">System Update Required</h4>
               <p className="text-sm text-rose-600 font-medium leading-relaxed">
-                We've detected an issue with your database structure (likely the Date format is preventing accurate time tracking). Please run this updated SQL script in your Supabase SQL Editor to fix the timestamp columns.
+                We've detected an issue with your database structure (likely missing columns like barcode or proper timestamps). Please run this updated SQL script in your Supabase SQL Editor.
               </p>
            </div>
            <div className="flex flex-col gap-2">
@@ -304,7 +309,7 @@ export const Inventory: React.FC = () => {
         </div>
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-          <input type="text" placeholder="Search SKU or Description..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl outline-none text-sm font-medium" value={search} onChange={e => setSearch(e.target.value)} />
+          <input type="text" placeholder="Search SKU, Barcode or Description..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-xl outline-none text-sm font-medium" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </div>
 
@@ -313,7 +318,8 @@ export const Inventory: React.FC = () => {
           <table className="w-full text-left">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">SKU / BARCODE</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">SKU</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">BARCODE</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">ITEM DESCRIPTION</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">COST PRICE</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">UNIT PRICE</th>
@@ -329,6 +335,18 @@ export const Inventory: React.FC = () => {
                     <div className="flex items-center gap-2">
                        <Hash size={14} className="text-slate-300" />
                        <span className="font-mono text-sm font-black text-slate-800">{p.sku}</span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                       {p.barcode ? (
+                         <>
+                           <ScanBarcode size={14} className="text-indigo-400" />
+                           <span className="font-mono text-xs font-bold text-slate-600">{p.barcode}</span>
+                         </>
+                       ) : (
+                         <span className="text-[10px] text-slate-300 font-bold italic">N/A</span>
+                       )}
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -353,7 +371,7 @@ export const Inventory: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-1">
-                      <button onClick={() => { setEditingProduct(p); setFormData({ ...p }); setIsModalOpen(true); }} className="p-2 text-slate-300 hover:text-teal-600 transition-colors"><Edit3 size={16} /></button>
+                      <button onClick={() => { setEditingProduct(p); setFormData({ ...p, barcode: p.barcode || '' }); setIsModalOpen(true); }} className="p-2 text-slate-300 hover:text-teal-600 transition-colors"><Edit3 size={16} /></button>
                       <button onClick={async () => { if(window.confirm('Delete this item?')) { await storage.deleteProduct(p.id); loadProducts(); } }} className="p-2 text-slate-300 hover:text-rose-600 transition-colors"><Trash2 size={16} /></button>
                     </div>
                   </td>
@@ -361,7 +379,7 @@ export const Inventory: React.FC = () => {
               ))}
               {filteredProducts.length === 0 && (
                 <tr>
-                   <td colSpan={7} className="py-20 text-center text-slate-400 italic text-sm">
+                   <td colSpan={8} className="py-20 text-center text-slate-400 italic text-sm">
                       <Package size={40} className="mx-auto mb-3 opacity-10" />
                       No items found in this business unit.
                    </td>
@@ -391,9 +409,9 @@ export const Inventory: React.FC = () => {
                <div className="flex items-start gap-3">
                   <Info size={16} className="text-teal-600 shrink-0 mt-1" />
                   <p className="text-xs font-bold text-slate-600 leading-relaxed">
-                    Your CSV must include these exact headers:
-                    <code className="block mt-2 bg-white p-2 border border-slate-200 rounded-lg text-teal-700 font-mono">
-                      sku, description, costPrice, salePrice, currentStock
+                    Your CSV must include these exact headers (order does not matter):
+                    <code className="block mt-2 bg-white p-2 border border-slate-200 rounded-lg text-teal-700 font-mono text-[10px] break-all">
+                      sku, barcode, description, costPrice, salePrice, currentStock
                     </code>
                   </p>
                </div>
@@ -431,7 +449,7 @@ export const Inventory: React.FC = () => {
             <div className="flex justify-between items-center pt-4">
                <button onClick={() => setIsImportModalOpen(false)} className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-600">Cancel</button>
                <a 
-                 href={`data:text/csv;charset=utf-8,${encodeURIComponent('sku,description,costPrice,salePrice,currentStock\nPRD-001,Example Item Description,100,250,50')}`}
+                 href={`data:text/csv;charset=utf-8,${encodeURIComponent('sku,barcode,description,costPrice,salePrice,currentStock\nPRD-001,12345678,Example Item,100,250,50')}`}
                  download="template.csv"
                  className="flex items-center gap-2 text-[10px] font-black text-teal-600 uppercase tracking-widest hover:text-teal-700"
                >
@@ -535,9 +553,15 @@ export const Inventory: React.FC = () => {
           <form onSubmit={handleSaveProduct} className="bg-white rounded-[2.5rem] w-full max-w-lg p-10 relative shadow-2xl space-y-5 overflow-y-auto max-h-[90vh] text-left">
             <h3 className="text-2xl font-black tracking-tight text-slate-900">{editingProduct ? 'Edit' : 'Create'} Stock Item</h3>
             
-            <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">SKU / Unique Identifier</label>
-              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.sku} onChange={e=>setFormData({...formData, sku: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">SKU / ID</label>
+                <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.sku} onChange={e=>setFormData({...formData, sku: e.target.value})} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Barcode (Optional)</label>
+                <input className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-indigo-500/20" value={formData.barcode} onChange={e=>setFormData({...formData, barcode: e.target.value})} placeholder="Scan or enter" />
+              </div>
             </div>
             
             <div>

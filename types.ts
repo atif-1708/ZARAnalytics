@@ -45,6 +45,7 @@ export interface Business {
 export interface Product {
   id: string;
   sku: string;
+  barcode?: string;
   description: string;
   costPrice: number;
   salePrice: number;
