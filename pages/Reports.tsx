@@ -45,7 +45,7 @@ export const Reports: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [sales, setSales] = useState<DailySale[]>([]);
   const [expenses, setExpenses] = useState<MonthlyExpense[]>([]);
-  const [products, setProducts] = useState<Product[]>([]); // New state for products
+  const [products, setProducts] = useState<Product[]>([]); 
   const [loading, setLoading] = useState(true);
 
   const fetchExchangeRate = async () => {
@@ -69,7 +69,7 @@ export const Reports: React.FC = () => {
           storage.getBusinesses(),
           storage.getSales(),
           storage.getExpenses(),
-          storage.getProducts() // Fetch live product data for stock levels
+          storage.getProducts() 
         ]);
         setBusinesses(b);
         setSales(s);
@@ -87,7 +87,6 @@ export const Reports: React.FC = () => {
 
   const convert = (val: number) => currency === 'PKR' ? val * exchangeRate : val;
 
-  // Helper to get robust local date key YYYY-MM-DD
   const getLocalDateKey = (dateInput: string) => {
     if (!dateInput) return 'Invalid';
     if (dateInput.length === 10 && !dateInput.includes('T')) return dateInput;
@@ -97,7 +96,6 @@ export const Reports: React.FC = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  // Centralized Date Range Logic
   const dateLimits = useMemo(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -229,7 +227,6 @@ export const Reports: React.FC = () => {
     };
   }, [filters, sales, expenses, currency, exchangeRate, user, isAdminVisibility, dateLimits]);
 
-  // ITEM-WISE SUMMARY CALCULATION
   const productMetrics = useMemo(() => {
     const relevantSales = sales.filter(s => {
       const d = new Date(s.date);
@@ -255,7 +252,6 @@ export const Reports: React.FC = () => {
            const key = item.productId || item.sku;
            
            if (!productMap.has(key)) {
-             // Look up live product data
              const liveProduct = products.find(p => p.id === item.productId || p.sku === item.sku);
              
              productMap.set(key, {
@@ -287,7 +283,6 @@ export const Reports: React.FC = () => {
 
     const allProducts = Array.from(productMap.values());
     
-    // Champions
     const byVolume = [...allProducts].sort((a,b) => b.quantity - a.quantity)[0];
     const byRevenue = [...allProducts].sort((a,b) => b.revenue - a.revenue)[0];
     const byProfit = [...allProducts].sort((a,b) => b.profit - a.profit)[0];
@@ -306,6 +301,31 @@ export const Reports: React.FC = () => {
       }))
     };
   }, [sales, dateLimits, filters, user, isAdminVisibility, currency, exchangeRate, products]);
+
+  const handleExportProductPerformance = () => {
+    const headers = ['Rank', 'Item Name', 'SKU', 'Current Stock', 'Qty Sold', `Revenue (${currency})`, `Profit (${currency})`];
+    
+    const rows = productMetrics.sortedList.map((p, idx) => [
+      idx + 1,
+      `"${p.name.replace(/"/g, '""')}"`,
+      `"${p.sku.replace(/"/g, '""')}"`,
+      p.currentStock,
+      p.quantity,
+      convert(p.revenue).toFixed(2),
+      convert(p.profit).toFixed(2)
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `product_performance_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   if (loading) {
     return (
@@ -567,9 +587,18 @@ export const Reports: React.FC = () => {
 
               {/* Detailed Table */}
               <div className="lg:col-span-2 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                 <div className="p-6 border-b border-slate-100 bg-slate-50/50 text-left flex items-center gap-2">
-                    <ShoppingBag size={18} className="text-slate-400" />
-                    <h3 className="font-bold text-slate-800">Itemized Performance Ledger</h3>
+                 <div className="p-6 border-b border-slate-100 bg-slate-50/50 text-left flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <ShoppingBag size={18} className="text-slate-400" />
+                        <h3 className="font-bold text-slate-800">Itemized Performance Ledger</h3>
+                    </div>
+                    <button 
+                      onClick={handleExportProductPerformance}
+                      disabled={productMetrics.sortedList.length === 0}
+                      className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-teal-600 bg-white border border-slate-200 hover:border-teal-200 px-3 py-1.5 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download size={14} /> Export CSV
+                    </button>
                  </div>
                  <div className="flex-1 overflow-auto max-h-[500px]">
                     <table className="w-full text-left">
