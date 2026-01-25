@@ -167,21 +167,26 @@ export const POS: React.FC = () => {
     const grandTotal = summaryData.reduce((acc, curr) => acc + curr.total, 0);
     const grandProfit = summaryData.reduce((acc, curr) => acc + curr.profit, 0);
     const totalQty = summaryData.reduce((acc, curr) => acc + curr.qty, 0);
+    const avgMargin = grandTotal > 0 ? ((grandProfit / grandTotal) * 100).toFixed(1) + '%' : '0%';
     
     doc.setFontSize(10);
     doc.text(`Total Items Sold: ${totalQty}`, 14, 55);
     doc.text(`Total Revenue: ${formatZAR(grandTotal)}`, 14, 60);
-    doc.text(`Total Profit: ${formatZAR(grandProfit)}`, 14, 65);
+    doc.text(`Total Profit: ${formatZAR(grandProfit)} (${avgMargin})`, 14, 65);
 
-    const rows = summaryData.map(i => [
-        i.name,
-        i.sku,
-        i.qty.toString(),
-        formatZAR(i.total),
-        formatZAR(i.profit)
-    ]);
+    const rows = summaryData.map(i => {
+        const margin = i.total > 0 ? ((i.profit / i.total) * 100).toFixed(1) + '%' : '0%';
+        return [
+            i.name,
+            i.sku,
+            i.qty.toString(),
+            margin,
+            formatZAR(i.total),
+            formatZAR(i.profit)
+        ];
+    });
     
-    PdfService.generateTable(doc, ['Item Name', 'SKU', 'Qty Sold', 'Revenue', 'Profit'], rows, 75);
+    PdfService.generateTable(doc, ['Item Name', 'SKU', 'Qty Sold', 'Margin %', 'Revenue', 'Profit'], rows, 75);
     PdfService.save(doc, `daily_sales_summary_${new Date().toISOString().split('T')[0]}`);
   };
 
@@ -890,23 +895,32 @@ export const POS: React.FC = () => {
                          <th className="px-6 py-4">Item Name</th>
                          <th className="px-6 py-4">SKU</th>
                          <th className="px-6 py-4 text-center">Qty Sold</th>
+                         <th className="px-6 py-4 text-center">Margin %</th>
                          <th className="px-6 py-4 text-right">Revenue</th>
                          <th className="px-6 py-4 text-right">Profit</th>
                       </tr>
                    </thead>
                    <tbody className="divide-y divide-slate-50 text-sm">
                       {summaryData.length === 0 ? (
-                         <tr><td colSpan={5} className="py-20 text-center text-slate-400 italic font-bold">No sales recorded today</td></tr>
+                         <tr><td colSpan={6} className="py-20 text-center text-slate-400 italic font-bold">No sales recorded today</td></tr>
                       ) : (
-                         summaryData.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-slate-50/50">
-                               <td className="px-6 py-3 font-bold text-slate-700">{item.name}</td>
-                               <td className="px-6 py-3 font-mono text-slate-500 text-xs">{item.sku}</td>
-                               <td className="px-6 py-3 text-center font-bold text-slate-800">{item.qty}</td>
-                               <td className="px-6 py-3 text-right font-black text-teal-600">{formatZAR(item.total)}</td>
-                               <td className="px-6 py-3 text-right font-black text-emerald-600">{formatZAR(item.profit)}</td>
-                            </tr>
-                         ))
+                         summaryData.map((item, idx) => {
+                            const margin = item.total > 0 ? ((item.profit / item.total) * 100).toFixed(1) : '0.0';
+                            return (
+                              <tr key={idx} className="hover:bg-slate-50/50">
+                                 <td className="px-6 py-3 font-bold text-slate-700">{item.name}</td>
+                                 <td className="px-6 py-3 font-mono text-slate-500 text-xs">{item.sku}</td>
+                                 <td className="px-6 py-3 text-center font-bold text-slate-800">{item.qty}</td>
+                                 <td className="px-6 py-3 text-center">
+                                    <span className={`text-xs font-bold px-2 py-1 rounded-md border ${parseFloat(margin) >= 30 ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                                      {margin}%
+                                    </span>
+                                 </td>
+                                 <td className="px-6 py-3 text-right font-black text-teal-600">{formatZAR(item.total)}</td>
+                                 <td className="px-6 py-3 text-right font-black text-emerald-600">{formatZAR(item.profit)}</td>
+                              </tr>
+                            );
+                         })
                       )}
                    </tbody>
                 </table>
