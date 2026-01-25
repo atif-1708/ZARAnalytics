@@ -1,3 +1,4 @@
+
 {
   "name": "zarlytics-suite",
   "private": true,
@@ -14,7 +15,9 @@
     "react-router-dom": "^7.1.0",
     "lucide-react": "^0.473.0",
     "recharts": "^2.15.0",
-    "@supabase/supabase-js": "^2.48.1"
+    "@supabase/supabase-js": "^2.48.1",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

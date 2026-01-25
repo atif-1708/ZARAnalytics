@@ -56,7 +56,7 @@ export const PdfService = {
       styles: { fontSize: 8, cellPadding: 3, textColor: [30, 41, 59] },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       margin: { top: 50 },
-      didDrawPage: (data) => {
+      didDrawPage: (data: any) => {
         // Footer on each page
         const pageHeight = doc.internal.pageSize.height;
         doc.setFontSize(8);
