@@ -17,7 +17,8 @@ import {
   Wallet,
   ArrowUpRight,
   TrendingUp,
-  PackageCheck
+  PackageCheck,
+  X
 } from 'lucide-react';
 import { storage } from '../services/mockStorage';
 import { Supplier, UserRole, PurchaseOrder } from '../types';
@@ -26,14 +27,14 @@ import { formatZAR } from '../utils/formatters';
 
 export const Suppliers: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'directory' | 'add'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'directory'>('overview');
   
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Edit Modal State (only for Directory view)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  // Modal States
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   
   const [isSaving, setIsSaving] = useState(false);
@@ -41,7 +42,7 @@ export const Suppliers: React.FC = () => {
   const [schemaError, setSchemaError] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Form State (used for both Add Tab and Edit Modal)
+  // Form State
   const [formData, setFormData] = useState({
     name: '',
     contactPerson: '',
@@ -50,7 +51,7 @@ export const Suppliers: React.FC = () => {
     taxId: ''
   });
 
-  // Updated permissions: Staff can also register vendors (essential for procurement flow)
+  // Permissions
   const canManage = user?.role === UserRole.ADMIN || user?.role === UserRole.ORG_ADMIN || user?.role === UserRole.SUPER_ADMIN || user?.role === UserRole.STAFF;
 
   const loadData = async () => {
@@ -64,8 +65,11 @@ export const Suppliers: React.FC = () => {
       setPurchaseOrders(pData);
       setSchemaError(false);
     } catch (e: any) {
-      if (e.message?.includes('SCHEMA_MISSING') || e.code === '42P01') setSchemaError(true);
-      else console.error(e);
+      if (e.message?.includes('SCHEMA_MISSING') || e.code === '42P01' || e.message?.includes('Could not find the table')) {
+        setSchemaError(true);
+      } else {
+        console.error(e);
+      }
     } finally {
       setLoading(false);
     }
@@ -104,17 +108,16 @@ export const Suppliers: React.FC = () => {
         id: editingSupplier?.id 
       });
       await loadData();
-      
-      if (editingSupplier) {
-        setIsEditModalOpen(false);
-        setEditingSupplier(null);
-      } else {
-        // If adding new, switch to directory view after save
-        setActiveTab('directory');
-        setFormData({ name: '', contactPerson: '', email: '', phone: '', taxId: '' });
-      }
+      setIsModalOpen(false);
+      setEditingSupplier(null);
+      setFormData({ name: '', contactPerson: '', email: '', phone: '', taxId: '' });
     } catch (e: any) {
-      alert("Error: " + e.message);
+      if (e.message?.includes('relation') || e.code === '42P01') {
+        setSchemaError(true);
+        setIsModalOpen(false);
+      } else {
+        alert("Error: " + e.message);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -130,6 +133,12 @@ export const Suppliers: React.FC = () => {
     }
   };
 
+  const openAdd = () => {
+    setEditingSupplier(null);
+    setFormData({ name: '', contactPerson: '', email: '', phone: '', taxId: '' });
+    setIsModalOpen(true);
+  };
+
   const openEdit = (s: Supplier) => {
     setEditingSupplier(s);
     setFormData({ 
@@ -139,7 +148,7 @@ export const Suppliers: React.FC = () => {
       phone: s.phone || '', 
       taxId: s.taxId || '' 
     });
-    setIsEditModalOpen(true);
+    setIsModalOpen(true);
   };
 
   const filtered = suppliers.filter(s => 
@@ -176,7 +185,10 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
 ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE purchase_orders ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow all authenticated" ON suppliers;
 CREATE POLICY "Allow all authenticated" ON suppliers FOR ALL TO authenticated USING (true);
+
+DROP POLICY IF EXISTS "Allow all authenticated" ON purchase_orders;
 CREATE POLICY "Allow all authenticated" ON purchase_orders FOR ALL TO authenticated USING (true);
 
 NOTIFY pgrst, 'reload config';
@@ -199,36 +211,35 @@ NOTIFY pgrst, 'reload config';
           <p className="text-slate-500">Vendor management and purchasing analytics</p>
         </div>
         
-        <div className="flex bg-slate-100 p-1 rounded-xl">
-           <button 
-             onClick={() => setActiveTab('overview')}
-             className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-           >
-             Overview
-           </button>
-           <button 
-             onClick={() => setActiveTab('directory')}
-             className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'directory' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-           >
-             Directory
-           </button>
-           {canManage && (
+        <div className="flex items-center gap-4">
+          <div className="flex bg-slate-100 p-1 rounded-xl">
              <button 
-               onClick={() => {
-                 setEditingSupplier(null); 
-                 setFormData({ name: '', contactPerson: '', email: '', phone: '', taxId: '' });
-                 setActiveTab('add');
-               }}
-               className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'add' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+               onClick={() => setActiveTab('overview')}
+               className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
              >
-               <Plus size={12} /> Register Vendor
+               Overview
+             </button>
+             <button 
+               onClick={() => setActiveTab('directory')}
+               className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'directory' ? 'bg-white text-teal-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+             >
+               Directory
+             </button>
+          </div>
+          
+          {canManage && (
+             <button 
+               onClick={openAdd}
+               className="px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 bg-slate-900 text-white shadow-lg hover:bg-slate-800"
+             >
+               <Plus size={14} /> Register Vendor
              </button>
            )}
         </div>
       </div>
 
       {schemaError && (
-        <div className="p-8 bg-amber-50 border border-amber-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-8 text-left">
+        <div className="p-8 bg-amber-50 border border-amber-100 rounded-[2rem] flex flex-col md:flex-row items-center gap-8 text-left animate-in slide-in-from-top-4">
            <div className="w-16 h-16 bg-amber-500 text-white rounded-3xl flex items-center justify-center shrink-0 shadow-lg shadow-amber-200">
              <Database size={32} />
            </div>
@@ -238,9 +249,14 @@ NOTIFY pgrst, 'reload config';
                 To use the Supplier and Invoice features, your database needs new tables. Please run this script in your Supabase SQL Editor.
               </p>
            </div>
-           <button onClick={copySql} className="bg-white text-amber-600 border border-amber-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-50 transition-colors">
-              {copied ? 'Copied' : 'Copy Script'}
-           </button>
+           <div className="flex flex-col gap-2">
+             <button onClick={copySql} className="bg-white text-amber-600 border border-amber-200 px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-50 transition-colors">
+                {copied ? 'Copied to Clipboard' : 'Copy SQL Script'}
+             </button>
+             <button onClick={() => setSchemaError(false)} className="text-amber-400 text-[10px] font-bold uppercase tracking-widest hover:underline">
+               Dismiss
+             </button>
+           </div>
         </div>
       )}
 
@@ -365,71 +381,19 @@ NOTIFY pgrst, 'reload config';
         </div>
       )}
 
-      {/* VIEW: ADD SUPPLIER (Dedicated Tab) */}
-      {activeTab === 'add' && (
-        <div className="max-w-2xl mx-auto bg-white rounded-[3rem] border border-slate-200 shadow-lg p-10 text-left animate-in zoom-in-95 duration-300">
-           <div className="mb-8">
-              <div className="w-16 h-16 bg-slate-900 text-white rounded-[2rem] flex items-center justify-center mb-4 shadow-xl">
-                 <Plus size={32} />
-              </div>
-              <h3 className="text-3xl font-black text-slate-900 tracking-tighter">Onboard New Vendor</h3>
-              <p className="text-slate-500 font-medium mt-2">Add supplier details to the procurement database.</p>
-           </div>
-
-           <form onSubmit={handleSave} className="space-y-6">
-              <div>
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Company Name</label>
-                <input required className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20 text-lg transition-all" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} placeholder="e.g. Acme Wholesalers" />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Contact Person</label>
-                  <input className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.contactPerson} onChange={e=>setFormData({...formData, contactPerson: e.target.value})} placeholder="Representative Name" />
-                </div>
-                <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">VAT / Tax ID</label>
-                  <input className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.taxId} onChange={e=>setFormData({...formData, taxId: e.target.value})} placeholder="Optional" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Phone Number</label>
-                  <div className="relative">
-                     <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                     <input className="w-full pl-12 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.phone} onChange={e=>setFormData({...formData, phone: e.target.value})} placeholder="+27 ..." />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block ml-1">Email Address</label>
-                  <div className="relative">
-                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                     <input type="email" className="w-full pl-12 pr-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.email} onChange={e=>setFormData({...formData, email: e.target.value})} placeholder="orders@vendor.com" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 flex gap-4">
-                 <button type="button" onClick={() => setActiveTab('directory')} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-slate-200 transition-all">Cancel</button>
-                 <button disabled={isSaving} type="submit" className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl hover:bg-teal-600 transition-all">
-                   {isSaving ? <Loader2 className="animate-spin mx-auto"/> : 'Create Vendor Profile'}
-                 </button>
-              </div>
-           </form>
-        </div>
-      )}
-
-      {/* Edit Modal (Only for Directory View) */}
-      {isEditModalOpen && (
+      {/* Unified Add/Edit Modal */}
+      {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSaving && setIsEditModalOpen(false)} />
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !isSaving && setIsModalOpen(false)} />
           <form onSubmit={handleSave} className="bg-white rounded-[2.5rem] w-full max-w-md p-10 relative shadow-2xl space-y-5 text-left">
-            <h3 className="text-2xl font-black tracking-tight text-slate-900 mb-2">Edit Details</h3>
+            <div className="flex items-center justify-between mb-2">
+               <h3 className="text-2xl font-black tracking-tight text-slate-900">{editingSupplier ? 'Edit Details' : 'New Vendor'}</h3>
+               <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
+            </div>
             
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block ml-1">Company Name</label>
-              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} />
+              <input required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} placeholder="e.g. Acme Wholesalers" />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -453,12 +417,9 @@ NOTIFY pgrst, 'reload config';
               <input type="email" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-teal-500/20" value={formData.email} onChange={e=>setFormData({...formData, email: e.target.value})} />
             </div>
 
-            <div className="flex gap-3 pt-2">
-               <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition-all">Cancel</button>
-               <button disabled={isSaving} type="submit" className="flex-[2] py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">
-                 {isSaving ? <Loader2 className="animate-spin mx-auto"/> : 'Save Changes'}
-               </button>
-            </div>
+            <button disabled={isSaving} type="submit" className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl mt-2 hover:bg-teal-600 transition-all">
+              {isSaving ? <Loader2 className="animate-spin mx-auto"/> : (editingSupplier ? 'Save Changes' : 'Create Vendor Profile')}
+            </button>
           </form>
         </div>
       )}
